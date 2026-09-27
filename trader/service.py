@@ -154,13 +154,17 @@ def _twin_block(mandate, portfolio, summary, opportunities) -> str:
         cap = float(mandate.capital) if float(mandate.capital) > 0 else 0.0
         pv = equity if equity > 0 else (cap if cap > 0 else 1000000.0)
         
-        # W94: Use real market data, fail closed if unavailable
-        try:
-            from data.market.integration import get_real_market_prices
-            prices = get_real_market_prices(list(mandate.universe))
-        except Exception:
-            # If real prices unavailable, skip digital twin analysis
+        # Single price source per scan: the same bar provider the scan path uses
+        # (research.real_loop.market_data.fetch_bars: Yahoo first, labeled
+        # synthetic_offline fallback per symbol). Twin evaluates the identical
+        # inputs the scan ranked; the source label is printed, never hidden.
+        from research.real_loop import market_data as M
+        bars = M.fetch_bars(list(mandate.universe), days=200)
+        if not bars:
             return ""
+        prices = {s: float(b.frame["close"].iloc[-1]) for s, b in bars.items()}
+        sources = {b.source for b in bars.values()}
+        src_label = next(iter(sources)) if len(sources) == 1 else "mixed"
             
         base: dict[str, float] = {s: 0.0 for s in mandate.universe}
         twin = DigitalTwin(portfolio_value=pv)
@@ -170,7 +174,8 @@ def _twin_block(mandate, portfolio, summary, opportunities) -> str:
         before_txt = (
             f"\nDIGITAL TWIN (BEFORE risk): worst {worst.scenario} "
             f"ret={worst.portfolio_return:+.3%} VaR95={worst.var95:,.0f} "
-            f"CVaR95={worst.cvar95:,.0f} DD={worst.max_drawdown:+.3%} HHI={worst.hhi:.3f}."
+            f"CVaR95={worst.cvar95:,.0f} DD={worst.max_drawdown:+.3%} HHI={worst.hhi:.3f} "
+            f"src={src_label}."
         )
         trades = [o for o in opportunities if o.decision == "TRADE"]
         if not trades:

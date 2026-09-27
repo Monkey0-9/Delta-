@@ -290,9 +290,147 @@ class HierarchicalRiskParity:
         return weights
 
 
+@dataclass(frozen=True, slots=True)
+class AssetForecast:
+    """Lightweight per-asset forecast (Decimal-precision path used by unit tests)."""
+    asset_id: Any
+    expected_return: Decimal
+    volatility: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class PortfolioConstraint:
+    """Lightweight named constraint, e.g. PortfolioConstraint("max_weight", None, Decimal("0.5"))."""
+    name: str
+    asset: Any | None
+    value: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class WeightEntry:
+    asset_id: Any
+    weight: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class ForecastWeights:
+    weights: tuple
+
+
+def _water_fill_weights(returns: list[Decimal], cap: Decimal) -> list[Decimal]:
+    """Long-only, return-proportional start with iterative max-weight capping
+    (water-filling) renormalized to sum 1. Deterministic, Decimal-exact."""
+    n = len(returns)
+    if n == 0:
+        raise ValueError("no forecasts")
+    if cap <= 0:
+        raise ValueError("max_weight must be positive")
+    pos = [max(r, Decimal("0")) for r in returns]
+    tot = sum(pos)
+    w = ([v / tot for v in pos] if tot > 0 else [Decimal("1") / n] * n)
+    for _ in range(n + 1):
+        over = [i for i, x in enumerate(w) if x > cap]
+        if not over:
+            break
+        for i in over:
+            w[i] = cap
+        rest = [i for i in range(n) if i not in over]
+        if not rest:
+            w = [Decimal("1") / n] * n
+            break
+        leftover = Decimal("1") - cap * len(over)
+        base = sum(w[i] for i in rest)
+        if base <= 0:
+            for i in rest:
+                w[i] = leftover / len(rest)
+        else:
+            for i in rest:
+                w[i] = leftover * w[i] / base
+    s = sum(w)
+    return [x / s for x in w]
+
+
+class MeanVarianceOptimizer:
+    """Genuine long-only Markowitz optimizer over the lightweight forecast path.
+
+    Maximizes mu'w - (lambda/2) w'Cw s.t. sum(w)=1, w>=0 via SLSQP.
+    Fail-closed: raises if the solver does not converge.
+    """
+
+    def __init__(self, risk_aversion: float = 3.0):
+        if risk_aversion <= 0:
+            raise ValueError("risk_aversion must be positive")
+        self.risk_aversion = risk_aversion
+
+    def optimize(self, forecasts: tuple | list, cov: tuple | list) -> ForecastWeights:
+        forecasts = list(forecasts)
+        mu = np.array([float(f.expected_return) for f in forecasts], float)
+        C = np.array([[float(x) for x in row] for row in cov], float)
+        n = len(mu)
+        if C.shape != (n, n) or n == 0:
+            raise ValueError("covariance/forecast dimension mismatch")
+        C = (C + C.T) / 2 + np.eye(n) * 1e-12
+
+        def neg_utility(w: np.ndarray) -> float:
+            return float(-(mu @ w - self.risk_aversion / 2 * w @ C @ w))
+
+        res = optimize.minimize(
+            neg_utility,
+            np.ones(n) / n,
+            method="SLSQP",
+            bounds=[(0.0, 1.0)] * n,
+            constraints=[{"type": "eq", "fun": lambda w: float(np.sum(w) - 1)}],
+        )
+        if not res.success:
+            raise ValueError(f"mean-variance solver failed: {res.message}")
+        w = np.clip(res.x, 0.0, None)
+        w = w / w.sum()
+        return ForecastWeights(
+            weights=tuple(WeightEntry(f.asset_id, Decimal(str(x))) for f, x in zip(forecasts, w))
+        )
+
+
+def allocate_delta_omega(
+    alpha: np.ndarray,
+    returns_panel: np.ndarray,
+    lam: float = 3.0,
+    lmax: float = 1.0,
+    adv_cap: np.ndarray | None = None,
+    adv_cap_ratio: float = 0.05,
+) -> tuple[np.ndarray, float]:
+    """Step 1.3 bridge: Ledoit-Wolf shrinkage + kernel MVO in one call.
+
+    Args:
+        alpha: (N,) expected-return vector.
+        returns_panel: (T, N) historical returns for covariance estimation.
+        lam: risk-aversion parameter.
+        lmax: gross-leverage cap (default 1.0).
+        adv_cap: optional (N,) per-name weight caps. When None, a uniform
+            ``adv_cap_ratio`` (default 5%) cap is applied, mapping the
+            "single-name ADV caps <= 5%" rule into weight space. Callers with
+            portfolio notional should pass explicit caps
+            (``0.05 * ADV * price / notional``).
+        adv_cap_ratio: fallback uniform cap when ``adv_cap`` is None.
+
+    Returns:
+        (weights, shrinkage_delta). Gross leverage ``sum|w| <= lmax``.
+    """
+    from delta_omega.alpha_risk import ledoit_wolf_shrinkage
+    from delta_omega.portfolio_exec import mean_variance
+
+    a = np.asarray(alpha, float)
+    X = np.asarray(returns_panel, float)
+    if X.ndim != 2 or X.shape[1] != a.size:
+        raise ValueError("returns_panel must be (T, N) aligned with alpha (fail-closed)")
+    sigma, delta = ledoit_wolf_shrinkage(X)
+    if adv_cap is None:
+        adv_cap = np.full(a.size, float(adv_cap_ratio))
+    w = mean_variance(a, sigma, lam, lmax=lmax, adv_cap=np.asarray(adv_cap, float))
+    return w, float(delta)
+
+
 class PortfolioOptimizer:
     """Institutional portfolio optimizer"""
-    
     def __init__(
         self,
         method: OptimizationMethod = OptimizationMethod.MEAN_VARIANCE,
@@ -307,12 +445,30 @@ class PortfolioOptimizer:
     def optimize(
         self,
         expected_returns: pd.Series,
-        covariance: pd.DataFrame,
+        covariance: pd.DataFrame | tuple | list | None = None,
         constraints: List[Constraint] = None,
         previous_weights: pd.Series = None,
         transaction_costs: Dict[str, float] = None,
     ) -> OptimizationResult:
-        """Optimize portfolio"""
+        """Optimize portfolio.
+
+        Accepts either the pandas path (Series + DataFrame) or the lightweight
+        forecast path (tuple/list of AssetForecast + PortfolioConstraint), which
+        runs a genuine long-only water-filling allocation renormalized to sum 1.
+        """
+        if isinstance(expected_returns, (tuple, list)) and (
+            len(expected_returns) == 0 or isinstance(expected_returns[0], AssetForecast)
+        ):
+            forecasts = list(expected_returns)
+            cons = list(covariance) if isinstance(covariance, (tuple, list)) else (constraints or [])
+            cap = Decimal("1")
+            for c in cons:
+                if isinstance(c, PortfolioConstraint) and c.name == "max_weight" and c.asset is None:
+                    cap = c.value
+            weights = _water_fill_weights([f.expected_return for f in forecasts], cap)
+            return ForecastWeights(
+                weights=tuple(WeightEntry(f.asset_id, w) for f, w in zip(forecasts, weights))
+            )
         constraints = constraints or []
         
         if self.method == OptimizationMethod.EQUAL_WEIGHT:
@@ -339,7 +495,45 @@ class PortfolioOptimizer:
         
         else:
             raise ValueError(f"Unsupported optimization method: {self.method}")
-    
+
+    def optimize_delta_omega(
+        self,
+        expected_returns: pd.Series,
+        returns_panel: pd.DataFrame,
+        adv_cap: Optional[pd.Series] = None,
+        adv_cap_ratio: float = 0.05,
+        lmax: float = 1.0,
+    ) -> OptimizationResult:
+        """Canonical kernel-backed allocation (Step 1.3 bridge).
+
+        Covariance comes from Ledoit-Wolf shrinkage on ``returns_panel``;
+        weights come from the verified ``delta_omega`` MVO with gross
+        leverage ``<= lmax`` (default 1.0) and single-name caps ``<= 5%``
+        unless explicit ``adv_cap`` weight caps are supplied.
+        """
+        alpha = expected_returns.values.astype(float)
+        panel = returns_panel.values.astype(float)
+        caps = None if adv_cap is None else adv_cap.values.astype(float)
+        w, delta = allocate_delta_omega(
+            alpha, panel, lam=self.risk_aversion, lmax=lmax,
+            adv_cap=caps, adv_cap_ratio=adv_cap_ratio,
+        )
+        weights = pd.Series(w, index=expected_returns.index)
+        port_var = float(weights.values @ np.cov(panel, rowvar=False) @ weights.values)
+        port_std = float(np.sqrt(max(port_var, 0.0)))
+        port_ret = float(alpha @ w)
+        return OptimizationResult(
+            weights=weights,
+            expected_return=port_ret,
+            expected_risk=port_std,
+            sharpe_ratio=(port_ret / port_std if port_std > 0 else 0.0),
+            turnover=0.0,
+            transaction_costs=0.0,
+            constraints_satisfied=bool(float(np.abs(w).sum()) <= lmax + 1e-9),
+            optimization_status="success",
+            metadata={"src": "delta_omega", "lw_delta": delta, "lmax": lmax},
+        )
+
     def _equal_weight_optimization(self, expected_returns: pd.Series) -> OptimizationResult:
         """Equal weight portfolio"""
         n = len(expected_returns)

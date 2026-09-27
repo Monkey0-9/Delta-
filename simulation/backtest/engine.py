@@ -10,6 +10,59 @@ from simulation.backtest.result import BacktestResult
 from simulation.replay.engine import ReplayEngine
 from simulation.replay.event import ReplayEvent
 
+# ---------------------------------------------------------------------------
+# Step 1.1 bridge: execution pricing wired to the delta_omega math kernel.
+# Single price source per scan: delta_omega.portfolio_exec is the authority
+# for sqrt transient impact; this module only adapts its output to fills.
+# Provenance label: src="delta_omega:sqrt_transient_impact|AC-trajectory".
+# ---------------------------------------------------------------------------
+PRICE_SOURCE = "delta_omega:sqrt_transient_impact"
+
+
+def execution_price_with_impact(
+    mid: float,
+    side: str,
+    qty_shares: float,
+    sigma: float,
+    market_volume_shares: float,
+    spread: float,
+    gamma: float = 0.5,
+) -> tuple[float, str]:
+    """Fill price via the kernel: P_fill = P_mid +/- (spread/2 + g*s*sqrt(q/V)).
+
+    Returns (price, src_label). Fail-closed on bad inputs (raises).
+    """
+    from delta_omega.portfolio_exec import execution_price
+
+    return execution_price(mid, side, qty_shares, sigma, market_volume_shares, spread, gamma), PRICE_SOURCE
+
+
+def order_needs_slicing(order_qty: float, market_volume: float, threshold: float = 0.10) -> bool:
+    """True when V_order > threshold * V_market (default 10% ADV rule)."""
+    from delta_omega.portfolio_exec import AlmgrenChrissTrajectory
+
+    return AlmgrenChrissTrajectory.needs_slicing(order_qty, market_volume, threshold)
+
+
+def slice_order_ac(
+    n_shares: float,
+    T: float,
+    n_steps: int,
+    sigma: float,
+    eta: float,
+    gamma_: float,
+    lam_risk: float,
+) -> tuple[list[float], str]:
+    """AC-optimal inventory trajectory slices for oversized orders.
+
+    Returns (per-slice child quantities, src_label).
+    """
+    from delta_omega.portfolio_exec import AlmgrenChrissTrajectory
+
+    traj = AlmgrenChrissTrajectory(n_shares, T, n_steps, sigma, eta, gamma_, lam_risk).trajectory
+    slices = [float(d) for d in (-__import__("numpy").diff(traj, prepend=n_shares))]
+    return slices, "delta_omega:almgren_chriss"
+
 
 @dataclass(slots=True)
 class BacktestContext:

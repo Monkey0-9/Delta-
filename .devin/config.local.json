@@ -6,7 +6,8 @@
       "Exec(git fetch)",
       "Exec(rm)",
       "Exec(cat)",
-      "Exec(git rm)"
+      "Exec(git rm)",
+      "Exec(git restore)"
     ]
   }
 }

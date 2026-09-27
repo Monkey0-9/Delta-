@@ -3,6 +3,21 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
+try:
+    from delta_omega.agent_ledger_gate import RiskHaltException as RiskHaltException
+except ImportError:  # pragma: no cover
+    class RiskHaltException(RuntimeError):  # type: ignore[no-redef]
+        """Uncatchable-by-policy halt (fallback if kernel unimportable)."""
+
+
+def enforce_red_button(gate_state) -> None:
+    """Step 1.4 bridge: raise RiskHaltException when the kernel gate trips."""
+    from delta_omega.agent_ledger_gate import red_button
+
+    trips = red_button(gate_state)
+    if trips:
+        raise RiskHaltException(f"RED-BUTTON HALT: {trips}")
+
 
 class RiskStatus(str, Enum):
     APPROVED = "APPROVED"
@@ -38,6 +53,28 @@ class RiskFirewall:
 
         self.max_quantity = max_quantity
         self.max_gross = max_gross
+
+    def evaluate_with_red_button(
+        self,
+        *,
+        decision_id: str,
+        requested_quantity: float,
+        current_gross: float,
+        limits_version: str,
+        gate_state=None,
+    ) -> RiskDecision:
+        """Step 1.4 bridge: kernel red_button runs before any approval.
+
+        Raises RiskHaltException (uncatchable-by-policy) on any trip.
+        """
+        if gate_state is not None:
+            enforce_red_button(gate_state)
+        return self.evaluate(
+            decision_id=decision_id,
+            requested_quantity=requested_quantity,
+            current_gross=current_gross,
+            limits_version=limits_version,
+        )
 
     def evaluate(
         self,

@@ -264,10 +264,19 @@ class RiskFirewall(_CanonicalRiskFirewall):
         )
 
 
+try:
+    from .firewall import RiskHaltException as RiskHaltException
+    from .firewall import enforce_red_button as enforce_red_button
+except ImportError:  # pragma: no cover
+    pass
+
+
 __all__ = [
     "RiskFirewall",
     "RiskDecision",
     "RiskVerdict",
     "RiskStatus",
     "TradeIntent",
+    "RiskHaltException",
+    "enforce_red_button",
 ]

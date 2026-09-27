@@ -13,6 +13,29 @@ from risk.pre_trade.validation import (
     validate_intent,
 )
 
+# Step 1.4 bridge: uncatchable halt + 10-criteria kernel gate. Imported lazily
+# inside methods to keep this module import-cycle safe; re-exported here so
+# callers have one canonical symbol.
+try:
+    from delta_omega.agent_ledger_gate import RiskHaltException as RiskHaltException
+except ImportError:  # pragma: no cover - kernel always installed in-repo
+    class RiskHaltException(RuntimeError):  # type: ignore[no-redef]
+        """Uncatchable-by-policy halt (fallback if kernel unimportable)."""
+
+
+def enforce_red_button(gate_state) -> None:
+    """Call the kernel's 10-criteria red_button; raise RiskHaltException if tripped.
+
+    Must be called before any trade packet is approved. Let the exception
+    propagate: crossed NBBO, clock inversion, or reconciliation breaks are
+    fail-closed halts, not advisory flags.
+    """
+    from delta_omega.agent_ledger_gate import red_button
+
+    trips = red_button(gate_state)
+    if trips:
+        raise RiskHaltException(f"RED-BUTTON HALT: {trips}")
+
 
 class RiskFirewall:
     """Deterministic pre-trade firewall. Fail-closed on any breach."""
@@ -170,6 +193,21 @@ class RiskFirewall:
             verdict,
             tuple(reasons),
         )
+
+    def check_with_red_button(
+        self,
+        intent: TradeIntent,
+        gate_state,
+        **kwargs,
+    ) -> RiskDecision:
+        """Step 1.4 bridge: kernel red_button gate runs BEFORE any approval.
+
+        Raises RiskHaltException (uncatchable-by-policy) when any of the 10
+        criteria trip: clock inversion, crossed/zero-bid NBBO, PBO, drawdown,
+        recon gap, DSR, collar, demo-path, liquidity horizon, factor drift.
+        """
+        enforce_red_button(gate_state)
+        return self.check(intent, **kwargs)
 
     def _decide(
         self,
