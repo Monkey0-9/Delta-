@@ -1,22 +1,21 @@
 from __future__ import annotations
 
-import sys
 from datetime import datetime
 from typing import Any
 
 from trader.intent import FinanceIntent, Intent
+from trader.runtime import TraderRuntime
 from trader.terminal import DeltaTerminal
 
 
 class ExistingSystemBackend:
-    """Adapter between the new terminal contract and the existing DELTA runtime.
+    """Thin adapter kept for compatibility with the terminal contract."""
 
-    Keep the adapter tiny. Do not duplicate the agent, decision engine,
-    broker layer, risk firewall, or quant engine here.
-    """
+    def __init__(self) -> None:
+        self._runtime = TraderRuntime()
 
     def dispatch(self, request: FinanceIntent) -> str:
-        # Handle conversational intents
+        # Handle conversational intents before delegating to runtime
         if request.intent == Intent.GREETING:
             return self._handle_greeting(request.raw_text)
         
@@ -26,25 +25,8 @@ class ExistingSystemBackend:
         if request.intent == Intent.GENERAL_INFO:
             return self._handle_general_info()
         
-        # WAVE 2 replaces this with the existing TraderService /
-        # Agent Runtime integration after its concrete API is bound.
-        #
-        # Deliberately fail closed instead of manufacturing a finance answer.
-        if request.intent == Intent.TRADE_DECISION:
-            return (
-                "DELTA routing is active.\n"
-                f"Horizon: {request.horizon.value}\n"
-                f"Objective: {request.objective.value}\n"
-                "\n"
-                "The quantitative opportunity pipeline is the next "
-                "runtime binding; no trade recommendation is fabricated."
-            )
-
-        return (
-            "DELTA routing is active.\n"
-            f"Intent: {request.intent.value}\n"
-            f"Horizon: {request.horizon.value}\n"
-        )
+        # Delegate to runtime for all other intents
+        return self._runtime.dispatch(request)
     
     def _handle_greeting(self, raw_text: str) -> str:
         """Handle greeting messages with context-aware responses."""
@@ -140,4 +122,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-    
