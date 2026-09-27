@@ -37,6 +37,25 @@ def demo_candidates(
     portfolio_weights: dict[str, float] | None = None,
 ) -> list[ScanCandidate]:
     """Deterministic demo opportunity set derived from mandate universe."""
+    # Try to use real data pipeline first (W94 implementation)
+    try:
+        from data.market.integration import replace_demo_candidates_with_real, RealDataConfig
+        
+        # Use real data if available
+        config = RealDataConfig(primary_adapter="yahoo", quality_threshold="ACCEPTABLE")
+        real_candidates = replace_demo_candidates_with_real(
+            mandate, horizon, portfolio_weights, config
+        )
+        
+        if real_candidates:
+            print(f"Using real data pipeline: {len(real_candidates)} candidates generated")
+            return real_candidates
+        else:
+            print("Real data pipeline returned no candidates, using fallback")
+    except Exception as e:
+        print(f"Real data pipeline failed: {e}, using deterministic fallback")
+    
+    # Fallback to deterministic demo candidates
     weights = portfolio_weights or {}
     out: list[ScanCandidate] = []
     h = (horizon or "today").lower()

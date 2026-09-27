@@ -7,7 +7,16 @@ name = "delta"
 version = "0.1.0"
 description = "DELTA financial intelligence and trading system"
 requires-python = ">=3.11"
-dependencies = ["typer>=0.9", "click>=8.0"]
+dependencies = [
+    "typer>=0.9",
+    "click>=8.0",
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "scipy>=1.10.0",
+    "scikit-learn>=1.3.0",
+    "yfinance>=0.2.0",
+    "requests>=2.31.0",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -39,10 +48,10 @@ ignore = ["E501"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["agent", "agents", "apps", "benchmark", "brokers", "config",
-    "core", "data", "decision", "deployment", "execution", "finance_model",
+    "core", "data", "data.market", "decision", "deployment", "execution", "finance_model",
     "learning", "market_data", "memory", "observability", "portfolio",
     "provenance", "quant", "research", "risk", "schemas", "security",
-    "simulation", "storage", "tools", "validation", "world_model"]
+    "simulation", "storage", "tools", "trader", "validation", "world_model"]
 
 [tool.setuptools]
 include-package-data = true

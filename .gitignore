@@ -54,3 +54,9 @@ target/
 # Local / secret configs
 *.local.json
 .devin/*.local.json
+
+# Data databases
+data/pit_store.db
+*.db
+*.sqlite
+*.sqlite3
