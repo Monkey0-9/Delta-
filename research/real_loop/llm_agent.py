@@ -144,7 +144,20 @@ def _critic_check(answer: str, evidence: list[Evidence]) -> tuple[bool, list[str
     return True, notes
 
 
-def synthesize(question: str, evidence: list[Evidence]) -> AgentResult:
+class LLMUnavailable(Exception):
+    """Raised when no real LLM backend answered and templates are not allowed."""
+
+
+def synthesize(question: str, evidence: list[Evidence],
+               allow_template: bool = False) -> AgentResult:
+    """Evidence-grounded synthesis. Production default is fail-closed.
+
+    allow_template=False (default): when neither OpenAI-compatible nor Ollama
+    answers, raise LLMUnavailable — NO LLM ANSWER. Simulation/tests/dev may
+    pass allow_template=True; the result is then labeled backend=
+    "local-template" and must be surfaced as SIMULATED SYNTHESIS, not model
+    output.
+    """
     t0 = time.perf_counter()
     ev_json = json.dumps([{"id": e.evidence_id, "tool": e.tool, "payload": e.payload}
                           for e in evidence], default=str)
@@ -155,6 +168,12 @@ def synthesize(question: str, evidence: list[Evidence]) -> AgentResult:
     if text is None:
         text, backend = _try_ollama(prompt)
     if text is None:
+        if not allow_template:
+            raise LLMUnavailable(
+                "No LLM backend answered (OpenAI-compatible + Ollama both failed) "
+                "and allow_template=False. NO LLM ANSWER — start the configured "
+                "local model instead of accepting a template."
+            )
         text, backend = _local_synthesis(question, evidence), "local-template"
     else:
         # ensure citations even for remote models: append evidence ledger

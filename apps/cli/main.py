@@ -8,6 +8,18 @@ import typer
 app = typer.Typer(add_completion=False, help="DELTA Finance-Native Autonomous Intelligence")
 
 
+@app.callback(invoke_without_command=True)
+def _default(ctx: typer.Context) -> None:
+    """Bare `delta` boots the OpenCode-style chat terminal (opencode pattern).
+
+    Subcommands (`delta scan`, `delta research`, ...) still route to typer.
+    """
+    if ctx.invoked_subcommand is None:
+        from delta_os.repl import Terminal
+
+        raise SystemExit(Terminal().run())
+
+
 def model_doctor() -> None:
     import torch
 
@@ -383,8 +395,8 @@ def what_should_i_trade(
     capital: float = typer.Option(1000000.0, "--capital"),
     seed: int = typer.Option(42, "--seed"),
 ) -> None:
-    """W94-W104 real loop: data → PIT → features → alpha → regime → backtest →
-    portfolio → risk → paper broker → evidence-backed LLM answer (no demo numbers)."""
+    """W94-W104 real loop: data -> PIT -> features -> alpha -> regime -> backtest ->
+    portfolio -> risk -> paper broker -> evidence-backed LLM answer (no demo numbers)."""
     from research.real_loop import run_full_cycle
 
     syms = [s.strip().upper() for s in symbols.split(",") if s.strip()]

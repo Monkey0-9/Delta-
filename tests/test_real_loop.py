@@ -3,7 +3,8 @@ evidence-grounded, reproducible — and never sourced from demo_candidates."""
 from __future__ import annotations
 
 
-def test_opportunity_scan_uses_real_loop_not_demo():
+def test_opportunity_scan_uses_real_loop_not_demo(monkeypatch):
+    monkeypatch.setenv("DATA_MODE", "SIMULATION")  # explicit simulation opt-in
     from trader.service import real_candidates
     from trader.mandate_builder import build_mandate
 
@@ -67,16 +68,19 @@ def test_risk_kill_switch_fires_on_concentration():
     assert not ok and "BLOCKED" in reason
 
 
-def test_full_cycle_evidence_grounded_and_reproducible():
+def test_full_cycle_evidence_grounded_and_reproducible(monkeypatch):
+    monkeypatch.setenv("DATA_MODE", "SIMULATION")  # explicit simulation opt-in
     from research.real_loop import run_full_cycle
 
-    r1 = run_full_cycle("What should I trade this week?", ["AAPL", "MSFT"], horizon="week")
+    r1 = run_full_cycle("What should I trade this week?", ["AAPL", "MSFT"], horizon="week",
+                        allow_template=True)
     assert r1.critic_passed, r1.critic_notes
     assert "EV-" in r1.answer
     assert r1.manifest_path and r1.fingerprint.startswith("RUN-")
     assert set(r1.data_sources) == {"AAPL", "MSFT"}
     # determinism: same seed + same question -> same fingerprint modulo market fetch
-    r2 = run_full_cycle("What should I trade this week?", ["AAPL", "MSFT"], horizon="week")
+    r2 = run_full_cycle("What should I trade this week?", ["AAPL", "MSFT"], horizon="week",
+                        allow_template=True)
     assert r1.fingerprint == r2.fingerprint or True  # network may vary; manifest records hash
     assert r1.reconciliation["ok"] in (True, False)
     assert "weights" in r1.portfolio and "var95" in r1.risk
@@ -102,7 +106,7 @@ def test_llm_never_invents_numbers():
     ev = [LLM._evid("alpha", {"kind": "recommendation", "symbol": "AAPL", "action": "BUY",
                               "er_pct": 1.234, "vol_pct": 2.5, "confidence": 0.66,
                               "weight_pct": 12.5})]
-    res = LLM.synthesize("Should I buy AAPL?", ev)
+    res = LLM.synthesize("Should I buy AAPL?", ev, allow_template=True)
     assert res.critic_passed
     assert "1.234" in res.answer  # quoted from evidence
     assert ev[0].evidence_id in res.answer

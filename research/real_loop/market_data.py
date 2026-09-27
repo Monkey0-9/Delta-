@@ -1,13 +1,20 @@
 """W94 real market data: historical + PIT + calendars + corp actions + quality.
 
-Tries Yahoo Finance (yfinance) with short timeout; on any failure uses a
-seeded synthetic OHLCV generator labeled source="synthetic_offline".
+Production truth policy (fail-closed):
+- DATA_MODE=LIVE (default): Yahoo only. Any provider failure raises
+  MarketDataUnavailable — synthetic bars are NEVER returned.
+- DATA_MODE=SIMULATION (explicit opt-in): Yahoo first; per-symbol fallback to
+  the seeded synthetic OHLCV generator labeled source="synthetic_offline".
+  Every downstream consumer must surface the SIMULATION label; nothing from
+  this path may be presented as market truth.
+
 Both paths produce PIT-safe frames: bar at time t is only usable with
 pit_lag applied, and point-in-time reads filter as_of <= t - lag.
 """
 from __future__ import annotations
 
 import hashlib
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
@@ -17,6 +24,22 @@ import pandas as pd
 PIT_LAG_MINUTES = 15
 FEATURE_VERSION = "features-v2"
 DATA_VERSION = "marketdata-v2"
+
+SIMULATION = "SIMULATION"
+LIVE = "LIVE"
+
+
+class MarketDataUnavailable(Exception):
+    """Raised when real market data is unavailable in DATA_MODE=LIVE."""
+
+
+def data_mode() -> str:
+    """Explicit environment gate: DATA_MODE=SIMULATION opts into synthetic data."""
+    return os.environ.get("DATA_MODE", LIVE).strip().upper() or LIVE
+
+
+def is_simulation() -> bool:
+    return data_mode() == SIMULATION
 
 
 def _seed(sym: str, salt: str) -> int:
@@ -71,14 +94,29 @@ def synthetic_bars(symbol: str, days: int = 180, seed_salt: str = "w94",
     return BarSet(symbol, frame, "synthetic_offline", _hash_frame(frame))
 
 
-def fetch_bars(symbols: list[str], days: int = 180) -> dict[str, BarSet]:
-    """Fetch daily bars; Yahoo first, synthetic fallback per symbol."""
+def fetch_bars(symbols: list[str], days: int = 180,
+               allow_synthetic: bool | None = None) -> dict[str, BarSet]:
+    """Fetch daily bars; Yahoo first.
+
+    Production default (DATA_MODE=LIVE): raises MarketDataUnavailable on any
+    provider failure — no synthetic fallback. Pass allow_synthetic=True (or
+    set DATA_MODE=SIMULATION) only for tests / offline development /
+    simulation, where results must be labeled SIMULATION, NOT MARKET DATA.
+    """
+    if allow_synthetic is None:
+        allow_synthetic = is_simulation()
     out: dict[str, BarSet] = {}
     end = datetime.now(timezone.utc)
     start = end - timedelta(days=int(days * 1.6))
     for sym in symbols:
         bars = _try_yahoo(sym, start, end)
         if bars is None:
+            if not allow_synthetic:
+                raise MarketDataUnavailable(
+                    f"Real market data unavailable for {sym} (DATA_MODE=LIVE). "
+                    "Set DATA_MODE=SIMULATION to opt into synthetic_offline bars; "
+                    "simulation output must be labeled SIMULATION, NOT MARKET DATA."
+                )
             bars = synthetic_bars(sym, days=days, end=end)
         out[sym] = bars
     return out
@@ -117,8 +155,15 @@ def pit_slice(bars: BarSet, as_of: datetime, lag_minutes: int = PIT_LAG_MINUTES)
     return bars.frame[bars.frame.index <= cutoff]
 
 
-def data_quality(frame: pd.DataFrame) -> dict:
-    """Lightweight quality checks: gaps, stale, outliers, negative prices."""
+def data_quality(frame: pd.DataFrame, calendar=None) -> dict:
+    """Lightweight quality checks: gaps, stale, outliers, negative prices.
+
+    Coverage is measured against the exchange trading calendar when provided
+    (data.tick_pit US equity calendar: holidays/half-days excluded), else
+    falls back to plain business-day frequency. Extra keys (calendar_version,
+    expected_trading_days, missing_trading_days) are added in calendar mode;
+    the base contract (ok/issues/coverage) never changes.
+    """
     issues: list[str] = []
     if frame.empty:
         return {"ok": False, "issues": ["empty"], "coverage": 0.0}
@@ -128,14 +173,36 @@ def data_quality(frame: pd.DataFrame) -> dict:
     if len(rets):
         if (rets.abs() > 0.35).any():
             issues.append("extreme_move_gt35pct")
-    # gap detection on business days
-    expected = pd.date_range(frame.index[0], frame.index[-1], freq="B", tz="UTC")
-    coverage = len(frame.index.intersection(expected)) / max(len(expected), 1)
+    # gap detection: exchange trading sessions when a calendar is provided,
+    # else plain business-day frequency (legacy behavior, unchanged numbers).
+    extra: dict = {}
+    if calendar is not None:
+        try:
+            start_d = frame.index[0].date()
+            end_d = frame.index[-1].date()
+            sessions = calendar.trading_days(start_d, end_d)
+            have = {ts.date() for ts in frame.index}
+            missing = [d.isoformat() for d in sessions if d not in have]
+            expected = sessions
+            coverage = (len(sessions) - len(missing)) / max(len(sessions), 1)
+            extra = {"calendar_version": getattr(calendar, "version", "unknown"),
+                     "venue": getattr(calendar, "venue", "XNYS"),
+                     "expected_trading_days": len(sessions),
+                     "missing_trading_days": missing[:10]}
+            if missing:
+                issues.append(f"missing_sessions_{len(missing)}")
+        except Exception:
+            expected = pd.date_range(frame.index[0], frame.index[-1], freq="B", tz="UTC")
+            coverage = len(frame.index.intersection(expected)) / max(len(expected), 1)
+    else:
+        expected = pd.date_range(frame.index[0], frame.index[-1], freq="B", tz="UTC")
+        coverage = len(frame.index.intersection(expected)) / max(len(expected), 1)
     if coverage < 0.9:
         issues.append(f"low_coverage_{coverage:.2f}")
     if (frame["volume"] <= 0).mean() > 0.05:
         issues.append("zero_volume_bars")
-    return {"ok": not issues, "issues": issues, "coverage": round(float(coverage), 4)}
+    return {"ok": not issues, "issues": issues, "coverage": round(float(coverage), 4),
+            **extra}
 
 
 @dataclass

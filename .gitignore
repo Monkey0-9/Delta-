@@ -1,12 +1,10 @@
-# Byte-compiled / optimized / DLL files
+# DELTA OS - Git Ignore File
+
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
-
-# C extensions
 *.so
-
-# Distribution / packaging
 .Python
 build/
 develop-eggs/
@@ -20,43 +18,72 @@ parts/
 sdist/
 var/
 wheels/
-share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-MANIFEST
 
 # Virtual environments
-.env
-.venv
-.venv*/
-env/
 venv/
 ENV/
-env.bak/
-venv.bak/
-
-# Testing & quality tools
-.pytest_cache/
-.ruff_cache/
-.coverage
-htmlcov/
-pytest
-python
-
-# Trunk & tooling
-.trunk/
+env/
+.venv
+.venv*/
 
 # Rust build artifacts
 target/
 **/target/
 
-# Local / secret configs
-*.local.json
-.devin/*.local.json
+# Tooling and caches
+.mypy_cache/
+.ruff_cache/
+.trunk/
 
-# Data databases
-data/pit_store.db
+# Data databases & stores
 *.db
 *.sqlite
 *.sqlite3
+data/pit_store.db
+data/tick_pit/
+
+# Local & secret configs
+*.local.json
+.devin/*.local.json
+
+# DELTA OS specific
+.delta/
+vault.bin
+vault.salt
+audit.log
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+*.ipynb
+
+# Environment variables
+.env
+.env.local
+
+# Accidental / temporary artifacts
+Delta-/
+=*.0.0
+pytest
+*.tmp
+*.bak
+*.swp
+
+

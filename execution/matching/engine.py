@@ -70,6 +70,24 @@ class PriceTimeMatcher:
                     best.popleft()
         return fills
 
+    def cancel(self, order_id: str) -> bool:
+        """Remove a resting order. Returns True if one was removed."""
+        for book in (self._bids, self._asks):
+            for price, dq in list(book.items()):
+                for o in list(dq):
+                    if o.order_id == order_id:
+                        dq.remove(o)
+                        if not dq:
+                            del book[price]
+                        return True
+        return False
+
+    def replace(self, order_id: str, side: str, price: Decimal,
+                quantity: Decimal) -> list[MatchFill]:
+        """Cancel + add with fresh sequence (forfeits time priority)."""
+        self.cancel(order_id)
+        return self.add(order_id, side, price, quantity)
+
     def _best_ask_for(self, price: Decimal) -> deque[RestingOrder] | None:
         cands = [p for p in self._asks if p <= price and self._asks[p]]
         if not cands:

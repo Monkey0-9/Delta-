@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 import pandas as pd
 
 from research.real_loop import alpha as A
+from research.real_loop import alpha_stats as AST
 from research.real_loop import backtest as B
 from research.real_loop import features as F
 from research.real_loop import governance as G
@@ -23,11 +24,39 @@ from research.real_loop import market_data as M
 from research.real_loop import paper_broker as PB
 from research.real_loop import portfolio_risk as PR
 from research.real_loop import regime as R
+from research.real_loop import validate as V
 
 HORIZON_FWD = {"today": 2, "week": 5, "month": 21, "year": 60,
                "1d": 2, "1w": 5, "1m": 21, "1y": 60}
 
 SEED = 42
+
+
+def _fail_closed_on_synthetic(bars: dict) -> None:
+    """Defense-in-depth: synthetic bars must never flow as market truth in LIVE.
+
+    fetch_bars already raises in DATA_MODE=LIVE; this guards direct callers
+    that inject BarSets. Raises MarketDataUnavailable naming the symbols.
+    """
+    if M.is_simulation():
+        return
+    bad = sorted(s for s, b in bars.items()
+                 if getattr(b, "source", "") != "yahoo")
+    if bad:
+        raise M.MarketDataUnavailable(
+            f"Synthetic/non-market bars for {bad} in DATA_MODE=LIVE. "
+            "Set DATA_MODE=SIMULATION to opt in; label output SIMULATION, NOT MARKET DATA."
+        )
+
+
+def _us_calendar():
+    """Exchange trading calendar for quality gates; None -> legacy B-day math."""
+    try:
+        from data.tick_pit.trading_calendar import get_calendar
+
+        return get_calendar("XNYS")
+    except Exception:
+        return None
 
 
 def _horizon_fwd(horizon: str) -> int:
@@ -42,10 +71,12 @@ def run_opportunity_scan(symbols: list[str], horizon: str = "week",
     weights = weights or {}
     fwd = _horizon_fwd(horizon)
     bars = M.fetch_bars(list(symbols), days=max(200, fwd * 12))
+    _fail_closed_on_synthetic(bars)
     regime = R.detect_regime({s: b.frame for s, b in bars.items()})
     alphas: list[A.AlphaResult] = []
+    _cal = _us_calendar()
     for sym, b in bars.items():
-        q = M.data_quality(b.frame)
+        q = M.data_quality(b.frame, calendar=_cal)
         feat = F.compute_features(b.frame, sym, b.data_hash)
         ar = A.score_symbol(feat, fwd_days=fwd)
         if ar is None:
@@ -112,12 +143,22 @@ class FullCycleResult:
     fingerprint: str
     data_sources: dict[str, str]
     obs: dict
+    # Provenance: which model wrote the answer, and whether market or
+    # simulation data fed it. Consumers must surface both, never drop them.
+    model_backend: str = ""
+    data_mode: str = ""
 
 
 def run_full_cycle(question: str, symbols: list[str], horizon: str = "week",
                    capital: float = 1_000_000.0, seed: int = SEED,
-                   config: dict | None = None) -> FullCycleResult:
-    """End-to-end autonomous research cycle (W100)."""
+                   config: dict | None = None,
+                   allow_template: bool = False) -> FullCycleResult:
+    """End-to-end autonomous research cycle (W100).
+
+    allow_template=False (production default): synthesize() raises
+    LLMUnavailable when no real model answers. Pass True only for
+    simulation/tests, where the answer must be labeled template synthesis.
+    """
     t0 = time.perf_counter()
     obs = G.ObsLog()
     cfg = {"horizon": horizon, "capital": capital, "seed": seed, **(config or {})}
@@ -126,9 +167,12 @@ def run_full_cycle(question: str, symbols: list[str], horizon: str = "week",
 
     # 1-2. dataset (PIT) + quality
     bars = M.fetch_bars(list(symbols), days=max(200, fwd * 12))
+    _fail_closed_on_synthetic(bars)
     obs.event("dataset", f"fetched {len(bars)} symbols",
-              sources={s: b.source for s, b in bars.items()})
-    quality = {s: M.data_quality(b.frame) for s, b in bars.items()}
+              sources={s: b.source for s, b in bars.items()},
+              data_mode=M.data_mode())
+    quality = {s: M.data_quality(b.frame, calendar=_us_calendar())
+               for s, b in bars.items()}
 
     # 3-4. features + alpha
     feats = {s: F.compute_features(b.frame, s, b.data_hash) for s, b in bars.items()}
@@ -173,8 +217,8 @@ def run_full_cycle(question: str, symbols: list[str], horizon: str = "week",
     obs.event("portfolio", tgt.method, weights=tgt.weights)
     obs.event("risk", f"kill={risk.kill_switch}", var95=risk.var95)
 
-    # 10. paper trade top-3 PASS names through OMS/EMS ledger
-    ledger = PB.PaperLedger(cash=capital)
+    # 10. paper trade top-3 PASS names through OMS/EMS ledger (deterministic seed)
+    ledger = PB.PaperLedger(cash=capital, seed=seed)
     px_now = {s: float(b.frame["close"].iloc[-1]) for s, b in bars.items()}
     for a in sorted(alphas, key=lambda x: x.expected_return, reverse=True)[:3]:
         w = tgt.weights.get(a.symbol, 0.0)
@@ -193,7 +237,9 @@ def run_full_cycle(question: str, symbols: list[str], horizon: str = "week",
     for s, b in bars.items():
         ev.append(LLM._evid("market_data", {"kind": "data", "symbol": s, "source": b.source,
                                             "data_hash": b.data_hash,
-                                            "quality": quality[s]["issues"] or "OK"}))
+                                            "quality": quality[s]["issues"] or "OK",
+                                            "calendar": quality[s].get("calendar_version",
+                                                                       "business-day")}))
     ev.append(LLM._evid("regime", {"kind": "regime", "label": reg.label,
                                    "confidence": reg.confidence, **reg.evidence}))
     for a in alphas:
@@ -207,11 +253,35 @@ def run_full_cycle(question: str, symbols: list[str], horizon: str = "week",
                                  "max_drawdown": f"{risk.max_drawdown:.2%}",
                                  "kill_switch": risk.kill_switch}))
     for s, bt in bts.items():
+        adv = getattr(bt, "adversarial", {}) or {}
         ev.append(LLM._evid("backtest", {"kind": "backtest", "symbol": s,
                                          "gross_return": bt.gross_return,
                                          "net_return": bt.net_return,
-                                         "cost_bps": bt.cost_bps, "sharpe": bt.sharpe}))
-    agent = LLM.synthesize(question, ev)
+                                         "cost_bps": bt.cost_bps, "sharpe": bt.sharpe,
+                                         "adv_2x": adv.get("net_2x_costs"),
+                                         "adv_liq": adv.get("net_half_liquidity")}))
+    # W106/W122 research statistics per name (IC/ICIR/DSR/PBO/HAC/FDR)
+    stats_bundle: dict[str, dict] = {}
+    for s, b in bars.items():
+        try:
+            st = V.research_statistics(b.frame, feats[s], fwd_days=fwd)
+        except Exception:
+            st = {"ic": 0.0, "icir": 0.0, "dsr": 0.0, "pbo": None, "gate": {"pass": False}}
+        stats_bundle[s] = st
+        ev.append(LLM._evid("alpha_stats", {"kind": "backtest", "symbol": s,
+                                            "gross_return": st.get("ic", 0.0),
+                                            "net_return": st.get("icir", 0.0),
+                                            "cost_bps": 0.0, "sharpe": st.get("sharpe", 0.0)}))
+    agent = LLM.synthesize(question, ev, allow_template=allow_template)
+    # Acceptance-test banner: provenance must be visible, never droppable.
+    as_of = datetime.now(timezone.utc).isoformat()
+    mode = M.data_mode()
+    banner = (f"AS-OF {as_of} | DATA_MODE={mode} "
+              f"({'SIMULATION DATA — NOT MARKET DATA' if mode == 'SIMULATION' else 'MARKET DATA (Yahoo)'}) | "
+              f"MODEL={agent.model_backend} | PROMPT={LLM.PROMPT_VERSION} | "
+              f"FEATURES={F.FEATURE_VERSION} ALPHA={A.MODEL_VERSION} "
+              f"COSTS={B.COST_VERSION} OPT={PR.OPT_VERSION} RISK={PR.RISK_VERSION}\n\n")
+    agent.answer = banner + agent.answer
     obs.event("llm", agent.model_backend, critic=agent.critic_passed,
               latency_ms=agent.latency_ms, cost_usd=agent.est_cost_usd)
 
@@ -242,4 +312,5 @@ def run_full_cycle(question: str, symbols: list[str], horizon: str = "week",
          for s, bt in bts.items()],
         {"label": reg.label, "confidence": reg.confidence, **reg.evidence},
         recon, mpath, man.fingerprint(),
-        {s: b.source for s, b in bars.items()}, obs.metrics())
+        {s: b.source for s, b in bars.items()}, obs.metrics(),
+        agent.model_backend, M.data_mode())

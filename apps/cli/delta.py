@@ -6,6 +6,7 @@ from typing import Any
 from trader.intent import FinanceIntent, Intent
 from trader.runtime import TraderRuntime
 from trader.terminal import DeltaTerminal
+from trader.opencode_terminal import OpenCodeTerminal
 
 
 class ExistingSystemBackend:
@@ -179,7 +180,15 @@ class ExistingSystemBackend:
 
 
 def main() -> None:
-    terminal = DeltaTerminal(ExistingSystemBackend())
+    """Single `delta` launcher: bare -> OpenCode-style chat; args -> typer subs."""
+    import sys
+
+    if len(sys.argv) > 1:
+        from apps.cli.main import app
+
+        app()
+        return
+    terminal = OpenCodeTerminal(ExistingSystemBackend())
     terminal.run()
 
 

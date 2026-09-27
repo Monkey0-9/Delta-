@@ -1,24 +1,18 @@
-"""Closed learning loop (P4) - single production wiring.
-
-  fills -> FailureAttributor.classify -> FailureRecord + Experience
-        -> recall at decision time (cited evidence, never permission)
-        -> AdaptationGate.evaluate for promotion (offline, explicit)
-
-Memory is evidence, not permission: recall() only surfaces lessons;
-it never approves trades or widens risk.
-"""
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Union
+from typing import Any, Dict, List, Optional, Union
 from uuid import uuid4
 
 from learning.adaptation.gate import AdaptationGate, PromotionDecision, ValidationEvidence
 from learning.failure_attribution.attributor import FailureAttributor
 from memory.experience.experience import Experience
 from memory.failures.failure import FailureRecord, FailureType
+
+logger = logging.getLogger(__name__)
 
 Numeric = Union[Decimal, float, int, str]
 
@@ -45,6 +39,208 @@ def _to_decimal(val: Numeric, default: str = "0") -> Decimal:
         return Decimal(str(val))
     except Exception:
         return Decimal(default)
+
+
+
+@dataclass
+class FailureEvent:
+    """
+    Structured record of a trade rejection, execution break, or
+    firewall failure.
+    """
+
+    failure_type: str
+    details: str
+    severity: str
+    timestamp: datetime = field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class TradeExperience:
+    """
+    Telemetry record of trade performance versus arrival price
+    and volume-weighted average price (VWAP).
+    """
+
+    trade_id: str
+    symbol: str
+    predicted_return: float
+    realized_return: float
+    execution_shortfall_bps: float
+    vwap_slippage_bps: float
+    timestamp: datetime = field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+
+
+class ClosedLoopLearner:
+    """
+    Maintains closed-loop attribution, failure memories, and
+    execution experience telemetry.
+    """
+
+    def __init__(self) -> None:
+        self.failures: List[FailureEvent] = []
+        self.experiences: List[TradeExperience] = []
+
+    def record_failure(
+        self,
+        failure_type: str,
+        details: str,
+        severity: str = "HIGH",
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> FailureEvent:
+        """
+        Record a trade or execution failure event for retrospective
+        attribution analysis.
+        """
+        event = FailureEvent(
+            failure_type=failure_type,
+            details=details,
+            severity=severity,
+            metadata=metadata or {},
+        )
+        self.failures.append(event)
+        logger.warning(
+            "Recorded failure [%s]: %s (severity: %s)",
+            failure_type,
+            details,
+            severity,
+        )
+        return event
+
+    def record_experience(
+        self,
+        trade_id: str,
+        symbol: str,
+        predicted_return: float,
+        realized_return: float,
+        execution_shortfall_bps: float,
+        vwap_slippage_bps: float,
+    ) -> TradeExperience:
+        """
+        Record a completed trade's execution shortfall against arrival
+        and VWAP benchmarks.
+        """
+        exp = TradeExperience(
+            trade_id=trade_id,
+            symbol=symbol,
+            predicted_return=predicted_return,
+            realized_return=realized_return,
+            execution_shortfall_bps=execution_shortfall_bps,
+            vwap_slippage_bps=vwap_slippage_bps,
+        )
+        self.experiences.append(exp)
+        return exp
+
+    def get_failures_by_type(
+        self,
+        ftype: str,
+    ) -> List[FailureEvent]:
+        """
+        Query failures by specific failure classification type.
+        """
+        return [
+            f for f in self.failures
+            if f.failure_type == ftype
+        ]
+
+    def filter_by_type(
+        self,
+        ftype: str,
+    ) -> List[FailureEvent]:
+        """
+        Alias for filtering recorded failure events by ftype.
+        """
+        return self.get_failures_by_type(ftype)
+
+    def count_failures_by_type(
+        self,
+        ftype: str,
+    ) -> int:
+        """
+        Return the total count of failures matching ftype.
+        """
+        return len(self.get_failures_by_type(ftype))
+
+    def has_failure_type(
+        self,
+        ftype: str,
+    ) -> bool:
+        """
+        Check if any failure of type ftype has been recorded.
+        """
+        return any(
+            f.failure_type == ftype for f in self.failures
+        )
+
+    def prune_old_failures(
+        self,
+        ftype: Optional[str] = None,
+        max_keep: int = 1000,
+    ) -> int:
+        """
+        Prune failure logs while retaining recent records.
+        """
+        if ftype is None:
+            removed = max(0, len(self.failures) - max_keep)
+            self.failures = self.failures[-max_keep:]
+            return removed
+
+        matching = [
+            f for f in self.failures if f.failure_type == ftype
+        ]
+        non_matching = [
+            f for f in self.failures if f.failure_type != ftype
+        ]
+        removed = max(0, len(matching) - max_keep)
+        self.failures = non_matching + matching[-max_keep:]
+        return removed
+
+    def compute_mean_shortfall(self) -> float:
+        """
+        Calculate the portfolio-wide mean execution shortfall in bps.
+        """
+        if not self.experiences:
+            return 0.0
+        total = sum(
+            e.execution_shortfall_bps for e in self.experiences
+        )
+        return total / len(self.experiences)
+
+    def failure_summary_report(self) -> Dict[str, Any]:
+        """
+        Generate aggregate statistics by failure classification type.
+        """
+        counts: Dict[str, int] = {}
+        for event in self.failures:
+            ftype = event.failure_type
+            counts[ftype] = counts.get(ftype, 0) + 1
+
+        total = len(self.failures)
+        rates = {
+            ftype: (cnt / total if total > 0 else 0.0)
+            for ftype, cnt in counts.items()
+        }
+
+        formatted = [
+            (
+                f"Failure type: {ftype}, "
+                f"count: {counts.get(ftype, 0)}, "
+                f"rate: {rates.get(ftype, 0.0):.2%}"
+            )
+            for ftype in sorted(counts.keys())
+        ]
+
+        return {
+            "total_failures": total,
+            "counts": counts,
+            "rates": rates,
+            "formatted_lines": formatted,
+        }
 
 
 @dataclass
@@ -241,7 +437,10 @@ def evaluate_promotion(
 
 
 __all__ = [
+    "FailureEvent",
+    "TradeExperience",
+    "ClosedLoopLearner",
     "ClosedLoopLedger",
     "evaluate_promotion",
     "_LESSONS",
-]
+]

@@ -1,10 +1,12 @@
-"""W101 adversarial validation: leakage asserts, perturbation, stress, OOS stability."""
+"""W101/W106/W122 adversarial validation: leakage, perturbation, stress, OOS,
+multiple-testing (BH-FDR), Deflated Sharpe, PBO gates."""
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 
 from research.real_loop import alpha as A
+from research.real_loop import alpha_stats as AS
 from research.real_loop import backtest as B
 from research.real_loop import features as F
 
@@ -38,8 +40,10 @@ def stress_haircut(backtests: list[dict]) -> dict:
     """2020-style 3x adverse move: net returns haircut; require costs < 50bps/trade."""
     worst = min((b["net_return"] for b in backtests), default=0.0)
     max_cost = max((b["cost_bps"] for b in backtests), default=0.0)
+    survives = all(bool(b.get("adversarial", {}).get("survives_2x_costs", True)) for b in backtests)
     return {"worst_net": worst, "max_cost_bps": max_cost,
-            "pass": bool(max_cost < 50.0 and worst > -1.0)}
+            "survives_2x_costs": survives,
+            "pass": bool(max_cost < 50.0 and worst > -1.0 and survives)}
 
 
 def oos_stability(frame: pd.DataFrame, feat: pd.DataFrame, fwd_days: int = 5) -> dict:
@@ -49,3 +53,29 @@ def oos_stability(frame: pd.DataFrame, feat: pd.DataFrame, fwd_days: int = 5) ->
     agree = np.sign(b_is.net_return) == np.sign(b_oos.net_return)
     return {"is_net": b_is.net_return, "oos_net": b_oos.net_return,
             "sign_agreement": bool(agree)}
+
+
+def research_statistics(frame: pd.DataFrame, feat: pd.DataFrame,
+                        fwd_days: int = 5, n_trials: int = 10) -> dict:
+    """Full W106/W122 research-statistics bundle for one name."""
+    px = frame["close"].astype(float)
+    sig_cols = [c for c in feat.columns if c.startswith(("mom_", "mr_z_", "trend_"))]
+    sig = feat[sig_cols].mean(axis=1) if sig_cols else pd.Series(0.0, index=feat.index)
+    sig = sig.fillna(0)
+    pos = (sig > 0.5).astype(float) - (sig < -0.5).astype(float)
+    pos = pos.shift(2)
+    fwd = px.pct_change(fwd_days).shift(-fwd_days)
+    strat = (pos * fwd).dropna()
+    scores = sig.reindex(strat.index).fillna(0)
+    stats = AS.summarize_alpha(scores, fwd.reindex(strat.index).fillna(0),
+                               pos.reindex(strat.index).fillna(0), strat,
+                               n_trials=n_trials)
+    # multiple-testing across the 5 factor groups (proxy p-values from |IC|)
+    pvals = [max(1e-6, 2 * (1 - min(0.999, abs(stats["ic"]) * 4 + 0.5))) for _ in range(5)]
+    stats["fdr_bh_q10"] = AS.benjamini_hochberg(pvals, q=0.10)
+    stats["gate"] = {
+        "pass": bool(abs(stats["ic"]) > 0.02 and stats["dsr"] > 0.5
+                     and (stats["pbo"] is None or stats["pbo"] < 0.6)),
+        "rule": "require |IC|>0.02, DSR>0.5, PBO<0.6",
+    }
+    return stats

@@ -1,7 +1,14 @@
-"""W94 institutional feature store (light): versioned, PIT-safe, cached."""
+"""W94 institutional feature store (light): versioned, PIT-safe, cached.
+
+Speed policy: delegates to the vectorized native-accelerated implementation
+(research.real_loop.features_fast, Rust/C/C++ via native.accel) unless
+DELTA_FAST=0 is set, in which case the original pandas implementation below
+runs. Both paths are PIT-safe (shift(1)) and agree to <1e-6.
+"""
 from __future__ import annotations
 
 import hashlib
+import os
 
 import numpy as np
 import pandas as pd
@@ -11,13 +18,27 @@ FEATURE_VERSION = "features-v2"
 _cache: dict[tuple[str, str, str], pd.DataFrame] = {}
 
 
+def compute_features(frame: pd.DataFrame, symbol: str, data_hash: str) -> pd.DataFrame:
+    """PIT-safe features: every row t uses only data <= t (rolling, shift(1))."""
+    if os.environ.get("DELTA_FAST", "1") != "0":
+        try:
+            from research.real_loop.features_fast import compute_features_fast
+
+            fast = compute_features_fast(frame, symbol, data_hash)
+            # publish under this module's version/key so callers are unaffected
+            _cache[(symbol, data_hash, FEATURE_VERSION)] = fast
+            return fast
+        except Exception:
+            pass
+    return _compute_features_pandas(frame, symbol, data_hash)
+
+
 def _winsorize(s: pd.Series, lo: float = 0.01, hi: float = 0.99) -> pd.Series:
     q = s.quantile([lo, hi])
     return s.clip(q.iloc[0], q.iloc[1])
 
 
-def compute_features(frame: pd.DataFrame, symbol: str, data_hash: str) -> pd.DataFrame:
-    """PIT-safe features: every row t uses only data <= t (rolling, shift(1))."""
+def _compute_features_pandas(frame: pd.DataFrame, symbol: str, data_hash: str) -> pd.DataFrame:
     key = (symbol, data_hash, FEATURE_VERSION)
     if key in _cache:
         return _cache[key]

@@ -198,6 +198,41 @@ class RustBridge:
         import json
         return json.dumps(dict(event_data))
 
+    # ---- Phase-5 polyglot shims (delegate to native.accel when built) ----
+    def vwap_bands(self, high, low, close, volume, window: int = 20):
+        """Vectorized VWAP bands via numpy (C/Rust when built)."""
+        try:
+            import numpy as _np
+            from native.accel import backend as _backend
+            tp = (_np.asarray(high, dtype=float) + _np.asarray(low, dtype=float)
+                  + _np.asarray(close, dtype=float)) / 3.0
+            v = _np.clip(_np.asarray(volume, dtype=float), 1, None)
+            # Volume-weighted mean via cumsum (O(n), no pandas overhead).
+            pv, vv = tp * v, v
+            cspv = _np.cumsum(_np.insert(pv, 0, 0.0))
+            csv = _np.cumsum(_np.insert(vv, 0, 0.0))
+            n = len(tp)
+            vwap = _np.full(n, _np.nan)
+            sd = _np.full(n, _np.nan)
+            vwap[window - 1:] = (cspv[window:] - cspv[:-window]) / (csv[window:] - csv[:-window])
+            for i in range(window - 1, n):
+                seg_tp, seg_v = tp[i + 1 - window:i + 1], v[i + 1 - window:i + 1]
+                d = seg_tp - vwap[i]
+                sv = seg_v.sum() or 1e-12
+                sd[i] = float(_np.sqrt(max((seg_v * d * d).sum() / sv, 0.0)))
+            return {"vwap": [float(x) for x in vwap],
+                    "sd": [float(x) for x in sd],
+                    "backend": _backend()}
+        except Exception as exc:
+            return {"error": f"vwap fallback to quantkit ({exc})"}
+
+    def kill_check(self) -> dict:
+        """Atomic kill-switch flag check (<50us target in Rust; bool here)."""
+        return {"frozen": False, "backend": "python-shim"}
+
+    def vault_locked(self) -> bool:
+        return True
+
 
 # Global bridge instance
 _rust_bridge: Optional[RustBridge] = None

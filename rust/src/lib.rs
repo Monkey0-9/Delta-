@@ -1,6 +1,7 @@
 pub mod backpressure;
 pub mod connector;
 pub mod durable;
+pub mod fast;
 /// DELTA native kernels (Rust+C++ parity).
 ///
 /// Python boundary: PyO3/maturin `delta_native`.
