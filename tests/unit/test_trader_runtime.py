@@ -37,7 +37,7 @@ def test_runtime_uses_real_llm_provider_for_trade_decision() -> None:
     assert len(llm.requests) == 1
     assert llm.requests[0].model == "test-finance-model"
     assert "COMPUTED DELTA STATE" in llm.requests[0].messages[1]["content"]
-    assert "what should I trade this week?" in llm.requests[0]["content"] if False else True
+    assert "what should I trade this week?" in llm.requests[0].messages[1]["content"]
 
 
 def test_runtime_never_fabricates_portfolio_state() -> None:
