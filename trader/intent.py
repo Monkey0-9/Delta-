@@ -55,6 +55,9 @@ class Intent(str, Enum):
     GREETING = "greeting"
     DATE_TIME = "date_time"
     GENERAL_INFO = "general_info"
+    INVESTOR_PERSPECTIVE = "investor_perspective"
+    MARKET_SENTIMENT = "market_sentiment"
+    STRATEGY_DISCUSSION = "strategy_discussion"
 
 
 class Horizon(str, Enum):

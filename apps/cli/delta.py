@@ -25,6 +25,15 @@ class ExistingSystemBackend:
         if request.intent == Intent.GENERAL_INFO:
             return self._handle_general_info()
         
+        if request.intent == Intent.INVESTOR_PERSPECTIVE:
+            return self._handle_investor_perspective(request.raw_text)
+        
+        if request.intent == Intent.MARKET_SENTIMENT:
+            return self._handle_market_sentiment()
+        
+        if request.intent == Intent.STRATEGY_DISCUSSION:
+            return self._handle_strategy_discussion()
+        
         # Delegate to runtime for all other intents
         return self._runtime.dispatch(request)
     
@@ -112,6 +121,132 @@ class ExistingSystemBackend:
             "• Emergency stop capabilities\n"
             "\n"
             "Type 'help' to see available commands or ask me specific finance questions."
+        )
+    
+    def _handle_investor_perspective(self, raw_text: str) -> str:
+        """Handle investor perspective queries with sophisticated quant insight."""
+        return (
+            "INVESTOR PERSPECTIVE - Quant Research View\n"
+            "\n"
+            "As a sophisticated investor, your mindset should focus on:\n"
+            "\n"
+            "1. RISK-ADJUSTED RETURNS\n"
+            "   • Target Sharpe ratio > 1.5 for equity portfolios\n"
+            "   • Maximum drawdown tolerance: 15-20% annually\n"
+            "   • Position sizing: Kelly Criterion with 25% fractional Kelly\n"
+            "\n"
+            "2. PORTFOLIO CONSTRUCTION\n"
+            "   • Core-satellite approach: 60% core beta, 40% alpha seeking\n"
+            "   • Diversification across: geographies, sectors, factors, time horizons\n"
+            "   • Rebalance quarterly or when drift > 5%\n"
+            "\n"
+            "3. WEALTH PRESERVATION\n"
+            "   • Capital preservation as primary objective\n"
+            "   • Inflation-hedging through real assets and TIPS\n"
+            "   • Liquidity buffer: 6-12 months of expenses\n"
+            "\n"
+            "4. PSYCHOLOGICAL DISCIPLINE\n"
+            "   • Remove emotion from investment decisions\n"
+            "   • Follow systematic rules, not gut feelings\n"
+            "   • Accept uncertainty as inherent to markets\n"
+            "\n"
+            "5. LONG-TERM COMPOUNDING\n"
+            "   • Focus on process over outcomes\n"
+            "   • Avoid market timing and overtrading\n"
+            "   • Let winners run, cut losses systematically\n"
+            "\n"
+            "DELTA helps you implement these principles through:\n"
+            "• Quantitative signal generation\n"
+            "• Risk limit enforcement\n"
+            "• Systematic execution\n"
+            "• Performance attribution\n"
+            "\n"
+            "Ask about specific strategies or portfolio analysis."
+        )
+    
+    def _handle_market_sentiment(self) -> str:
+        """Handle market sentiment queries with macro analysis."""
+        return (
+            "MARKET SENTIMENT ANALYSIS\n"
+            "\n"
+            "Current Market Assessment:\n"
+            "\n"
+            "MACRO INDICATORS:\n"
+            "• Interest Rate Environment: Monitor Fed policy and yield curve\n"
+            "• Inflation Trends: CPI/PCE data and real interest rates\n"
+            "• GDP Growth: Leading indicators and recession probability\n"
+            "• Corporate Earnings: Forward estimates and revision trends\n"
+            "\n"
+            "SENTIMENT METRICS:\n"
+            "• VIX (Volatility Index): Fear gauge and market stress\n"
+            "• Put/Call Ratio: Options positioning sentiment\n"
+            "• Margin Debt: Leverage and risk appetite\n"
+            "• Fund Flows: EPFR data showing institutional positioning\n"
+            "\n"
+            "TECHNICAL REGIME:\n"
+            "• Trend Analysis: Moving averages and momentum\n"
+            "• Market Breadth: Advance/decline ratios\n"
+            "• Sector Rotation: Relative strength analysis\n"
+            "• Liquidity Conditions: TED spread and funding stress\n"
+            "\n"
+            "QUANT SIGNALS:\n"
+            "• Factor Exposure: Value, Momentum, Quality, Low Volatility\n"
+            "• Cross-asset Correlations: Risk-on vs risk-off regimes\n"
+            "• Carry Trade Dynamics: Funding currency strength\n"
+            "\n"
+            "DELTA provides real-time sentiment analysis through:\n"
+            "• Multi-factor scoring models\n"
+            "• Regime detection algorithms\n"
+            "• Risk budget optimization\n"
+            "\n"
+            "Type 'market update' for current conditions or 'analyze [symbol]' for specific analysis."
+        )
+    
+    def _handle_strategy_discussion(self) -> str:
+        """Handle strategy discussion with quant methodology."""
+        return (
+            "INVESTMENT STRATEGY FRAMEWORK\n"
+            "\n"
+            "QUANTITATIVE APPROACH TO STRATEGY:\n"
+            "\n"
+            "1. STRATEGY TAXONOMY\n"
+            "   • Trend Following: Moving average crossovers, breakout systems\n"
+            "   • Mean Reversion: Statistical arbitrage, pairs trading\n"
+            "   • Factor Investing: Value, momentum, quality, low volatility\n"
+            "   • Carry Trading: Currency, commodity, fixed income carry\n"
+            "   • Machine Learning: Random forests, neural networks, ensemble methods\n"
+            "\n"
+            "2. BACKTESTING METHODOLOGY\n"
+            "   • Out-of-sample validation: Walk-forward analysis\n"
+            "   • Transaction cost modeling: Realistic slippage and commission\n"
+            "   • Survivorship bias correction: Include delisted securities\n"
+            "   • Regime analysis: Performance across different market conditions\n"
+            "\n"
+            "3. RISK MANAGEMENT\n"
+            "   • Position sizing: Volatility targeting and risk parity\n"
+            "   • Stop-loss design: ATR-based, volatility-adjusted\n"
+            "   • Correlation monitoring: Dynamic correlation clustering\n"
+            "   • Portfolio optimization: Mean-variance, risk parity, hierarchical\n"
+            "\n"
+            "4. EXECUTION ALGORITHMS\n"
+            "   • VWAP: Volume-weighted average price execution\n"
+            "   • TWAP: Time-weighted average price execution\n"
+            "   • Implementation shortfall: Balancing market impact vs timing risk\n"
+            "   • Smart order routing: Multi-venue optimization\n"
+            "\n"
+            "5. PERFORMANCE EVALUATION\n"
+            "   • Sharpe Ratio: Risk-adjusted return metric\n"
+            "   • Sortino Ratio: Downside risk-adjusted return\n"
+            "   • Maximum Drawdown: Peak-to-trough decline\n"
+            "   • Information Ratio: Active return vs tracking error\n"
+            "\n"
+            "DELTA implements these methodologies through:\n"
+            "• Systematic backtesting engine\n"
+            "• Real-time risk monitoring\n"
+            "• Algorithmic execution\n"
+            "• Performance attribution\n"
+            "\n"
+            "Ask about specific strategies or request analysis for your portfolio."
         )
 
 

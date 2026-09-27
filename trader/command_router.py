@@ -158,6 +158,49 @@ class FinanceCommandRouter:
                 confidence=1.0,
             )
 
+        # Investor perspective queries - for crorepati/millionaire mindset
+        investor_keywords = [
+            "as an investor", "investor perspective", "if i were", "as a crorepati",
+            "as a millionaire", "crore investor", "million investor", "wealth",
+            "portfolio mindset", "investor mindset", "how should i think",
+            "investor psychology", "wealth building", "long term investor"
+        ]
+        if any(keyword in lowered for keyword in investor_keywords):
+            return FinanceIntent(
+                raw_text=raw,
+                domain=Domain.FINANCE,
+                intent=Intent.INVESTOR_PERSPECTIVE,
+                confidence=1.0,
+            )
+
+        # Market sentiment and macro queries
+        sentiment_keywords = [
+            "market sentiment", "how is the market", "market mood", "bullish bearish",
+            "market outlook", "macro view", "economic outlook", "market conditions",
+            "what's happening in market", "market trend", "overall market"
+        ]
+        if any(keyword in lowered for keyword in sentiment_keywords):
+            return FinanceIntent(
+                raw_text=raw,
+                domain=Domain.FINANCE,
+                intent=Intent.MARKET_SENTIMENT,
+                confidence=1.0,
+            )
+
+        # Strategy discussion queries
+        strategy_keywords = [
+            "investment strategy", "trading strategy", "my strategy", "strategy help",
+            "best strategy", "strategy advice", "how to invest", "investment approach",
+            "trading approach", "portfolio strategy"
+        ]
+        if any(keyword in lowered for keyword in strategy_keywords):
+            return FinanceIntent(
+                raw_text=raw,
+                domain=Domain.FINANCE,
+                intent=Intent.STRATEGY_DISCUSSION,
+                confidence=1.0,
+            )
+
         # General info queries
         general_info_keywords = [
             "how are you", "what can you do", "tell me about yourself", "who are you",

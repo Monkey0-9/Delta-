@@ -51,7 +51,14 @@ class DeltaTerminal:
                 continue
 
             # Handle conversational intents immediately regardless of domain
-            if request.intent in {Intent.GREETING, Intent.DATE_TIME, Intent.GENERAL_INFO}:
+            if request.intent in {
+                Intent.GREETING, 
+                Intent.DATE_TIME, 
+                Intent.GENERAL_INFO,
+                Intent.INVESTOR_PERSPECTIVE,
+                Intent.MARKET_SENTIMENT,
+                Intent.STRATEGY_DISCUSSION
+            }:
                 response = self._backend.dispatch(request)
                 self._print_response(response)
                 continue
