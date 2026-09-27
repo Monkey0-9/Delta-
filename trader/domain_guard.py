@@ -63,6 +63,22 @@ _FINANCE_TERMS = frozenset(
         "pnl",
         "profit",
         "loss",
+        "date",
+        "time",
+        "today",
+        "now",
+        "hello",
+        "hi",
+        "hey",
+        "greetings",
+        "good morning",
+        "good afternoon",
+        "good evening",
+        "how are you",
+        "what can you do",
+        "help",
+        "status",
+        "weather",
     }
 )
 

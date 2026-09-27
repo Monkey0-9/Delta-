@@ -133,6 +133,31 @@ class FinanceCommandRouter:
                 confidence=1.0,
             )
 
+        # Handle conversational intents
+        if lowered in {"hi", "hello", "hey", "greetings", "good morning", "good afternoon", "good evening", "yo", "sup"}:
+            return FinanceIntent(
+                raw_text=raw,
+                domain=Domain.FINANCE,
+                intent=Intent.GREETING,
+                confidence=1.0,
+            )
+
+        if any(keyword in lowered for keyword in ["what date", "what time", "today date", "current date", "current time", "what day", "what's the date", "what's the time", "date today", "time now", "what day is it", "what is the date", "what is the time", "today's date", "today is", "what is today"]):
+            return FinanceIntent(
+                raw_text=raw,
+                domain=Domain.FINANCE,
+                intent=Intent.DATE_TIME,
+                confidence=1.0,
+            )
+
+        if any(keyword in lowered for keyword in ["how are you", "what can you do", "tell me about yourself", "who are you", "what are you", "what is delta", "introduce yourself", "what do you do", "your capabilities", "help me"]):
+            return FinanceIntent(
+                raw_text=raw,
+                domain=Domain.FINANCE,
+                intent=Intent.GENERAL_INFO,
+                confidence=1.0,
+            )
+
         domain = FinanceDomainGuard.classify(raw)
 
         if domain != Domain.FINANCE:

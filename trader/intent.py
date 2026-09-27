@@ -51,6 +51,11 @@ class Intent(str, Enum):
     FAILURES = "failures"
     STATUS = "status"
 
+    # Conversational intents
+    GREETING = "greeting"
+    DATE_TIME = "date_time"
+    GENERAL_INFO = "general_info"
+
 
 class Horizon(str, Enum):
     UNSPECIFIED = "unspecified"
