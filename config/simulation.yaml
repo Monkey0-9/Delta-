@@ -1,0 +1,6 @@
+env: simulation
+execution:
+  mode: simulation
+risk:
+  max_order_qty: 500
+  max_order_notional: 500000

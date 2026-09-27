@@ -1,0 +1,18 @@
+DELTA W93 — PYTHON/RUST CORRECTNESS PARITY
+============================================================
+Status: PASS
+Kernels: 6
+Passed: 6
+Failed: 0
+
+Kernel                  Abs Error         Rel Error         Status
+---------------------------------------------------------------------------
+checksum_u64            0                 0                 PASS
+normalize_dedup         0                 0                 PASS
+feature_returns         0                 0                 PASS
+replay_inversions       0                 0                 PASS
+risk_gross_exposure     0                 0                 PASS
+match_orders            0                 0                 PASS
+
+============================================================
+OVERALL: PASS

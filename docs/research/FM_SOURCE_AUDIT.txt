@@ -1,0 +1,564 @@
+﻿DELTA FINANCE MODEL SOURCE AUDIT
+Generated: 2026-09-25 22:06:54
+
+
+================================================================
+FILE: finance_model\architecture\config.py
+================================================================
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True, slots=True)
+class ModelConfig:
+    model_id: str
+    revision: str = "main"
+
+    max_context_tokens: int = 32_768
+    max_generation_tokens: int = 4_096
+
+    temperature: float = 0.2
+    top_p: float = 0.95
+
+    trust_remote_code: bool = False
+
+    finance_native: bool = True
+    tool_use: bool = True
+    structured_output: bool = True
+    evidence_grounding: bool = True
+    uncertainty_output: bool = True
+    abstention: bool = True
+
+    def __post_init__(self) -> None:
+        if not self.model_id.strip():
+            raise ValueError("model_id cannot be empty")
+
+        if self.max_context_tokens <= 0:
+            raise ValueError("max_context_tokens must be positive")
+
+        if self.max_generation_tokens <= 0:
+            raise ValueError("max_generation_tokens must be positive")
+
+        if not 0.0 <= self.temperature <= 2.0:
+            raise ValueError("temperature outside valid range")
+
+        if not 0.0 < self.top_p <= 1.0:
+            raise ValueError("top_p must be in (0, 1]")
+
+================================================================
+FILE: finance_model\architecture\model_spec.py
+================================================================
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from enum import StrEnum
+
+
+class ModelCapability(StrEnum):
+    FINANCE_REASONING = "finance_reasoning"
+    QUANT_REASONING = "quant_reasoning"
+    TOOL_USE = "tool_use"
+    EVIDENCE_GROUNDING = "evidence_grounding"
+    PORTFOLIO_REASONING = "portfolio_reasoning"
+    RISK_REASONING = "risk_reasoning"
+    MACRO_REASONING = "macro_reasoning"
+    COUNTERFACTUAL = "counterfactual"
+    UNCERTAINTY = "uncertainty"
+    ABSTENTION = "abstention"
+    FAILURE_ANALYSIS = "failure_analysis"
+
+
+@dataclass(frozen=True, slots=True)
+class ModelSpec:
+    name: str
+    version: str
+    base_model: str
+    capabilities: tuple[ModelCapability, ...]
+    training_stage: str
+    dataset_manifest_hash: str
+    code_commit: str
+
+    def supports(self, capability: ModelCapability) -> bool:
+        return capability in self.capabilities
+
+    def identity(self) -> str:
+        return f"{self.name}:{self.version}"
+
+================================================================
+FILE: finance_model\datasets\schema.py
+================================================================
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from enum import StrEnum
+
+
+class DatasetStage(StrEnum):
+    DOMAIN = "domain"
+    SFT = "sft"
+    TOOL = "tool"
+    PREFERENCE = "preference"
+    REASONING = "reasoning"
+    EVALUATION = "evaluation"
+
+
+@dataclass(frozen=True, slots=True)
+class Evidence:
+    evidence_id: str
+    source: str
+    published_at: str
+    effective_at: str
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class FinanceExample:
+    example_id: str
+    stage: DatasetStage
+
+    prompt: str
+    response: str
+
+    evidence: tuple[Evidence, ...]
+
+    decision_time: str
+
+    asset: str | None = None
+    horizon: str | None = None
+
+    source_hash: str = ""
+
+    def validate_temporal_integrity(self) -> None:
+        for evidence in self.evidence:
+            if evidence.effective_at > self.decision_time:
+                raise ValueError(
+                    f"Look-ahead contamination detected: "
+                    f"{evidence.evidence_id}"
+                )
+
+================================================================
+FILE: finance_model\datasets\validator.py
+================================================================
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from .schema import FinanceExample
+
+
+@dataclass(frozen=True, slots=True)
+class DatasetReport:
+    total: int
+    valid: int
+    invalid: int
+    duplicate_ids: int
+    temporal_violations: int
+
+
+class DatasetValidator:
+
+    def validate(
+        self,
+        examples: list[FinanceExample],
+    ) -> DatasetReport:
+
+        seen: set[str] = set()
+
+        invalid = 0
+        duplicate_ids = 0
+        temporal_violations = 0
+
+        for example in examples:
+            if example.example_id in seen:
+                duplicate_ids += 1
+                invalid += 1
+                continue
+
+            seen.add(example.example_id)
+
+            try:
+                example.validate_temporal_integrity()
+            except ValueError:
+                temporal_violations += 1
+                invalid += 1
+
+        return DatasetReport(
+            total=len(examples),
+            valid=len(examples) - invalid,
+            invalid=invalid,
+            duplicate_ids=duplicate_ids,
+            temporal_violations=temporal_violations,
+        )
+
+================================================================
+FILE: finance_model\training\sft.py
+================================================================
+
+from __future__ import annotations
+
+import argparse
+
+from datasets import load_dataset
+from peft import LoraConfig
+from trl import SFTConfig, SFTTrainer
+
+
+def train(
+    model_name: str,
+    dataset_path: str,
+    output_dir: str,
+) -> None:
+
+    dataset = load_dataset(
+        "json",
+        data_files=dataset_path,
+        split="train",
+    )
+
+    peft_config = LoraConfig(
+        r=64,
+        lora_alpha=128,
+        lora_dropout=0.05,
+        bias="none",
+        task_type="CAUSAL_LM",
+        target_modules=[
+            "q_proj",
+            "k_proj",
+            "v_proj",
+            "o_proj",
+            "gate_proj",
+            "up_proj",
+            "down_proj",
+        ],
+    )
+
+    training_args = SFTConfig(
+        output_dir=output_dir,
+
+        num_train_epochs=2,
+
+        per_device_train_batch_size=1,
+        gradient_accumulation_steps=16,
+
+        learning_rate=2e-5,
+
+        warmup_ratio=0.05,
+
+        logging_steps=10,
+        save_steps=250,
+
+        bf16=True,
+
+        gradient_checkpointing=True,
+
+        max_length=8192,
+
+        report_to="none",
+
+        seed=42,
+    )
+
+    trainer = SFTTrainer(
+        model=model_name,
+        args=training_args,
+        train_dataset=dataset,
+        peft_config=peft_config,
+    )
+
+    trainer.train()
+
+    trainer.save_model(output_dir)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        "--model",
+        required=True,
+    )
+
+    parser.add_argument(
+        "--dataset",
+        required=True,
+    )
+
+    parser.add_argument(
+        "--output",
+        required=True,
+    )
+
+    args = parser.parse_args()
+
+    train(
+        model_name=args.model,
+        dataset_path=args.dataset,
+        output_dir=args.output,
+    )
+
+================================================================
+FILE: finance_model\training\dpo.py
+================================================================
+
+from __future__ import annotations
+
+import argparse
+
+from datasets import load_dataset
+from peft import LoraConfig
+from trl import DPOConfig, DPOTrainer
+
+
+def train(
+    model_name: str,
+    dataset_path: str,
+    output_dir: str,
+) -> None:
+    dataset = load_dataset(
+        "json",
+        data_files=dataset_path,
+        split="train",
+    )
+
+    peft_config = LoraConfig(
+        r=64,
+        lora_alpha=128,
+        lora_dropout=0.05,
+        bias="none",
+        task_type="CAUSAL_LM",
+        target_modules=[
+            "q_proj",
+            "k_proj",
+            "v_proj",
+            "o_proj",
+        ],
+    )
+
+    args = DPOConfig(
+        output_dir=output_dir,
+        num_train_epochs=1,
+        per_device_train_batch_size=1,
+        gradient_accumulation_steps=16,
+        learning_rate=5e-6,
+        bf16=True,
+        max_length=8192,
+        logging_steps=10,
+        report_to="none",
+        seed=42,
+    )
+
+    trainer = DPOTrainer(
+        model=model_name,
+        args=args,
+        train_dataset=dataset,
+        peft_config=peft_config,
+    )
+
+    trainer.train()
+    trainer.save_model(output_dir)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument("--model", required=True)
+    parser.add_argument("--dataset", required=True)
+    parser.add_argument("--output", required=True)
+
+    args = parser.parse_args()
+
+    train(
+        args.model,
+        args.dataset,
+        args.output,
+    )
+
+================================================================
+FILE: finance_model\inference\provider.py
+================================================================
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from typing import Any
+
+
+@dataclass(frozen=True, slots=True)
+class GenerationRequest:
+    model: str
+    messages: list[dict[str, str]]
+    temperature: float = 0.2
+    max_tokens: int = 4096
+    response_schema: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class GenerationResult:
+    text: str
+    model: str
+    prompt_tokens: int | None
+    completion_tokens: int | None
+    latency_ms: float
+
+
+class ModelProvider(ABC):
+
+    @abstractmethod
+    def generate(self, request: GenerationRequest) -> GenerationResult:
+        raise NotImplementedError
+
+================================================================
+FILE: finance_model\inference\vllm_provider.py
+================================================================
+
+from __future__ import annotations
+
+import json
+import time
+from urllib.request import Request, urlopen
+
+from .provider import GenerationRequest, GenerationResult, ModelProvider
+
+
+class VLLMProvider(ModelProvider):
+
+    def __init__(
+        self,
+        base_url: str = "http://127.0.0.1:8000",
+        timeout_s: float = 120.0,
+    ) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.timeout_s = timeout_s
+
+    def generate(self, request: GenerationRequest) -> GenerationResult:
+        payload: dict[str, object] = {
+            "model": request.model,
+            "messages": request.messages,
+            "temperature": request.temperature,
+            "max_tokens": request.max_tokens,
+        }
+
+        if request.response_schema is not None:
+            payload["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "delta_financial_output",
+                    "schema": request.response_schema,
+                    "strict": True,
+                },
+            }
+
+        body = json.dumps(payload).encode("utf-8")
+
+        http_request = Request(
+            f"{self.base_url}/v1/chat/completions",
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+
+        started = time.perf_counter()
+
+        with urlopen(http_request, timeout=self.timeout_s) as response:
+            result = json.loads(response.read().decode("utf-8"))
+
+        latency_ms = (time.perf_counter() - started) * 1000.0
+
+        choice = result["choices"][0]["message"]
+
+        usage = result.get("usage", {})
+
+        return GenerationResult(
+            text=choice.get("content", ""),
+            model=str(result.get("model", request.model)),
+            prompt_tokens=usage.get("prompt_tokens"),
+            completion_tokens=usage.get("completion_tokens"),
+            latency_ms=latency_ms,
+        )
+
+================================================================
+FILE: finance_model\evaluation\model_eval.py
+================================================================
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluationResult:
+    metric: str
+    score: float
+    passed: bool
+    threshold: float
+
+
+@dataclass(frozen=True, slots=True)
+class ModelEvaluation:
+
+    model_id: str
+    results: tuple[EvaluationResult, ...]
+
+    @property
+    def passed(self) -> bool:
+        return all(result.passed for result in self.results)
+
+    def failed_metrics(self) -> tuple[str, ...]:
+        return tuple(
+            result.metric
+            for result in self.results
+            if not result.passed
+        )
+
+================================================================
+FILE: finance_model\registry\registry.py
+================================================================
+
+from __future__ import annotations
+
+import json
+from dataclasses import asdict
+from pathlib import Path
+
+from finance_model.architecture.model_spec import ModelSpec
+
+
+class ModelRegistry:
+
+    def __init__(self, root: str = "models/registry") -> None:
+        self.root = Path(root)
+        self.root.mkdir(parents=True, exist_ok=True)
+
+    def register(self, spec: ModelSpec) -> Path:
+        path = self.root / f"{spec.name}-{spec.version}.json"
+
+        path.write_text(
+            json.dumps(
+                asdict(spec),
+                indent=2,
+                default=str,
+            ),
+            encoding="utf-8",
+        )
+
+        return path
+
+    def get(self, name: str, version: str) -> dict:
+        path = self.root / f"{name}-{version}.json"
+
+        if not path.exists():
+            raise KeyError(
+                f"Model not registered: {name}:{version}"
+            )
+
+        return json.loads(
+            path.read_text(encoding="utf-8")
+        )

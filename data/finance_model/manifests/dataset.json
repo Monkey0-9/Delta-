@@ -1,0 +1,10 @@
+{
+  "dataset_hash": "583259a5c25c3797ce53663908acaef673bfe3a9e7b8af887bb67ce2b04bad71",
+  "dataset_id": "delta-market-smoke",
+  "leakage_passed": true,
+  "leakage_violations": 0,
+  "record_count": 2,
+  "schema_version": "1.0",
+  "source": "data\\finance_model\\raw\\sample_market.jsonl",
+  "version": "1.0.0"
+}

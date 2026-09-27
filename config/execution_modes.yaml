@@ -1,0 +1,27 @@
+default_mode: PAPER
+
+modes:
+
+  RECOMMENDATION:
+    broker_orders: false
+    autonomous: false
+
+  PAPER:
+    broker_orders: false
+    simulated_orders: true
+    autonomous: false
+
+  COPILOT:
+    broker_orders: true
+    autonomous: false
+    approval_required: true
+
+  SUPERVISED:
+    broker_orders: true
+    autonomous: false
+    monitoring_required: true
+
+  AUTONOMOUS:
+    broker_orders: true
+    autonomous: true
+    explicit_enable_required: true

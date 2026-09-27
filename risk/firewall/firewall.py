@@ -1,0 +1,180 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from decimal import Decimal
+from uuid import uuid4
+
+from risk.kill_switch.kill_switch import KillSwitch
+from risk.limits.limits import RiskLimits
+from risk.pre_trade.validation import (
+    RiskDecision,
+    RiskVerdict,
+    TradeIntent,
+    validate_intent,
+)
+
+
+class RiskFirewall:
+    """Deterministic pre-trade firewall. Fail-closed on any breach."""
+
+    def __init__(
+        self,
+        limits: RiskLimits | None = None,
+        kill_switch: KillSwitch | None = None,
+    ) -> None:
+        self._limits = limits or RiskLimits()
+        self._kill = kill_switch or KillSwitch()
+        self._seen_keys: set[str] = set()
+        self._order_counts: list[datetime] = []
+
+    @property
+    def limits(self) -> RiskLimits:
+        return self._limits
+
+    @property
+    def kill_switch(self) -> KillSwitch:
+        return self._kill
+
+    def check(
+        self,
+        intent: TradeIntent,
+        *,
+        ref_price: Decimal | None = None,
+        current_position: Decimal = Decimal("0"),
+        current_position_notional: Decimal | None = None,
+        data_age_s: float = 0.0,
+        now: datetime | None = None,
+        portfolio_var: Decimal | None = None,
+    ) -> RiskDecision:
+        reasons: list[str] = []
+        now = now or datetime.now(timezone.utc)
+
+        # ---------------------------------------------------------------
+        # 1. Kill switch
+        # ---------------------------------------------------------------
+        # Independent of model confidence.
+        try:
+            self._kill.check()
+        except RuntimeError:
+            return self._decide(
+                intent,
+                RiskVerdict.BLOCK,
+                ("kill_switch_active",),
+            )
+
+        # ---------------------------------------------------------------
+        # 2. Validate intent
+        # ---------------------------------------------------------------
+        errors = validate_intent(intent)
+        reasons.extend(errors)
+
+        # ---------------------------------------------------------------
+        # 3. Idempotency
+        # ---------------------------------------------------------------
+        if intent.idempotency_key in self._seen_keys:
+            reasons.append("duplicate_idempotency_key")
+
+        # ---------------------------------------------------------------
+        # 4. Order size / notional
+        # ---------------------------------------------------------------
+        if intent.quantity > self._limits.max_order_qty:
+            reasons.append("max_order_qty_breach")
+
+        if (
+            ref_price is not None
+            and intent.quantity * ref_price
+            > self._limits.max_order_notional
+        ):
+            reasons.append("max_order_notional_breach")
+
+        # ---------------------------------------------------------------
+        # 5. Intraday position (QTY vs QTY) + position notional ($ vs $)
+        # P0 fix: never compare shares against dollars.
+        # ---------------------------------------------------------------
+        signed = (
+            intent.quantity
+            if intent.side == "buy"
+            else -intent.quantity
+        )
+
+        if (
+            abs(current_position + signed)
+            > self._limits.max_intraday_position
+        ):
+            reasons.append("intraday_position_breach")
+
+        if ref_price is not None and ref_price > 0:
+            if current_position_notional is None:
+                # Backward-compatible estimate from qty position.
+                current_notional = abs(current_position) * ref_price
+            else:
+                current_notional = abs(current_position_notional)
+            new_notional = current_notional + intent.quantity * ref_price
+            if new_notional > self._limits.max_position_notional:
+                reasons.append("position_notional_breach")
+
+        # ---------------------------------------------------------------
+        # 6. Price tolerance
+        # ---------------------------------------------------------------
+        if (
+            intent.limit_price is not None
+            and ref_price is not None
+            and ref_price > 0
+        ):
+            dev_bps = (
+                abs(intent.limit_price - ref_price)
+                / ref_price
+                * Decimal("10000")
+            )
+
+            if dev_bps > self._limits.price_tolerance_bps:
+                reasons.append("price_tolerance_breach")
+
+        # ---------------------------------------------------------------
+        # 7. Stale market data
+        # ---------------------------------------------------------------
+        if data_age_s > self._limits.stale_data_ttl_s:
+            reasons.append("stale_market_data")
+
+        # ---------------------------------------------------------------
+        # 7b. Portfolio VaR cap (wired to risk.post_trade.monitor estimators)
+        # ---------------------------------------------------------------
+        if (
+            portfolio_var is not None
+            and self._limits.max_var_notional is not None
+            and portfolio_var > self._limits.max_var_notional
+        ):
+            reasons.append("var_limit_breach")
+
+        # ---------------------------------------------------------------
+        # 8. Final verdict
+        # ---------------------------------------------------------------
+        verdict = (
+            RiskVerdict.BLOCK
+            if reasons
+            else RiskVerdict.APPROVE
+        )
+
+        # Only reserve the idempotency key after ALL checks pass.
+        if verdict == RiskVerdict.APPROVE:
+            self._seen_keys.add(intent.idempotency_key)
+
+        return self._decide(
+            intent,
+            verdict,
+            tuple(reasons),
+        )
+
+    def _decide(
+        self,
+        intent: TradeIntent,
+        verdict: RiskVerdict,
+        reasons: tuple[str, ...],
+    ) -> RiskDecision:
+        return RiskDecision(
+            risk_decision_id=f"rd-{uuid4().hex[:12]}",
+            decision_id=str(intent.order_id),
+            limits_version=self._limits.version,
+            verdict=verdict,
+            reasons=reasons,
+        )

@@ -1,0 +1,9 @@
+env: copilot
+execution:
+  mode: copilot
+risk:
+  max_order_qty: 10
+  max_order_notional: 10000
+  max_leverage: 1
+autonomy:
+  enabled: false

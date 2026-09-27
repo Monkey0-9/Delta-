@@ -1,0 +1,20 @@
+risk:
+  limits_version: limits-v1
+  max_order_qty: 1000
+  max_order_notional: 1000000
+  max_intraday_position: 5000
+  max_gross_exposure: 5000000
+  max_leverage: 3
+  price_tolerance_bps: 100
+  stale_data_ttl_s: 5
+execution:
+  mode: paper
+  default_tif: day
+data:
+  store: duckdb+parquet
+  raw_log: storage/event_store
+llm:
+  provider: local
+  routing: single-local-model
+  max_context_tokens: 8192
+  require_grounding: true

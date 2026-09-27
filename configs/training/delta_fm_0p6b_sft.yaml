@@ -1,0 +1,29 @@
+model:
+  name: Qwen/Qwen3-0.6B-Base
+  revision: main
+
+method: qlora
+
+dtype: bf16
+
+max_seq_length: 2048
+
+gradient_checkpointing: true
+
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 16
+
+learning_rate: 0.0002
+
+num_train_epochs: 1
+
+warmup_ratio: 0.05
+
+logging_steps: 10
+save_steps: 250
+
+seed: 20260925
+
+dataset_version: finance-v0.1
+
+output_dir: artifacts/finance_model/exp_0001

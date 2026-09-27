@@ -1,0 +1,6 @@
+env: research
+execution:
+  mode: research
+risk:
+  max_order_qty: 100
+  max_order_notional: 100000

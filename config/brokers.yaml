@@ -1,0 +1,16 @@
+brokers:
+
+  example_rest:
+    adapter: generic_rest
+    enabled: false
+
+    base_url: "https://BROKER-ENDPOINT"
+
+    endpoints:
+      health: "/health"
+      account: "/account"
+      positions: "/positions"
+      submit: "/orders"
+      cancel: "/orders/{}/cancel"
+      status: "/orders/{}"
+      open_orders: "/orders/open"

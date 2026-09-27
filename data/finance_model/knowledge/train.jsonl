@@ -1,0 +1,11 @@
+{
+"example_id": "knowledge-000001",
+"stage": "domain",
+"prompt": "Explain the difference between systematic and idiosyncratic risk.",
+"response": "Systematic risk is risk arising from broad market or macroeconomic factors...",
+"evidence": [],
+"decision_time": "2025-01-01T00:00:00+00:00",
+"asset": null,
+"horizon": null,
+"source_hash": "..."
+}

@@ -1,0 +1,89 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "delta"
+version = "0.1.0"
+description = "DELTA financial intelligence and trading system"
+requires-python = ">=3.11"
+dependencies = ["typer>=0.9", "click>=8.0"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+# Pin NumPy to avoid deprecation warnings with hmmlearn 0.3.3
+# NumPy 2.5 deprecated setting array.shape directly, which hmmlearn uses
+numpy = [
+    "numpy<2.5",
+]
+
+[project.scripts]
+delta = "apps.cli.delta:main"
+findelta = "apps.cli.delta:main"
+finagent = "apps.cli.delta:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["agent", "agents", "apps", "benchmark", "brokers", "config",
+    "core", "data", "decision", "deployment", "execution", "finance_model",
+    "learning", "market_data", "memory", "observability", "portfolio",
+    "provenance", "quant", "research", "risk", "schemas", "security",
+    "simulation", "storage", "tools", "validation", "world_model"]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = [
+    "agent*",
+    "apps*",
+    "trader*",
+    "benchmark*",
+    "brokers*",
+    "config*",
+    "core*",
+    "data*",
+    "decision*",
+    "deployment*",
+    "execution*",
+    "finance_model*",
+    "learning*",
+    "market_data*",
+    "memory*",
+    "observability*",
+    "portfolio*",
+    "provenance*",
+    "quant*",
+    "research*",
+    "risk*",
+    "schemas*",
+    "security*",
+    "simulation*",
+    "storage*",
+    "tools*",
+    "validation*",
+    "world_model*"
+]
+exclude = [
+    "tests*",
+    "rust*",
+    "wheels*",
+    "build*",
+    "dist*",
+    ".venv*"
+]

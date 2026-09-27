@@ -1,0 +1,10 @@
+env: supervised
+execution:
+  mode: supervised
+risk:
+  max_order_qty: 100
+  max_order_notional: 100000
+  max_leverage: 2
+autonomy:
+  enabled: false
+  require_human_approval: true
