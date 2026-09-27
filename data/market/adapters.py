@@ -525,16 +525,54 @@ class RealTimeAdapter(MarketDataAdapter):
         symbols: Sequence[str],
         callback: callable,
     ) -> None:
-        """Subscribe to real-time data for symbols"""
+        """Subscribe to real-time data for symbols.
+
+        Registers per-symbol callbacks, then pumps WebSocket messages,
+        dispatching each message to the matching symbol callback.
+        Runs until ``disconnect()`` closes the socket.
+        """
         if not self._connected:
             await self.connect()
-        
+
+        if not self._connected or self._websocket is None:
+            raise RuntimeError("real-time stream unavailable: not connected")
+
         for symbol in symbols:
             self._callbacks[symbol] = callback
-        
-        # Start listening to WebSocket messages
-        # This would be implemented in a separate async task
-        raise NotImplementedError("WebSocket message handling to be implemented")
+
+        await self._pump_messages()
+
+    async def _pump_messages(self) -> None:
+        """Read WebSocket frames and dispatch to symbol callbacks."""
+        import json
+
+        assert self._websocket is not None
+        async for raw in self._websocket:
+            try:
+                msg = json.loads(raw) if isinstance(raw, (str, bytes)) else raw
+            except Exception:
+                continue
+            symbol = self._extract_symbol(msg)
+            cb = self._callbacks.get(symbol) if symbol else None
+            targets = (cb,) if cb else tuple(self._callbacks.values())
+            for target in targets:
+                try:
+                    result = target(msg)
+                    if hasattr(result, "__await__"):
+                        await result
+                except Exception:
+                    continue
+            if not self._connected:
+                break
+
+    @staticmethod
+    def _extract_symbol(msg: object) -> str | None:
+        if isinstance(msg, dict):
+            for key in ("sym", "symbol", "ticker", "s"):
+                val = msg.get(key)
+                if isinstance(val, str) and val:
+                    return val.split(".")[0].upper()
+        return None
 
 
 class HistoricalAdapter(MarketDataAdapter):

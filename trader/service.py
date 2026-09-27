@@ -31,31 +31,12 @@ def _pseudo(seed: str, salt: str) -> float:
     return int(h[:8], 16) / 0xFFFFFFFF
 
 
-def demo_candidates(
+def _deterministic_demo_fallback(
     mandate: TradingMandate,
     horizon: str,
     portfolio_weights: dict[str, float] | None = None,
 ) -> list[ScanCandidate]:
-    """Deterministic demo opportunity set derived from mandate universe."""
-    # Try to use real data pipeline first (W94 implementation)
-    try:
-        from data.market.integration import replace_demo_candidates_with_real, RealDataConfig
-        
-        # Use real data if available
-        config = RealDataConfig(primary_adapter="yahoo", quality_threshold="ACCEPTABLE")
-        real_candidates = replace_demo_candidates_with_real(
-            mandate, horizon, portfolio_weights, config
-        )
-        
-        if real_candidates:
-            print(f"Using real data pipeline: {len(real_candidates)} candidates generated")
-            return real_candidates
-        else:
-            print("Real data pipeline returned no candidates, using fallback")
-    except Exception as e:
-        print(f"Real data pipeline failed: {e}, using deterministic fallback")
-    
-    # Fallback to deterministic demo candidates
+    """Explicitly-labeled deterministic fallback. Source = demo_fallback, never real."""
     weights = portfolio_weights or {}
     out: list[ScanCandidate] = []
     h = (horizon or "today").lower()
@@ -78,10 +59,64 @@ def demo_candidates(
                 estimated_cost_bps=round(cost, 2),
                 data_age_s=round(age, 2),
                 portfolio_weight=float(weights.get(sym, 0.0)),
-                regime="mixed",
+                regime="demo_fallback",
             )
         )
     return out
+
+
+def real_candidates(
+    mandate: TradingMandate,
+    horizon: str,
+    portfolio_weights: dict[str, float] | None = None,
+) -> tuple[list[ScanCandidate], str]:
+    """Real data → PIT → features → signals path (W94+). Returns (candidates, source).
+
+    source is one of: "real_loop" | "legacy_pipeline" | "demo_fallback".
+    The real_loop path never uses hash-seeded pseudo prices.
+    """
+    # Preferred: unified real loop (offline-capable, PIT-safe, labeled).
+    try:
+        from research.real_loop import run_opportunity_scan
+
+        cands = run_opportunity_scan(
+            list(mandate.universe), horizon=horizon, weights=portfolio_weights
+        )
+        if cands:
+            return cands, "real_loop"
+    except Exception as exc:  # fail-closed to next tier, never raise
+        print(f"real_loop failed: {exc}")
+    # Legacy: yahoo-backed pipeline (may need network).
+    try:
+        from data.market.integration import replace_demo_candidates_with_real, RealDataConfig
+
+        config = RealDataConfig(primary_adapter="yahoo", quality_threshold="ACCEPTABLE")
+        legacy = replace_demo_candidates_with_real(mandate, horizon, portfolio_weights, config)
+        if legacy:
+            print(f"Using legacy real-data pipeline: {len(legacy)} candidates generated")
+            return legacy, "legacy_pipeline"
+    except Exception as exc:
+        print(f"Legacy real data pipeline failed: {exc}")
+    return _deterministic_demo_fallback(mandate, horizon, portfolio_weights), "demo_fallback"
+
+
+def demo_candidates(
+    mandate: TradingMandate,
+    horizon: str,
+    portfolio_weights: dict[str, float] | None = None,
+) -> list[ScanCandidate]:
+    """Deterministic demo opportunity set derived from mandate universe.
+
+    W94+: tries the real data → PIT → feature → signal pipeline first and only
+    uses the hash-seeded fallback when real data is unavailable. The fallback
+    is labeled regime="demo_fallback" so downstream code can detect it.
+    """
+    cands, source = real_candidates(mandate, horizon, portfolio_weights)
+    if source == "demo_fallback":
+        print("Real data unavailable, using explicitly-labeled deterministic fallback")
+    else:
+        print(f"Using real data pipeline ({source}): {len(cands)} candidates generated")
+    return cands
 
 
 @dataclass(frozen=True, slots=True)

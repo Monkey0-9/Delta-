@@ -1,0 +1,32 @@
+{
+  "code_commit": "1ec475aa",
+  "config": {
+    "capital": 1000000.0,
+    "horizon": "week",
+    "seed": 42
+  },
+  "data_hashes": {
+    "AAPL": "0f205b4af4c97019",
+    "MSFT": "d9b9f01899e98f67"
+  },
+  "duration_ms": 8340.251699992223,
+  "feature_version": "features-v2",
+  "fingerprint": "RUN-d84375aec022",
+  "model_version": "alpha-v2",
+  "prompt_version": "prompts-v2",
+  "question": "What should I trade this week?",
+  "results": {
+    "er": {
+      "AAPL": 0.015,
+      "MSFT": -0.015
+    },
+    "kill": true,
+    "weights": {
+      "AAPL": 0.5,
+      "MSFT": 0.5
+    }
+  },
+  "run_id": "EXP-F8C5B4FF",
+  "seed": 42,
+  "started_at": "2026-09-27T05:38:19.007442+00:00"
+}

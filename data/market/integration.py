@@ -375,10 +375,10 @@ def replace_demo_candidates_with_real(
     # Convert to DELTA format
     candidates = pipeline.convert_to_scan_candidates(signals, timestamp)
     
-    # If no real signals generated, fall back to demo candidates
+    # If no real signals generated, return empty (caller decides explicit fallback).
+    # NEVER recurse into trader.service.demo_candidates here (infinite recursion).
     if not candidates:
-        print("Warning: No real signals generated, falling back to demo candidates")
-        from trader.service import demo_candidates
-        return demo_candidates(mandate, horizon, portfolio_weights)
+        print("Warning: No real signals generated, returning empty list (no silent demo fill)")
+        return []
     
     return candidates

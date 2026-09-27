@@ -376,6 +376,28 @@ def promote(
     typer.echo(f"status: {d.status.value} - {d.reason}")
 
 
+@app.command("what-should-i-trade")
+def what_should_i_trade(
+    symbols: str = typer.Option("AAPL,MSFT,NVDA,JPM,XOM", "--symbols"),
+    horizon: str = typer.Option("week", "--horizon", help="today|week|month|year"),
+    capital: float = typer.Option(1000000.0, "--capital"),
+    seed: int = typer.Option(42, "--seed"),
+) -> None:
+    """W94-W104 real loop: data → PIT → features → alpha → regime → backtest →
+    portfolio → risk → paper broker → evidence-backed LLM answer (no demo numbers)."""
+    from research.real_loop import run_full_cycle
+
+    syms = [s.strip().upper() for s in symbols.split(",") if s.strip()]
+    res = run_full_cycle("What should I trade this week?", syms,
+                         horizon=horizon, capital=capital, seed=seed)
+    typer.echo(res.answer)
+    typer.echo("")
+    typer.echo(f"critic: {'PASS' if res.critic_passed else 'FAIL'} "
+               f"({'; '.join(res.critic_notes)})")
+    typer.echo(f"sources: {res.data_sources}")
+    typer.echo(f"manifest: {res.manifest_path} fingerprint={res.fingerprint}")
+
+
 def main() -> None:
     app()
 

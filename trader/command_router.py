@@ -187,6 +187,31 @@ class FinanceCommandRouter:
                 confidence=1.0,
             )
 
+        # Automation requests must win over strategy discussion:
+        # "automate my approved portfolio strategy" is an AUTOMATION order,
+        # not a request to talk about strategy.
+        automation_keywords = [
+            "automate",
+            "automation",
+            "manage automatically",
+            "monitor automatically",
+        ]
+        if any(keyword in lowered for keyword in automation_keywords):
+            return FinanceIntent(
+                raw_text=raw,
+                domain=Domain.FINANCE,
+                intent=Intent.AUTOMATION,
+                horizon=self._resolve_horizon(lowered),
+                objective=self._resolve_objective(lowered),
+                symbols=self._extract_symbols(raw),
+                requires_fresh_data=False,
+                requires_portfolio=True,
+                requires_broker=True,
+                execution_requested=False,
+                automation_requested=True,
+                confidence=1.0,
+            )
+
         # Strategy discussion queries
         strategy_keywords = [
             "investment strategy", "trading strategy", "my strategy", "strategy help",

@@ -150,15 +150,17 @@ class TodayEngine(BaseHorizonEngine):
 
 
 class WeekEngine(BaseHorizonEngine):
-    config = EngineConfig("week", 0.55, 0.45, 40.0, 60.0)
+    # Daily-bar signals: a 4d-old bar (covers weekends/holidays) is still fresh
+    # for 1-5d decisions. 15-min PIT lag alone must never force NO_TRADE here.
+    config = EngineConfig("week", 0.55, 0.45, 40.0, 345600.0)
 
 
 class MonthEngine(BaseHorizonEngine):
-    config = EngineConfig("month", 0.55, 0.50, 60.0, 3600.0)
+    config = EngineConfig("month", 0.55, 0.50, 60.0, 864000.0)
 
 
 class YearEngine(BaseHorizonEngine):
-    config = EngineConfig("year", 0.50, 0.55, 80.0, 86400.0)
+    config = EngineConfig("year", 0.50, 0.55, 80.0, 3888000.0)
 
 
 ENGINES: dict[str, BaseHorizonEngine] = {

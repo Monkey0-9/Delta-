@@ -5,7 +5,8 @@
       "Exec(cargo test)",
       "Exec(git fetch)",
       "Exec(rm)",
-      "Exec(cat)"
+      "Exec(cat)",
+      "Exec(git rm)"
     ]
   }
 }
