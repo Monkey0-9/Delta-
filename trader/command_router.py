@@ -133,7 +133,7 @@ class FinanceCommandRouter:
                 confidence=1.0,
             )
 
-        # Handle conversational intents
+        # Handle conversational intents (check these BEFORE domain classification)
         if lowered in {"hi", "hello", "hey", "greetings", "good morning", "good afternoon", "good evening", "yo", "sup"}:
             return FinanceIntent(
                 raw_text=raw,
@@ -142,7 +142,15 @@ class FinanceCommandRouter:
                 confidence=1.0,
             )
 
-        if any(keyword in lowered for keyword in ["what date", "what time", "today date", "current date", "current time", "what day", "what's the date", "what's the time", "date today", "time now", "what day is it", "what is the date", "what is the time", "today's date", "today is", "what is today"]):
+        # More flexible date/time matching with common typos
+        date_time_keywords = [
+            "what date", "what time", "today date", "current date", "current time",
+            "what day", "what's the date", "what's the time", "date today", "time now",
+            "what day is it", "what is the date", "what is the time", "today's date",
+            "today is", "what is today", "todays date", "wat date", "wht date",
+            "dtae", "date time", "show date", "show time"
+        ]
+        if any(keyword in lowered for keyword in date_time_keywords):
             return FinanceIntent(
                 raw_text=raw,
                 domain=Domain.FINANCE,
@@ -150,7 +158,14 @@ class FinanceCommandRouter:
                 confidence=1.0,
             )
 
-        if any(keyword in lowered for keyword in ["how are you", "what can you do", "tell me about yourself", "who are you", "what are you", "what is delta", "introduce yourself", "what do you do", "your capabilities", "help me"]):
+        # General info queries
+        general_info_keywords = [
+            "how are you", "what can you do", "tell me about yourself", "who are you",
+            "what are you", "what is delta", "introduce yourself", "what do you do",
+            "your capabilities", "help me", "what can you", "tell me about delta",
+            "delta capabilities", "about delta"
+        ]
+        if any(keyword in lowered for keyword in general_info_keywords):
             return FinanceIntent(
                 raw_text=raw,
                 domain=Domain.FINANCE,

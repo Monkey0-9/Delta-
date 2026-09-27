@@ -50,6 +50,16 @@ class DeltaTerminal:
             if not raw.strip():
                 continue
 
+            # Handle conversational intents immediately regardless of domain
+            if request.intent in {Intent.GREETING, Intent.DATE_TIME, Intent.GENERAL_INFO}:
+                response = self._backend.dispatch(request)
+                self._print_response(response)
+                continue
+
+            if request.domain == Domain.NON_FINANCE:
+                self._print_domain_boundary()
+                continue
+
             if request.intent == Intent.STOP and raw.casefold().strip() in {
                 "exit",
                 "quit",
@@ -73,15 +83,6 @@ class DeltaTerminal:
 
             if request.intent == Intent.HELP:
                 self._print_help()
-                continue
-
-            # Skip domain boundary check for conversational intents
-            if request.domain == Domain.NON_FINANCE and request.intent not in {
-                Intent.GREETING,
-                Intent.DATE_TIME,
-                Intent.GENERAL_INFO,
-            }:
-                self._print_domain_boundary()
                 continue
 
             response = self._backend.dispatch(request)
