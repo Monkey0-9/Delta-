@@ -137,6 +137,12 @@ class RiskFirewall:
             reasons.append("stale_market_data")
 
         # ---------------------------------------------------------------
+        # 7a. W94: Reject synthetic/demo price sources
+        # ---------------------------------------------------------------
+        if hasattr(intent, 'price_source') and intent.price_source in ("demo_fallback", "synthetic", "hash_seeded"):
+            reasons.append(f"invalid_price_source_{intent.price_source}")
+
+        # ---------------------------------------------------------------
         # 7b. Portfolio VaR cap (wired to risk.post_trade.monitor estimators)
         # ---------------------------------------------------------------
         if (

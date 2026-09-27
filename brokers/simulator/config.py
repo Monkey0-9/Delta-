@@ -6,8 +6,8 @@ from decimal import Decimal
 
 @dataclass(frozen=True, slots=True)
 class SimulatorConfig:
-    commission_rate: Decimal = Decimal("0")
-    slippage_bps: Decimal = Decimal("0")
+    commission_rate: Decimal = Decimal("0.0005")  # 5 bps per dollar traded (institutional baseline)
+    slippage_bps: Decimal = Decimal("5.0")  # 5 bps baseline spread/impact
     max_participation_rate: Decimal = Decimal("1")
 
     def __post_init__(self) -> None:

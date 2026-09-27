@@ -31,38 +31,9 @@ def _pseudo(seed: str, salt: str) -> float:
     return int(h[:8], 16) / 0xFFFFFFFF
 
 
-def _deterministic_demo_fallback(
-    mandate: TradingMandate,
-    horizon: str,
-    portfolio_weights: dict[str, float] | None = None,
-) -> list[ScanCandidate]:
-    """Explicitly-labeled deterministic fallback. Source = demo_fallback, never real."""
-    weights = portfolio_weights or {}
-    out: list[ScanCandidate] = []
-    h = (horizon or "today").lower()
-    for sym in mandate.universe:
-        er = (_pseudo(sym, f"er:{h}") - 0.45) * 0.04  # [-1.8%, +2.2%]
-        risk = 0.005 + _pseudo(sym, f"risk:{h}") * 0.03
-        conf = 0.35 + _pseudo(sym, f"conf:{h}") * 0.55
-        unc = _pseudo(sym, f"unc:{h}") * 0.7
-        liq = 0.3 + _pseudo(sym, f"liq:{h}") * 0.7
-        cost = 5.0 + _pseudo(sym, f"cost:{h}") * 60.0
-        age = _pseudo(sym, "age") * (3.0 if h == "today" else 30.0)
-        out.append(
-            ScanCandidate(
-                symbol=sym,
-                expected_return=er,
-                predicted_risk=risk,
-                confidence=round(conf, 4),
-                uncertainty=round(unc, 4),
-                liquidity=round(liq, 4),
-                estimated_cost_bps=round(cost, 2),
-                data_age_s=round(age, 2),
-                portfolio_weight=float(weights.get(sym, 0.0)),
-                regime="demo_fallback",
-            )
-        )
-    return out
+class MarketDataUnavailableException(Exception):
+    """Raised when real market data is unavailable. Production path must fail closed."""
+    pass
 
 
 def real_candidates(
@@ -72,8 +43,8 @@ def real_candidates(
 ) -> tuple[list[ScanCandidate], str]:
     """Real data → PIT → features → signals path (W94+). Returns (candidates, source).
 
-    source is one of: "real_loop" | "legacy_pipeline" | "demo_fallback".
-    The real_loop path never uses hash-seeded pseudo prices.
+    source is one of: "real_loop" | "legacy_pipeline".
+    FAILS CLOSED if real data is unavailable - no synthetic fallback.
     """
     # Preferred: unified real loop (offline-capable, PIT-safe, labeled).
     try:
@@ -84,7 +55,7 @@ def real_candidates(
         )
         if cands:
             return cands, "real_loop"
-    except Exception as exc:  # fail-closed to next tier, never raise
+    except Exception as exc:
         print(f"real_loop failed: {exc}")
     # Legacy: yahoo-backed pipeline (may need network).
     try:
@@ -97,7 +68,12 @@ def real_candidates(
             return legacy, "legacy_pipeline"
     except Exception as exc:
         print(f"Legacy real data pipeline failed: {exc}")
-    return _deterministic_demo_fallback(mandate, horizon, portfolio_weights), "demo_fallback"
+    
+    # Fail closed - raise exception instead of returning synthetic data
+    raise MarketDataUnavailableException(
+        "Real market data unavailable. Trading operations halted. "
+        "Ensure market data pipelines are operational and retry."
+    )
 
 
 def demo_candidates(
@@ -105,17 +81,14 @@ def demo_candidates(
     horizon: str,
     portfolio_weights: dict[str, float] | None = None,
 ) -> list[ScanCandidate]:
-    """Deterministic demo opportunity set derived from mandate universe.
+    """Real data opportunity set derived from mandate universe.
 
-    W94+: tries the real data → PIT → feature → signal pipeline first and only
-    uses the hash-seeded fallback when real data is unavailable. The fallback
-    is labeled regime="demo_fallback" so downstream code can detect it.
+    W94+: production path that requires real market data. Will raise
+    MarketDataUnavailableException if real data pipelines are unavailable.
+    No synthetic fallback allowed per institutional safety requirements.
     """
     cands, source = real_candidates(mandate, horizon, portfolio_weights)
-    if source == "demo_fallback":
-        print("Real data unavailable, using explicitly-labeled deterministic fallback")
-    else:
-        print(f"Using real data pipeline ({source}): {len(cands)} candidates generated")
+    print(f"Using real data pipeline ({source}): {len(cands)} candidates generated")
     return cands
 
 
@@ -155,7 +128,11 @@ class MorningBrief:
 
 
 def _demo_price(symbol: str) -> float:
-    return 50.0 + _pseudo(symbol, "price") * 250.0
+    """This function is deprecated per W94. Must use real market data."""
+    raise MarketDataUnavailableException(
+        f"Demo price generation for {symbol} is disabled. "
+        "Real market data required for all production operations."
+    )
 
 
 def _limits_order_cap(mandate) -> float:
@@ -176,7 +153,15 @@ def _twin_block(mandate, portfolio, summary, opportunities) -> str:
         equity = float(summary.equity) if summary is not None else 0.0
         cap = float(mandate.capital) if float(mandate.capital) > 0 else 0.0
         pv = equity if equity > 0 else (cap if cap > 0 else 1000000.0)
-        prices = {s: _demo_price(s) for s in mandate.universe}
+        
+        # W94: Use real market data, fail closed if unavailable
+        try:
+            from data.market.integration import get_real_market_prices
+            prices = get_real_market_prices(list(mandate.universe))
+        except Exception:
+            # If real prices unavailable, skip digital twin analysis
+            return ""
+            
         base: dict[str, float] = {s: 0.0 for s in mandate.universe}
         twin = DigitalTwin(portfolio_value=pv)
         scenarios = twin_scenarios(tuple(mandate.universe))

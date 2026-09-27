@@ -21,6 +21,7 @@ class TradeIntent:
     limit_price: Decimal | None = None
     idempotency_key: str = ""
     authorized: bool = False
+    price_source: str = "unknown"  # Track data source: "real", "demo_fallback", "synthetic"
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,4 +43,7 @@ def validate_intent(intent: TradeIntent) -> list[str]:
         errors.append("idempotency_key required")
     if not intent.authorized:
         errors.append("missing authorization")
+    # W94: Reject trades with synthetic or demo price sources
+    if intent.price_source in ("demo_fallback", "synthetic", "hash_seeded"):
+        errors.append(f"price_source {intent.price_source} not allowed in production")
     return errors
