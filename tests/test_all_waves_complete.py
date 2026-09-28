@@ -85,3 +85,16 @@ def test_parallel_scheduler_and_slo_gates():
     assert check_latency_slo((), 10.0, 20.0, 50.0).status == "FAIL"  # no data = FAIL
     assert check_error_budget(0, 10000).status == "PASS"
     assert check_error_budget(5, 10000).status == "FAIL"  # 0.0005 > 0.0001 budget
+
+
+def test_capacity_curve_real_math():
+    from research.capacity.curve import capacity_curve, max_capacity
+    curve = capacity_curve(15.0, adv_shares=1_000_000.0, price=500.0)
+    assert [p.capital for p in curve] == [1e6, 10e6, 50e6, 100e6]
+    costs = [p.total_cost_bps for p in curve]
+    assert costs == sorted(costs)  # cost grows with capital
+    assert curve[0].total_cost_bps < 15.0 < curve[-1].total_cost_bps
+    assert max_capacity(15.0, adv_shares=1_000_000.0, price=500.0) == 1e6
+    import pytest
+    with pytest.raises(ValueError):
+        capacity_curve(0.0, adv_shares=1_000_000.0, price=500.0)
