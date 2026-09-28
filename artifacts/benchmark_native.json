@@ -1,0 +1,98 @@
+{
+  "cpp_matcher": {
+    "backend": "cpp-lob",
+    "max_us": 75867.0,
+    "orders": 20000,
+    "p50_us": 4.0,
+    "p99_us": 7.1,
+    "wall_note": null
+  },
+  "feature_kernels": {
+    "backend": "rust",
+    "checksum": {
+      "max_us": 12.0,
+      "mean_us": 10.09,
+      "p50_us": 10.0,
+      "p99_us": 12.0
+    },
+    "exposure": {
+      "max_us": 50.3,
+      "mean_us": 33.555,
+      "p50_us": 34.7,
+      "p99_us": 50.3
+    },
+    "match_orders": {
+      "max_us": 4.0,
+      "mean_us": 3.328,
+      "p50_us": 3.3,
+      "p99_us": 4.0
+    },
+    "n": 100000,
+    "returns": {
+      "max_us": 104.1,
+      "mean_us": 90.31,
+      "p50_us": 90.3,
+      "p99_us": 104.1
+    },
+    "roll_mean_std_w20": {
+      "max_us": 523.5,
+      "mean_us": 487.235,
+      "p50_us": 488.1,
+      "p99_us": 523.5
+    },
+    "rsi_w14": {
+      "max_us": 561.2,
+      "mean_us": 476.75,
+      "p50_us": 474.0,
+      "p99_us": 561.2
+    },
+    "spearman_ic_n500": {
+      "max_us": 20.8,
+      "mean_us": 19.895,
+      "p50_us": 19.9,
+      "p99_us": 20.8
+    },
+    "sweep_asks": {
+      "max_us": 6.7,
+      "mean_us": 5.866,
+      "p50_us": 5.8,
+      "p99_us": 6.7
+    }
+  },
+  "python_baseline": {
+    "checksum": {
+      "max_us": 3002.5,
+      "mean_us": 2855.96,
+      "p50_us": 2885.6,
+      "p99_us": 3002.5
+    },
+    "feature_returns_n500": {
+      "max_us": 108.7,
+      "mean_us": 101.12,
+      "p50_us": 102.4,
+      "p99_us": 108.7
+    },
+    "match_orders": {
+      "max_us": 2.4,
+      "mean_us": 2.29,
+      "p50_us": 2.3,
+      "p99_us": 2.4
+    }
+  },
+  "rust_bridge": {
+    "available": true,
+    "checksum": {
+      "max_us": 3530.2,
+      "mean_us": 3297.34,
+      "p50_us": 3265.6,
+      "p99_us": 3530.2
+    },
+    "normalize_dedup": {
+      "max_us": 4748.1,
+      "mean_us": 4490.56,
+      "p50_us": 4435.7,
+      "p99_us": 4748.1
+    }
+  },
+  "speedup_checksum_vs_python": 283.05
+}

@@ -5,7 +5,7 @@ Copies the opencode interaction model and improves it for trading:
 - Single-line prompt that expands to multiline (Esc+Enter newline, Enter send)
 - Fuzzy `/` command palette with descriptions (opencode `tab` menu equivalent)
 - Plain scrolling conversation (no fullscreen lock-in; copy/paste works)
-- Ctrl+C cancels the turn, never the session | Ctrl+K kill | Ctrl+L clear
+- Ctrl+C clears the line, Ctrl+C on empty line quits (opencode parity) | Ctrl+K kill | Ctrl+L clear
 - Session persistence (~/.delta/session.json + input history)
 - Every slash command executes against the live delta_os core
   (DataRouter / quantkit / SafetyState) — zero stub numbers, ever.
@@ -161,6 +161,43 @@ class OpenCodeTerminal:
             seen[c.name] = c
         return list(seen.values())
 
+    def _build_keybindings(self):
+        """OpenCode-style keys. Extracted for testing (no console needed)."""
+        from prompt_toolkit.key_binding import KeyBindings
+
+        kb = KeyBindings()
+
+        @kb.add("c-c")
+        def _(event):
+            # OpenCode-style: Ctrl+C clears a non-empty line (cancel);
+            # on an empty line it quits the CLI. prompt_toolkit 3.x
+            # Application has no .abort() — exit() is the API.
+            buf = event.app.current_buffer
+            if buf.text.strip():
+                self._turn_cancelled = True
+                buf.reset()
+            else:
+                event.app.exit(exception=KeyboardInterrupt())
+
+        @kb.add("enter")
+        def _(event):
+            # OpenCode-style: Enter submits, Esc+Enter inserts a newline.
+            event.app.exit(result=event.app.current_buffer.text)
+
+        @kb.add("escape", "enter")
+        def _(event):
+            event.app.current_buffer.insert_text("\n")
+
+        @kb.add("c-k")
+        def _(event):
+            event.app.exit(result="/kill")
+
+        @kb.add("c-l")
+        def _(event):
+            event.app.renderer.clear()
+
+        return kb
+
     # -- main loop ------------------------------------------------------
     def run(self):
         """Run the chat loop. Never crashes on bad input/dead net/no keys."""
@@ -169,24 +206,10 @@ class OpenCodeTerminal:
             from prompt_toolkit import PromptSession
             from prompt_toolkit.completion import FuzzyCompleter
             from prompt_toolkit.history import FileHistory
-            from prompt_toolkit.key_binding import KeyBindings
 
             hist = os.path.join(os.path.expanduser("~"), ".delta", "input_history")
             os.makedirs(os.path.dirname(hist), exist_ok=True)
-            kb = KeyBindings()
-
-            @kb.add("c-c")
-            def _(event):
-                self._turn_cancelled = True
-                event.app.abort()
-
-            @kb.add("c-k")
-            def _(event):
-                event.app.exit(result="/kill")
-
-            @kb.add("c-l")
-            def _(event):
-                event.app.renderer.clear()
+            kb = self._build_keybindings()
 
             session: Any = PromptSession(
                 history=FileHistory(hist),
@@ -228,11 +251,14 @@ class OpenCodeTerminal:
             try:
                 text = prompt_fn()
             except (EOFError, KeyboardInterrupt):
-                print("\nbye (session preserved; Ctrl+C never kills state).")
+                print("\nbye (session preserved).")
                 return 0
             if text is None:
                 continue
             text = text.strip()
+            if self._turn_cancelled:
+                print("cancelled.")
+                continue
             if not text:
                 continue
             try:
@@ -430,7 +456,7 @@ class OpenCodeTerminal:
                 f'<span style="class:prompt.arrow">›</span> ')
 
     def _toolbar(self) -> Any:
-        return (f" / palette+Tab  ·  Esc+Enter newline  ·  Ctrl+C cancel  ·  "
+        return (f" / palette+Tab  ·  Esc+Enter newline  ·  Ctrl+C cancel/quit  ·  "
                 f"Ctrl+K kill  ·  {self._os.model_name}")
 
     def _status_line(self) -> str:

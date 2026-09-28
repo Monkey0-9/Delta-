@@ -31,15 +31,16 @@ FAMILIES: tuple[AlphaFamily, ...] = (
     AlphaFamily("carry", "High-carry assets earn term/funding premium net of costs.",
                 ("roll_yield", "rate_differential", "basis"), ("beta", "fx"), False),
     AlphaFamily("volatility", "Low-vol and variance-risk-premium harvest survives stress.",
-                ("realized_vol", "iv_rv_spread", "vol_of_vol"), ("beta", "size"), False),
+                ("realized_vol", "vol_percentile_252d", "vol_of_vol", "vol_regime_z"),
+                ("beta", "size"), True),
     AlphaFamily("liquidity", "Illiquidity premium exists but capacity-binds first.",
-                ("amihud", "turnover", "spread_pct"), ("size", "vol"), False),
+                ("amihud", "turnover_z", "spread_proxy", "illiquidity"), ("size", "vol"), True),
     AlphaFamily("microstructure", "Order-flow imbalance predicts near-term moves pre-cost.",
                 ("ofi", "queue_imbalance", "microprice_dev"), ("vol",), True),
     AlphaFamily("event_driven", "Earnings/guidance surprises drift; timing is execution-bound.",
                 ("surprise", "revision", "guidance_delta"), ("sector", "size"), False),
     AlphaFamily("stat_arb", "Cointegrated residuals mean-revert with estimable half-life.",
-                ("spread_z", "half_life", "ou_theta"), ("beta", "sector"), False),
+                ("hedge_ratio", "spread", "half_life", "spread_z"), ("beta", "sector"), True),
 )
 
 

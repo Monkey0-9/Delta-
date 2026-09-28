@@ -1,5 +1,5 @@
 {
-  "elapsed_s": 0.84,
+  "elapsed_s": 0.68,
   "error_budget": 0.0001,
   "pass_rate": 1.0,
   "plan": "W101-W180",
@@ -20,16 +20,16 @@
           "deterministic_seed": 7,
           "engine": "l2-engine-v1",
           "events": 5000,
-          "events_per_sec": 198904.4,
+          "events_per_sec": 194109.9,
           "fills": 2250,
           "latency_us": {
-            "max": 698.6,
-            "p50": 4.1,
-            "p95": 6.0,
-            "p99": 11.6
+            "max": 975.7,
+            "p50": 4.2,
+            "p95": 5.7,
+            "p99": 10.1
           },
           "orders": 5000,
-          "orders_per_sec": 198904.4
+          "orders_per_sec": 194109.9
         },
         "checksum": "67f83c1e77518e52"
       },

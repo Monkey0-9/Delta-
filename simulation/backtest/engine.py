@@ -132,3 +132,46 @@ class BacktestEngine:
             events_processed=statistics.events_processed,
             fills=context.fills,
         )
+
+    def run_with_microstructure(
+        self,
+        signals: tuple[tuple[int, str, Decimal, Decimal], ...],
+        *,
+        seed: int = 7,
+        vol_20d: float = 0.02,
+    ) -> BacktestResult:
+        """Route orders through the deterministic microstructure engine.
+
+        Each signal is (event_ns, side["buy"|"sell"], limit_price|None, quantity).
+        Limit price None = market (collared). Book is seeded per-bar from the
+        signal price with vol-scaled spread; fills settle cash/position with
+        fees inside SimEngine. Deterministic: same signals+seed -> same result.
+        """
+        from research.real_loop.market_sim import SimEngine
+
+        engine = SimEngine(seed=seed)
+        try:
+            for i, (event_ns, side, price, qty) in enumerate(signals):
+                if side not in ("buy", "sell"):
+                    raise ValueError(f"signal {i}: side must be buy|sell.")
+                if qty <= 0:
+                    raise ValueError(f"signal {i}: quantity must be positive.")
+                ref = price if price is not None else Decimal("100")
+                engine.build_book_from_bar(ref, vol_20d)
+                engine.submit(f"bt-{i}", side, price, qty)
+                engine.step_until(event_ns, ref)
+            mark_px = signals[-1][2] if signals and signals[-1][2] is not None else Decimal("100")
+            state = engine.mark(Decimal(mark_px))
+            final_equity = state["equity"]
+            total_return = (final_equity / self._config.initial_cash) - Decimal("1")
+            return BacktestResult(
+                initial_equity=self._config.initial_cash,
+                final_equity=final_equity,
+                total_return=total_return,
+                realized_pnl=final_equity - self._config.initial_cash,
+                unrealized_pnl=Decimal("0"),
+                events_processed=len(signals),
+                fills=state["n_fills"],
+            )
+        finally:
+            engine.close()
