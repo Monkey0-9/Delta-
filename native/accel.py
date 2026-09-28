@@ -21,9 +21,24 @@ _C_DLL = os.path.join(ROOT, "native", "build", "delta_fast.dll")
 _CPP_DLL = os.path.join(ROOT, "native", "build", "fast_book.dll")
 _RS_DLL = os.path.join(ROOT, "rust", "target", "release", "delta_native.dll")
 
-_c = ctypes.CDLL(_C_DLL) if os.path.exists(_C_DLL) else None
-_cpp = ctypes.CDLL(_CPP_DLL) if os.path.exists(_CPP_DLL) else None
-_rs = ctypes.CDLL(_RS_DLL) if os.path.exists(_RS_DLL) else None
+def _try_load(path: str):
+    """Load a native DLL, returning None when missing OR unloadable.
+
+    An unloadable DLL (stale toolchain, missing CRT/python DLL) must degrade
+    to the NumPy fallback, never crash the import. Backend truth is reported
+    by backend(), not assumed.
+    """
+    if not os.path.exists(path):
+        return None
+    try:
+        return ctypes.CDLL(path)
+    except Exception:
+        return None
+
+
+_c = _try_load(_C_DLL)
+_cpp = _try_load(_CPP_DLL)
+_rs = _try_load(_RS_DLL)
 
 if _c is not None:
     _c.delta_returns.restype = ctypes.c_size_t
