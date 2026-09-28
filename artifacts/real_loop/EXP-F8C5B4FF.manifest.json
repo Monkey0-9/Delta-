@@ -1,23 +1,23 @@
 {
-  "code_commit": "3bfeaaa0",
+  "code_commit": "223be185",
   "config": {
     "capital": 1000000.0,
     "horizon": "week",
     "seed": 42
   },
   "data_hashes": {
-    "AAPL": "ca972f3e06a97af5",
-    "MSFT": "26dcb4361e9aa409"
+    "AAPL": "0968f05ebe70ddb2",
+    "MSFT": "b3906f3e18a966b9"
   },
-  "duration_ms": 8330.919200001517,
+  "duration_ms": 8259.424799995031,
   "feature_version": "features-v2",
-  "fingerprint": "RUN-72a9fa10d360",
+  "fingerprint": "RUN-05f718d00362",
   "model_version": "alpha-v2",
   "prompt_version": "prompts-v2",
   "question": "What should I trade this week?",
   "results": {
     "er": {
-      "AAPL": -0.015000000000000003,
+      "AAPL": -0.015,
       "MSFT": 0.015
     },
     "kill": true,
@@ -28,5 +28,5 @@
   },
   "run_id": "EXP-F8C5B4FF",
   "seed": 42,
-  "started_at": "2026-09-28T11:29:44.263209+00:00"
+  "started_at": "2026-09-28T12:30:04.957792+00:00"
 }
