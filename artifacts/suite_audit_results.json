@@ -1,0 +1,56 @@
+[
+  {
+    "name": "Root Wave & System Tests",
+    "returncode": 0,
+    "passed": true,
+    "output": "........................................................................ [ 61%]\n.............................................                            [100%]\n============================== warnings summary ===============================\ntests/test_delta_os.py::test_data_router_tiers_and_badges\n  C:\\Delta\\delta_os\\data_router.py:74: Pandas4Warning: Timestamp.utcnow is deprecated and will be removed in a future version. Use Timestamp.now('UTC') instead.\n    idx = pd.date_range(end=pd.Timestamp.utcnow(), periods=n, freq=\"B\", tz=\"UTC\")\n\ntests/test_delta_os.py::test_repl_routing_never_raises\ntests/test_real_loop.py::test_opportunity_scan_uses_real_loop_not_demo\ntests/test_real_loop.py::test_opportunity_scan_uses_real_loop_not_demo\ntests/test_real_loop.py::test_opportunity_scan_uses_real_loop_not_demo\ntests/test_real_loop.py::test_full_cycle_evidence_grounded_and_reproducible\ntests/test_real_loop.py::test_full_cycle_evidence_grounded_and_reproducible\ntests/test_real_loop.py::test_full_cycle_evidence_grounded_and_reproducible\ntests/test_real_loop.py::test_full_cycle_evidence_grounded_and_reproducible\n  C:\\Users\\Praveen P\\AppData\\Roaming\\Python\\Python311\\site-packages\\yfinance\\scrapers\\history.py:201: Pandas4Warning: Timestamp.utcnow is deprecated and will be removed in a future version. Use Timestamp.now('UTC') instead.\n    dt_now = pd.Timestamp.utcnow()\n\ntests/test_live_readiness.py::test_research_path_fails_closed_without_feed\ntests/test_mistake_tolerance.py::test_datasets_reject_empty_and_verify_tamper\n  C:\\Users\\Praveen P\\AppData\\Roaming\\Python\\Python311\\site-packages\\yfinance\\scrapers\\quote.py:702: Pandas4Warning: Timestamp.utcnow is deprecated and will be removed in a future version. Use Timestamp.now('UTC') instead.\n    start = pd.Timestamp.utcnow().floor(\"D\") - datetime.timedelta(days=365 // 2)\n\ntests/test_live_readiness.py::test_research_path_fails_closed_without_feed\ntests/test_mistake_tolerance.py::test_datasets_reject_empty_and_verify_tamper\n  C:\\Users\\Praveen P\\AppData\\Roaming\\Python\\Python311\\site-packages\\yfinance\\scrapers\\quote.py:704: Pandas4Warning: Timestamp.utcnow is deprecated and will be removed in a future version. Use Timestamp.now('UTC') instead.\n    end = pd.Timestamp.utcnow().ceil(\"D\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n117 passed, 13 warnings in 52.41s"
+  },
+  {
+    "name": "Institutional Suite",
+    "returncode": 0,
+    "passed": true,
+    "output": "...................................................                      [100%]\n51 passed in 22.40s"
+  },
+  {
+    "name": "Security Suite",
+    "returncode": 0,
+    "passed": true,
+    "output": "......                                                                   [100%]\n6 passed in 0.29s"
+  },
+  {
+    "name": "Integration Suite",
+    "returncode": 0,
+    "passed": true,
+    "output": "...........                                                              [100%]\n11 passed in 0.32s"
+  },
+  {
+    "name": "E2E Suite",
+    "returncode": 0,
+    "passed": true,
+    "output": ".....                                                                    [100%]\n5 passed in 0.86s"
+  },
+  {
+    "name": "Risk & Execution Suite",
+    "returncode": 0,
+    "passed": true,
+    "output": "............                                                             [100%]\n12 passed in 0.79s"
+  },
+  {
+    "name": "Chaos & Property Suite",
+    "returncode": 0,
+    "passed": true,
+    "output": "...............                                                          [100%]\n15 passed in 0.78s"
+  },
+  {
+    "name": "W46-59 Waves",
+    "returncode": 0,
+    "passed": true,
+    "output": "...................                                                      [100%]\n19 passed in 0.79s"
+  },
+  {
+    "name": "Unit Suite",
+    "returncode": 0,
+    "passed": true,
+    "output": "........................................................................ [ 23%]\n........................................................................ [ 46%]\n........................................................................ [ 69%]\n........................................................................ [ 92%]\n......................                                                   [100%]\n============================== warnings summary ===============================\ntests/unit/test_alpha_neutralization.py::test_full_neutralization\n  C:\\Users\\Praveen P\\AppData\\Roaming\\Python\\Python311\\site-packages\\numpy\\lib\\_function_base_impl.py:3023: RuntimeWarning: invalid value encountered in divide\n    c /= stddev[:, None]\n\ntests/unit/test_alpha_neutralization.py::test_full_neutralization\n  C:\\Users\\Praveen P\\AppData\\Roaming\\Python\\Python311\\site-packages\\numpy\\lib\\_function_base_impl.py:3024: RuntimeWarning: invalid value encountered in divide\n    c /= stddev[None, :]\n\ntests/unit/test_digital_twin.py: 8 warnings\ntests/unit/test_finagent_trader.py: 8 warnings\ntests/unit/test_trader_runtime.py: 6 warnings\n  C:\\Users\\Praveen P\\AppData\\Roaming\\Python\\Python311\\site-packages\\yfinance\\scrapers\\history.py:201: Pandas4Warning: Timestamp.utcnow is deprecated and will be removed in a future version. Use Timestamp.now('UTC') instead.\n    dt_now = pd.Timestamp.utcnow()\n\ntests/unit/test_digital_twin.py::test_scan_includes_twin_block\ntests/unit/test_digital_twin.py::test_scan_includes_twin_block\n  C:\\Users\\Praveen P\\AppData\\Roaming\\Python\\Python311\\site-packages\\yfinance\\scrapers\\quote.py:702: Pandas4Warning: Timestamp.utcnow is deprecated and will be removed in a future version. Use Timestamp.now('UTC') instead.\n    start = pd.Timestamp.utcnow().floor(\"D\") - datetime.timedelta(days=365 // 2)\n\ntests/unit/test_digital_twin.py::test_scan_includes_twin_block\ntests/unit/test_digital_twin.py::test_scan_includes_twin_block\n  C:\\Users\\Praveen P\\AppData\\Roaming\\Python\\Python311\\site-packages\\yfinance\\scrapers\\quote.py:704: Pandas4Warning: Timestamp.utcnow is deprecated and will be removed in a future version. Use Timestamp.now('UTC') instead.\n    end = pd.Timestamp.utcnow().ceil(\"D\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n310 passed, 28 warnings in 89.29s (0:01:29)"
+  }
+]
