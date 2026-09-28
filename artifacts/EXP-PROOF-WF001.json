@@ -1,0 +1,76 @@
+{
+  "costs_bps": 8.0,
+  "data": {
+    "QQQ": {
+      "hash": "f7824252bee7eaeb",
+      "rows": 822,
+      "source": "yahoo"
+    },
+    "SPY": {
+      "hash": "999cd484dfa72ba2",
+      "rows": 822,
+      "source": "yahoo"
+    }
+  },
+  "execution": {
+    "engine": "native",
+    "equity": "963509.6274097062500",
+    "fills": 20,
+    "microstructure": "synthetic-ladder-NOT-market-data",
+    "signals": 20
+  },
+  "experiment_id": "EXP-PROOF-WF001",
+  "feature_version": "features-v2",
+  "statistics": {
+    "dsr": 0.0,
+    "hac_t": 3.0980771483310785,
+    "half_life": 75.5227707013837,
+    "icir": -16.434745946261987,
+    "pbo": 0.125,
+    "rank_ic": -0.01890828732650713
+  },
+  "verdict": "EVIDENCE (not a profitability claim)",
+  "walkforward": {
+    "costs_bps": 8.0,
+    "folds": [
+      {
+        "gross": -0.33268,
+        "hit": 0.059,
+        "n": 152,
+        "net": -0.35428,
+        "sharpe": -1.568
+      },
+      {
+        "gross": 0.09495,
+        "hit": 0.224,
+        "n": 152,
+        "net": 0.07815,
+        "sharpe": 0.176
+      },
+      {
+        "gross": -0.04094,
+        "hit": 0.02,
+        "n": 152,
+        "net": -0.04814,
+        "sharpe": -0.665
+      },
+      {
+        "gross": -0.1103,
+        "hit": 0.158,
+        "n": 152,
+        "net": -0.1279,
+        "sharpe": -0.508
+      }
+    ],
+    "fwd_days": 5,
+    "gate": {
+      "pass": false,
+      "rule": "majority of folds OOS-positive and total OOS net > 0"
+    },
+    "n_folds": 4,
+    "oos_majority_positive": false,
+    "oos_total_net": -0.45217,
+    "version": "wf-v1"
+  },
+  "wf_version": "wf-v1"
+}

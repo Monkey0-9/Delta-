@@ -89,7 +89,8 @@ def test_mandate_binds_risk_most_restrictive():
     assert limits.max_intraday_position == RiskLimits().max_intraday_position
 
 
-def test_service_morning_brief_renders():
+def test_service_morning_brief_renders(monkeypatch):
+    monkeypatch.setenv("DATA_MODE", "SIMULATION")  # offline-deterministic; live Yahoo unavailable in CI
     from trader.service import morning_brief
 
     m = build_mandate(capital_text="1000000", horizon_text="week", universe_text="etfs")

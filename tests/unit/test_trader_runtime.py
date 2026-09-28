@@ -24,7 +24,8 @@ class FakeLLM(ModelProvider):
         )
 
 
-def test_runtime_uses_real_llm_provider_for_trade_decision() -> None:
+def test_runtime_uses_real_llm_provider_for_trade_decision(monkeypatch) -> None:
+    monkeypatch.setenv("DATA_MODE", "SIMULATION")  # offline-deterministic; live Yahoo unavailable in CI
     llm = FakeLLM()
     request = FinanceCommandRouter().route("what should I trade this week?")
 

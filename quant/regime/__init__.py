@@ -7,6 +7,7 @@ volatility, and inflation shocks for dynamic market environment adaptation.
 from .classifier import RegimeClassifier, Regime, RegimeType
 from .hmm import HiddenMarkovModel, HMMParameters
 from .features import RegimeFeatures
+from .kalman_filter import KalmanFilter, KalmanParameters, KalmanState
 
 __all__ = [
     "RegimeClassifier",
@@ -15,4 +16,7 @@ __all__ = [
     "HiddenMarkovModel",
     "HMMParameters",
     "RegimeFeatures",
+    "KalmanFilter",
+    "KalmanParameters",
+    "KalmanState",
 ]

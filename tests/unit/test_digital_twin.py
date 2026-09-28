@@ -52,7 +52,8 @@ def test_compare_options_before_after():
     assert len(comp["BEFORE"]) == len(scs)
 
 
-def test_scan_includes_twin_block():
+def test_scan_includes_twin_block(monkeypatch):
+    monkeypatch.setenv("DATA_MODE", "SIMULATION")  # offline-deterministic; live Yahoo unavailable in CI
     from trader.mandate_builder import build_mandate
     from trader.service import run_scan
 

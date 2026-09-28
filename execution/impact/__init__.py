@@ -1,16 +1,31 @@
-"""Non-Linear Market Impact Engine.
+"""Execution impact module for DELTA OS."""
 
-W100: Calibrates transient square-root impact models (γσ√(V/ADV))
-using proprietary order-fill data for realistic execution simulation.
-"""
-
-from .model import MarketImpactModel, AlmgrenChrissModel, KyleLambdaModel
-from .calibrator import ImpactCalibrator, CalibrationData
+from execution.impact.capacity_model import (
+    CapacityModel,
+    CapacityEstimate,
+    CrowdingDetector,
+    CrowdingSignal,
+    CrowdingLevel,
+    CapacityCrowdingPipeline,
+)
+from execution.simulation.market_impact import (
+    MarketImpactModel,
+    ImpactParameters,
+    ImpactMeasurement,
+    ImpactModel,
+    ImpactType,
+)
 
 __all__ = [
+    "CapacityModel",
+    "CapacityEstimate",
+    "CrowdingDetector",
+    "CrowdingSignal",
+    "CrowdingLevel",
+    "CapacityCrowdingPipeline",
     "MarketImpactModel",
-    "AlmgrenChrissModel",
-    "KyleLambdaModel",
-    "ImpactCalibrator",
-    "CalibrationData",
+    "ImpactParameters",
+    "ImpactMeasurement",
+    "ImpactModel",
+    "ImpactType",
 ]

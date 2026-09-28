@@ -31,7 +31,14 @@ class DataRouter:
         self.news_cache = NewsCache()
         self.macro_cache = MacroCache()
         
-        # Synthetic data provider for offline mode
+        # Synthetic offline generator: OFF by default. Producing fake quotes
+        # labeled SYNTHETIC without explicit opt-in is a trading-integrity
+        # violation — call enable_synthetic_offline() only for offline
+        # research/simulation, never for live pricing or execution.
+        self.synthetic_enabled = False
+
+    def enable_synthetic_offline(self) -> None:
+        """Explicit opt-in to labeled synthetic fallback (research/sim only)."""
         self.synthetic_enabled = True
     
     async def initialize(self) -> None:

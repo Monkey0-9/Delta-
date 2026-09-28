@@ -52,3 +52,9 @@
 {"t": "2026-09-27T16:00:11.145793+00:00", "run_id": "EXP-F8C5B4FF", "regime": "normal_vol_risk_on", "evidence": {"vol_ratio": 0.833, "avg_corr": -0.029, "mom_20d": 0.0535, "liq_ratio": 0.83}}
 {"t": "2026-09-27T16:09:18.284382+00:00", "run_id": "EXP-F8C5B4FF", "regime": "normal_vol_risk_on", "evidence": {"vol_ratio": 0.833, "avg_corr": -0.029, "mom_20d": 0.0535, "liq_ratio": 0.83}}
 {"t": "2026-09-27T16:09:26.550067+00:00", "run_id": "EXP-F8C5B4FF", "regime": "normal_vol_risk_on", "evidence": {"vol_ratio": 0.833, "avg_corr": -0.029, "mom_20d": 0.0535, "liq_ratio": 0.83}}
+{"t": "2026-09-28T10:21:59.248667+00:00", "run_id": "EXP-F8C5B4FF", "regime": "normal_vol_risk_on", "evidence": {"vol_ratio": 0.832, "avg_corr": -0.029, "mom_20d": 0.0535, "liq_ratio": 0.83}}
+{"t": "2026-09-28T10:22:07.509320+00:00", "run_id": "EXP-F8C5B4FF", "regime": "normal_vol_risk_on", "evidence": {"vol_ratio": 0.832, "avg_corr": -0.029, "mom_20d": 0.0535, "liq_ratio": 0.83}}
+{"t": "2026-09-28T10:26:18.021139+00:00", "run_id": "EXP-F8C5B4FF", "regime": "normal_vol_risk_on", "evidence": {"vol_ratio": 0.832, "avg_corr": -0.029, "mom_20d": 0.0535, "liq_ratio": 0.83}}
+{"t": "2026-09-28T10:26:26.291845+00:00", "run_id": "EXP-F8C5B4FF", "regime": "normal_vol_risk_on", "evidence": {"vol_ratio": 0.832, "avg_corr": -0.029, "mom_20d": 0.0535, "liq_ratio": 0.83}}
+{"t": "2026-09-28T10:31:50.168218+00:00", "run_id": "EXP-F8C5B4FF", "regime": "normal_vol_risk_on", "evidence": {"vol_ratio": 0.832, "avg_corr": -0.029, "mom_20d": 0.0535, "liq_ratio": 0.83}}
+{"t": "2026-09-28T10:31:58.455777+00:00", "run_id": "EXP-F8C5B4FF", "regime": "normal_vol_risk_on", "evidence": {"vol_ratio": 0.832, "avg_corr": -0.029, "mom_20d": 0.0535, "liq_ratio": 0.83}}

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pathlib
 
-ENVS = ("research", "simulation", "paper", "copilot", "supervised")
+ENVS = ("research", "simulation", "paper", "shadow", "prod", "copilot", "supervised")
 
 _RISK_MIN_KEYS = (
     "max_order_qty", "max_order_notional", "max_intraday_position",
@@ -49,3 +49,25 @@ def load_config(env: str, config_dir: str | pathlib.Path = _CONFIG_DIR) -> dict:
         merged["risk"] = merged_risk
     merged["env"] = env
     return merged
+
+
+def config_hash(config: dict) -> str:
+    """W011-W020: deterministic configuration hash for runtime snapshots."""
+    import hashlib
+    import json
+
+    raw = json.dumps(config, sort_keys=True, separators=(",", ":"), default=str).encode()
+    return hashlib.sha256(raw).hexdigest()
+
+
+def snapshot_config(env: str, config_dir: str | pathlib.Path = _CONFIG_DIR) -> dict:
+    """W011-W020: load + hash + timestamp a runtime configuration snapshot."""
+    from datetime import datetime, timezone
+
+    config = load_config(env, config_dir)
+    return {
+        "env": env,
+        "config": config,
+        "config_hash": config_hash(config),
+        "snapshot_at": datetime.now(timezone.utc).isoformat(),
+    }

@@ -1,0 +1,12 @@
+# Shadow environment: paper-identical limits, promotion-gated, no live venues.
+risk:
+  max_order_qty: 100
+  max_order_notional: 10000.0
+  max_intraday_position: 500
+  max_position_notional: 50000.0
+  max_gross_exposure: 100000.0
+  max_leverage: 1.0
+execution:
+  mode: shadow
+  venues: [paper-venue]
+  live_trading: false

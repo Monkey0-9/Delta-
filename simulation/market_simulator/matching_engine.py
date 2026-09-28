@@ -112,12 +112,17 @@ class MatchingEngine:
     
     def __init__(self, symbol: str, exchange: str = "SIM",
                  latency_ms: float = 1.0, queue_fill_probability: float = 0.95,
-                 order_book: Optional[OrderBook] = None):
+                 order_book: Optional[OrderBook] = None, seed: int = 7):
         self.symbol = symbol
         self.exchange = exchange
         self.order_book = order_book if order_book is not None else OrderBook(symbol, exchange)
         self.latency_ms = latency_ms
         self.queue_fill_probability = queue_fill_probability
+        # Deterministic RNG (seeded): identical seed -> identical fills.
+        # Global random is banned here — non-reproducible fills are a
+        # research-integrity violation. SIM-ONLY engine; never market truth.
+        self._rng = random.Random(seed)
+        self.seed = seed
         
         # Order tracking
         self.active_orders: Dict[str, LimitOrder] = {}
@@ -364,7 +369,7 @@ class MatchingEngine:
     
     def _should_fill_from_queue(self) -> bool:
         """Determine if order should fill based on queue position."""
-        return random.random() < self.queue_fill_probability
+        return self._rng.random() < self.queue_fill_probability
     
     def _create_fill(self, order: LimitOrder, price: float, quantity: float, 
                    liquidity_indicator: str) -> FillEvent:

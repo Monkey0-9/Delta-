@@ -1,7 +1,0 @@
-&pyo3::types::PyModule: pyo3::impl_::pyfunction::WrapPyFunctionArg<'_, _>
-&pyo3::Borrowed<'_, 'py, pyo3::types::PyModule>
-&pyo3::Bound<'py, pyo3::types::PyModule>
-pyo3::Borrowed<'_, 'py, pyo3::types::PyModule>
-pyo3::Bound<'py, pyo3::types::PyModule>
-pyo3::impl_::pyfunction::OnlyBound<T>
-pyo3::impl_::pyfunction::WrapPyFunctionArg<'py, T>

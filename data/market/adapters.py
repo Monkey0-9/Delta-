@@ -502,13 +502,14 @@ class RealTimeAdapter(MarketDataAdapter):
         raise NotImplementedError("Use historical adapter for historical data")
     
     async def get_real_time_quote(self, symbol: str) -> MarketData:
-        """Get current quote from real-time stream"""
-        # This would typically come from the WebSocket stream
-        # For now, return a placeholder
-        return MarketData(
-            symbol=symbol,
-            timestamp=datetime.now(),
-            data_type=DataType.QUOTE,
+        """Get current quote from real-time stream.
+
+        Fail-closed: no stream data yet means no quote. Returning an empty
+        placeholder would fabricate a price — a trading-integrity violation.
+        """
+        raise NotImplementedError(
+            f"Real-time quote for {symbol} unavailable: no stream connected. "
+            "Subscribe via subscribe_real_time() first; never fabricate quotes."
         )
     
     async def get_corporate_actions(

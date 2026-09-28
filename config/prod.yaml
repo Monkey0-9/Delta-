@@ -1,0 +1,14 @@
+# Production environment: most-restrictive limits, live venues denied by default.
+# Any live venue requires explicit governance override; the router rejects
+# non-paper modes unless a signed promotion record exists.
+risk:
+  max_order_qty: 50
+  max_order_notional: 5000.0
+  max_intraday_position: 200
+  max_position_notional: 20000.0
+  max_gross_exposure: 50000.0
+  max_leverage: 1.0
+execution:
+  mode: prod
+  venues: [paper-venue]
+  live_trading: false

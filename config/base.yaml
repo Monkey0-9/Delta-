@@ -10,6 +10,7 @@ risk:
 execution:
   mode: paper
   default_tif: day
+  live_trading: false
 data:
   store: duckdb+parquet
   raw_log: storage/event_store

@@ -10,6 +10,34 @@ from decimal import Decimal
 
 
 @dataclass(frozen=True, slots=True)
+class Venue:
+    """W181-W190 venue model: economics + latency + reliability for route scoring."""
+    name: str
+    maker_fee_bps: Decimal = Decimal("0")
+    taker_fee_bps: Decimal = Decimal("0")
+    latency_us: Decimal = Decimal("50")
+    reliability: Decimal = Decimal("1")
+
+
+PAPER_VENUES: tuple[Venue, ...] = (
+    Venue("paper-venue", Decimal("-0.2"), Decimal("0.3"), Decimal("50"), Decimal("1")),
+    Venue("paper-venue-2", Decimal("0"), Decimal("0.25"), Decimal("120"), Decimal("0.999")),
+)
+
+
+def score_venue(venue: Venue, quantity: Decimal, urgency: Decimal = Decimal("0.5")) -> Decimal:
+    """Route score: lower cost + lower latency wins; reliability penalizes."""
+    if quantity <= 0:
+        raise ValueError("quantity must be positive.")
+    cost = venue.taker_fee_bps + urgency * venue.latency_us / Decimal("1000")
+    return cost + (Decimal("1") - venue.reliability) * Decimal("100")
+
+
+def best_venue(quantity: Decimal, urgency: Decimal = Decimal("0.5")) -> Venue:
+    return min(PAPER_VENUES, key=lambda v: score_venue(v, quantity, urgency))
+
+
+@dataclass(frozen=True, slots=True)
 class Route:
     venue: str
     slices: int
