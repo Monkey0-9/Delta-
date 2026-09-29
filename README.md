@@ -12,13 +12,14 @@ A professional-grade trading terminal and quantitative research platform designe
 - **AES-256 Credential Vault**: Zero-knowledge encrypted storage for API keys
 - **Triple-Layer Kill Switch**: Emergency order cancellation and position liquidation
 - **Plugin Architecture**: Extensible system for custom models, brokers, and data providers
+- **Institutional Release (2026-09-29)**: Point-in-Time (PIT) pipeline, Smart Order Router (SOR), Model Zoo, Paper Trading Orchestrator, Stress Engine, and Regime Forecaster
 
 ## Installation
 
 ```bash
 # Clone repository
-git clone https://github.com/your-org/delta-os.git
-cd delta-os
+git clone https://github.com/Monkey0-9/Delta-.git
+cd Delta-
 
 # Install dependencies
 pip install -r requirements.txt
