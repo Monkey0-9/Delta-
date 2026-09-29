@@ -21,7 +21,7 @@ from __future__ import annotations
 import os
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Callable
 
@@ -444,27 +444,20 @@ class OpenCodeTerminal:
             return None
 
     def _prompt_text(self) -> str:
-        return f"DELTA [{self._state.workspace}|{self._state.execution_mode.value}] > "
+        return "> "
 
     def _prompt_html(self) -> str:
-        mode = self._state.execution_mode.value
-        color = "#f87171" if "AUTO" in mode.upper() else "#34d399"
-        return (f'<span style="class:prompt.mode">DELTA</span> '
-                f'<span style="class:prompt.ws">[{self._state.workspace}|</span>'
-                f'<span style="{color}">{mode}</span>'
-                f'<span style="class:prompt.ws">]</span> '
-                f'<span style="class:prompt.arrow">›</span> ')
+        return '<span style="bold #20C9A6">&gt; </span>'
 
     def _toolbar(self) -> Any:
-        return (f" / palette+Tab  ·  Esc+Enter newline  ·  Ctrl+C cancel/quit  ·  "
-                f"Ctrl+K kill  ·  {self._os.model_name}")
+        mode = self._state.execution_mode.value.upper()
+        return (f" DELTA  |  MARKET LIVE  |  DATA HEALTHY  |  RISK SAFE  |  "
+                f"MODE: {mode}  |  / commands  |  Ctrl+K kill")
 
     def _status_line(self) -> str:
-        try:
-            return self._os.status_bar()
-        except Exception:
-            return (f"MODE [{self._state.execution_mode.value}] "
-                    f"BROKER [{self._state.broker_status}]")
+        now_utc = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
+        mode = self._state.execution_mode.value.upper()
+        return f"DELTA  |  MARKET LIVE  |  DATA HEALTHY  |  RISK SAFE  |  MODE: {mode}  |  {now_utc}"
 
     def _console(self) -> Any:
         try:
@@ -474,38 +467,8 @@ class OpenCodeTerminal:
             return None
 
     def _print_status(self) -> None:
-        """Cockpit status bar: rich chips when available, string otherwise."""
-        c = self._console()
-        if c is None:
-            print(self._status_line())
-            return
-        try:
-            from rich.table import Table as _Table
-            t = _Table(show_header=False, box=None, padding=(0, 1),
-                       expand=False)
-            mode = self._state.execution_mode.value
-            mcolor = "red" if "AUTO" in mode.upper() else "green"
-            try:
-                ks = ("red" if self._os.safety.mode == "HALTED" else "green")
-                ks_txt = "HALTED" if self._os.safety.mode == "HALTED" else "ARMED"
-            except Exception:
-                ks, ks_txt = "green", "ARMED"
-            chips = [
-                (f"[bold cyan]DELTA OS[/]", None),
-                (f"[{mcolor}]{mode}[/{mcolor}]", None),
-                (f"[yellow]{self._os.broker_name}[/yellow]", None),
-                (f"[magenta]{self._os.model_name}[/magenta]", None),
-                (f"killswitch [{ks}]{ks_txt}[/{ks}]", None),
-            ]
-            try:
-                chips.append((f"regime [cyan]{self._os.regime_chip}[/cyan]", None))
-                chips.append((f"var99 [cyan]{self._os.var_chip}[/cyan]", None))
-            except Exception:
-                pass
-            t.add_row(*[x[0] for x in chips])
-            c.print(t)
-        except Exception:
-            print(self._status_line())
+        """Persistent toolbar owns the status bar — avoid stdout spam on every turn."""
+        pass
 
     def _sync_state(self) -> None:
         try:
@@ -536,28 +499,41 @@ class OpenCodeTerminal:
 
     def _banner(self) -> None:
         c = self._console()
-        if c is None:
-            print("DELTA OS — Finance Intelligence & Trading OS (OpenCode-style chat)")
-            print("Type / + Tab for commands, or ask anything.  Esc+Enter = newline.")
-            print(self._status_line())
-            return
-        try:
-            from rich.panel import Panel as _Panel
-            logo = ("[bold cyan]DELTA OS[/]  [bold white]Finance Intelligence "
-                    "& Trading OS[/]\n"
-                    "[dim]OpenCode-style chat - live engine - zero stubs[/]")
-            c.print(_Panel(logo, border_style="cyan", padding=(1, 2),
-                           subtitle="[/] palette+Tab - Esc+Enter newline - Ctrl+K kill"))
-        except Exception:
-            print("DELTA OS — Finance Intelligence & Trading OS (OpenCode-style chat)")
-        self._print_status()
+        mode = self._state.execution_mode.value.upper()
+        now_utc = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
+        header = f"DELTA  |  MARKET LIVE  |  DATA HEALTHY  |  RISK SAFE  |  MODE: {mode}  |  {now_utc}"
+        splash = [
+            "",
+            header,
+            "",
+            "                         DELTA",
+            "                  QUANT INTELLIGENCE",
+            "",
+            "  > Ask DELTA anything, research a strategy, analyze a market...",
+            "",
+            f"       Model: {self._os.model_name}   Agent: quant-researcher",
+            f"       Session: {self._state.workspace}   Mode: {mode}   Risk: SAFE",
+            "",
+            "                     / for commands · Ctrl+K for kill switch",
+            "",
+        ]
+        text = "\n".join(splash)
+        if c is not None:
+            c.print(f"[bold #20C9A6]{header}[/]")
+            c.print("\n                         [bold white]DELTA[/]\n                  [dim]QUANT INTELLIGENCE[/]\n")
+            c.print("  [bold #D6D8D7]> Ask DELTA anything, research a strategy, analyze a market...[/]\n")
+            c.print(f"       [dim]Model:[/] {self._os.model_name}   [dim]Agent:[/] quant-researcher")
+            c.print(f"       [dim]Session:[/] {self._state.workspace}   [dim]Mode:[/] {mode}   [dim]Risk:[/] SAFE\n")
+            c.print("                     [dim]/ for commands · Ctrl+K for kill switch[/]\n")
+        else:
+            print(text)
 
     def _render(self, text: str) -> None:
-        """Design-grade output: cards for tickets, markdown for analysis."""
+        """Design-grade output: cards for tickets, clean markdown for analysis."""
         text = self._safe(text)
         c = self._console()
         if c is None:
-            print(text)
+            print(f"\nDELTA\n{text}\n")
             return
         try:
             # 1) Execution ticket -> bordered card (the money moment).
@@ -578,15 +554,16 @@ class OpenCodeTerminal:
             if text.startswith("BLOCKED") or text.startswith("ERROR"):
                 c.print(f"[bold red]{text}[/bold red]", markup=True)
                 return
-            # 3) Structured answers (headers/tables/lists) -> markdown.
+            c.print("\n[bold #20C9A6]DELTA[/]")
             if any(tok in text for tok in ("|", "##", "```", "\n- ", "\n* ",
                                            "===")):
                 from rich.markdown import Markdown as _MD
                 c.print(_MD(text))
-                return
-            c.print(text, markup=False, highlight=False)
+            else:
+                c.print(text, markup=False, highlight=False)
+            c.print("")
         except Exception:
             try:
-                print(text)
+                print(f"\nDELTA\n{text}\n")
             except Exception:
                 pass

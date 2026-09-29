@@ -44,16 +44,29 @@ GREETINGS = {"hi", "hello", "hey", "hi delta", "hello delta", "yo", "sup",
 
 
 def conversational_fallback(question: str) -> str | None:
-    """Zero-model smalltalk + help so 'hi' never hits a regex wall or crash."""
+    """Zero-model institutional greeting + help so smalltalk is crisp and non-stubbed."""
     q = (question or "").strip().lower().rstrip("!.")
     if q in GREETINGS:
-        return ("Hey — I'm DELTA OS, your trading copilot. Ask me anything "
-                "(`SPY after Fed?`, `VWAP bands on NVDA?`) or type `/` for "
-                "commands (`/quote`, `/quant`, `/news`, `/risk`, `/report`).")
+        return (
+            "DELTA Quant Intelligence ready.\n\n"
+            "- Market & Macro context: ACTIVE\n"
+            "- Risk firewall: SAFE\n"
+            "- Execution Mode: PAPER\n\n"
+            "Ask a quantitative question, research a hypothesis, analyze a market, or type `/` for commands."
+        )
     if q in {"help", "what can you do", "commands"}:
-        return ("I can: `/quote TICKER`, `/quant TICKER` (VWAP/ATR/VaR), "
-                "`/news TICKER`, `/macro`, `/risk`, `/fundamental TICKER`, "
-                "`/report md`, `/trade SYM side qty`. Or just ask naturally.")
+        return (
+            "Primary Workspaces:\n"
+            "  /research <topic>   Research a hypothesis or factor\n"
+            "  /market             Market regime & macro context\n"
+            "  /portfolio          Portfolio exposure & positions\n"
+            "  /risk               Pre-trade limits & VaR/CVaR\n"
+            "  /simulate           Replay historical stress scenario\n"
+            "  /backtest <sym>     Walk-forward backtest\n"
+            "  /trade <sym>        Create trade proposal ticket\n"
+            "  /kill-switch        Emergency execution halt\n\n"
+            "Type `/` to search all commands, or ask any financial question naturally."
+        )
     return None
 
 
