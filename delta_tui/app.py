@@ -385,7 +385,7 @@ class DeltaApp:
                     self.store.kill_armed = True
                     self.store.risk_state = "BLOCKED"
                     self.pending_kill = False
-                    return (f"EXECUTION HALTED\nKill switch activated ({out[:120]})\n"
+                    return (f"KILL SWITCH ENGAGED — EXECUTION HALTED\nKill switch activated ({out[:120]})\n"
                             f"New orders       BLOCKED\nExisting orders CANCEL REQUESTED\n"
                             f"Agents           RESTRICTED\nResearch         AVAILABLE\n"
                             f"[Review state] [Resume authorization via /risk]")
@@ -394,7 +394,7 @@ class DeltaApp:
             self.store.kill_armed = True
             self.store.risk_state = "BLOCKED"
             self.pending_kill = False
-            return ("EXECUTION HALTED\nKill switch activated\n"
+            return ("KILL SWITCH ENGAGED — EXECUTION HALTED\nKill switch activated\n"
                     "New orders       BLOCKED\nExisting orders CANCEL REQUESTED\n"
                     "Agents           RESTRICTED\nResearch         AVAILABLE")
         self.pending_kill = True

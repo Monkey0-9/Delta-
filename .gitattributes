@@ -1,0 +1,10 @@
+* text=auto
+*.dll binary
+*.exe binary
+*.pdf binary
+*.bin binary
+*.so binary
+*.dylib binary
+*.ico binary
+*.png binary
+*.jpg binary
