@@ -39,12 +39,20 @@ __all__ = [
 class LatencyMeasurement:
     """
     Single latency measurement with metadata.
+
+    Methodology contract (fixed W-next):
+      simulated_latency_ms = MODELLED network/processing latency (the market).
+      compute_ms           = DELTA wall-clock spent sampling (our overhead).
+      latency_ms           = alias of simulated_latency_ms (back-compat).
+    Never present compute time as market latency.
     """
     timestamp: datetime
     latency_ms: float
     component: str  # NETWORK, PROCESSING, QUEUE, TOTAL
     exchange: str
     symbol: str
+    simulated_latency_ms: float = 0.0
+    compute_ms: float = 0.0
 
 
 class LatencyModel:
@@ -141,22 +149,24 @@ class LatencyModel:
                       exchange: str = "SIM",
                       symbol: str = "DEFAULT") -> LatencyMeasurement:
         """
-        Measure and record latency.
+        Sample MODELLED latency and record DELTA compute cost separately.
         """
         start_time = time.perf_counter()
-        
-        # Simulate work
-        latency = self.sample_latency(component, exchange, symbol)
-        
+
+        # Modelled market latency (the quantity under study).
+        simulated = self.sample_latency(component, exchange, symbol)
+
         end_time = time.perf_counter()
-        actual_latency = (end_time - start_time) * 1000  # Convert to ms
-        
+        compute_ms = (end_time - start_time) * 1000  # our overhead, NOT the market
+
         measurement = LatencyMeasurement(
             timestamp=datetime.now(timezone.utc),
-            latency_ms=actual_latency,
+            latency_ms=simulated,
             component=component,
             exchange=exchange,
-            symbol=symbol
+            symbol=symbol,
+            simulated_latency_ms=simulated,
+            compute_ms=compute_ms,
         )
         
         self.latency_history.append(measurement)

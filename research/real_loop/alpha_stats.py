@@ -122,46 +122,30 @@ def deflated_sharpe(sr: float, n_trials: int, skew: float = 0.0,
     """Bailey-Lopez de Prado Deflated Sharpe Ratio (PSR under multiple testing).
 
     Returns P(SR_true > 0 | trials). sr is annualized Sharpe.
+    Canonical math lives in research.statistics.canonical (delta_omega);
+    this wrapper preserves the real_loop signature.
     """
+    from research.statistics.canonical import deflated_sharpe as _dsr
     if n_obs <= 0 or n_trials < 1:
         return 0.0
-    sr0_var = (1 - skew * sr + (kurt - 1) / 4 * sr ** 2) / max(n_obs - 1, 1)
-    sr0 = math.sqrt(max(sr0_var, 1e-18)) * (
-        (1 - 0.5772156649) * math.sqrt(math.log(max(n_trials, 1)) / math.log(max(math.e, 2)))
-        + 0.5772156649 * math.sqrt(math.log(max(n_trials, 1)) / math.log(max(math.e, 2)))
-    ) if n_trials > 1 else 0.0
-    # simplified expected SR under null with trials (Lopez de Prado 2014 approx)
-    if n_trials > 1:
-        e_trials = 0.5772156649 + (1 - 0.5772156649) * 1.0
-        sr0 = math.sqrt(max(sr0_var, 0.0)) * e_trials * math.sqrt(2 * math.log(max(n_trials, 1)))
-    from math import erf
-
-    def ncdf(z: float) -> float:
-        return 0.5 * (1 + erf(z / math.sqrt(2)))
-
-    return float(ncdf((sr - sr0) / math.sqrt(max(sr0_var, 1e-18))))
+    return float(_dsr(float(sr), int(n_trials), int(n_obs),
+                      float(skew), float(kurt)))
 
 
 def combinatorial_pbo(is_sharpes: list[float], oos_sharpes: list[float]) -> float:
-    """Probability of Backtest Overfitting (Lopez de Prado CSCV approximation).
+    """Probability of Backtest Overfitting — honest single-split rank verdict.
 
-    Fraction of combinatorial splits where IS-best underperforms median OOS.
-    Here: given paired IS/OOS sharpes across perturbations, logit-rank based.
-    Returns 0..1 (lower is better; <0.3 acceptable, >0.5 overfit likely).
+    1.0 when the IS-best trial ranks at/below median OOS, else 0.0
+    (NaN when fewer than 4 pairs: insufficient evidence, not zero risk).
+    For trial panels use research.statistics.canonical.cpcv_pbo
+    (full CSCV/CPCV methodology). Lower is better.
     """
+    from research.statistics.canonical import pbo_single_split
     a = np.asarray(is_sharpes, dtype=float)
     b = np.asarray(oos_sharpes, dtype=float)
-    n = min(len(a), len(b))
-    if n < 4:
+    if min(len(a), len(b)) < 4:
         return float("nan")
-    a, b = a[:n], b[:n]
-    best = int(np.argmax(a))
-    median_oos = float(np.median(b))
-    # PBO ~= rank of IS-best within OOS distribution (inverted)
-    worse = float((b < b[best]).mean())
-    # blend with sign-disagreement rate
-    disagree = float((((a > 0) != (b > 0))).mean())
-    return float(min(1.0, max(0.0, 0.5 * worse + 0.5 * disagree)))
+    return float(pbo_single_split(a, b)["pbo"])
 
 
 def turnover(pos: pd.Series) -> float:

@@ -186,9 +186,14 @@ def scan(
     risk: str = typer.Option("moderate", "--risk"),
     execution: str = typer.Option("SUPERVISED", "--execution"),
     symbols: str = typer.Option("", "--symbols", help="comma-separated override, e.g. AAPL,MSFT,NVDA"),
+    mode: str = typer.Option("PAPER", "--mode", help="LIVE|PAPER|SIMULATION|RESEARCH|DEMO"),
 ) -> None:
-    """Run TODAY/WEEK/MONTH/YEAR opportunity scan (paper, deterministic)."""
+    """Run TODAY/WEEK/MONTH/YEAR opportunity scan (mode-badged, never silent demo)."""
+    from config.mode import DeltaMode, mode_banner
     from trader.service import run_scan
+
+    m = DeltaMode.parse(mode)
+    typer.echo(mode_banner(m))
 
     mandate = _build_mandate_from_opts("TRADER-1", capital, horizon, risk, universe, execution, "VWAP")
     candidates = None
@@ -228,8 +233,29 @@ def good_morning(
 def portfolio_review(
     capital: str = typer.Option("1000000", "--capital"),
     universe: str = typer.Option("multi-asset", "--universe"),
+    mode: str = typer.Option("PAPER", "--mode", help="LIVE|PAPER|SIMULATION|RESEARCH|DEMO"),
+    simulation: bool = typer.Option(False, "--simulation", help="explicit synthetic state"),
 ) -> None:
-    """Portfolio snapshot: WHAT DO I OWN? WHAT RISK AM I TAKING? (paper)."""
+    """Portfolio snapshot: WHAT DO I OWN? WHAT RISK AM I TAKING?
+
+    LIVE/PAPER read actual broker state. Synthetic state REQUIRES
+    --simulation or --mode DEMO/SIMULATION and is always badged.
+    """
+    from config.mode import DeltaMode, mode_banner
+
+    m = DeltaMode.parse(mode)
+    if m is DeltaMode.LIVE:
+        raise NotImplementedError(
+            "LIVE portfolio-review must read the bound broker adapter; "
+            "refusing to print staged numbers as live state."
+        )
+    synthetic = simulation or m in (DeltaMode.DEMO, DeltaMode.SIMULATION)
+    if m in (DeltaMode.DEMO, DeltaMode.SIMULATION) and not synthetic:
+        synthetic = True
+    if not synthetic:
+        typer.echo(mode_banner(m) + " — live broker read not yet bound; pass --simulation for synthetic.")
+        raise typer.Exit(code=2)
+    typer.echo(mode_banner(DeltaMode.DEMO if m is DeltaMode.DEMO else DeltaMode.SIMULATION))
     from decimal import Decimal
     from uuid import uuid4
 

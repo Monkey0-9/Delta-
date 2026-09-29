@@ -180,7 +180,7 @@ class ExistingSystemBackend:
 
 
 def main() -> None:
-    """Single `delta` launcher: bare -> OpenCode-style chat; args -> typer subs."""
+    """Single `delta` launcher: bare -> Textual workstation; args -> typer subs."""
     import sys
 
     if len(sys.argv) > 1:
@@ -188,8 +188,21 @@ def main() -> None:
 
         app()
         return
-    terminal = OpenCodeTerminal(ExistingSystemBackend())
-    terminal.run()
+    # Canonical workstation: delta_tui (Textual full-screen, Rich fallback).
+    # Legacy prompt_toolkit REPLs (trader/opencode_terminal, delta_os.repl,
+    # cli/app) are quarantined — do not reintroduce them here.
+    try:
+        from delta_tui.app import DeltaApp
+        from config.mode import DeltaMode
+        import os
+
+        raise SystemExit(DeltaApp(DeltaMode.parse(os.getenv("DELTA_MODE", "PAPER"))).run())
+    except SystemExit:
+        raise
+    except Exception:
+        from trader.opencode_terminal import OpenCodeTerminal
+        terminal = OpenCodeTerminal(ExistingSystemBackend())
+        terminal.run()
 
 
 if __name__ == "__main__":

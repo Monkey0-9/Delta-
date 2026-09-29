@@ -79,6 +79,10 @@ HELP = {
     "backtest": "[ticker] [days] — walk-forward backtest w/ Sharpe & Drawdown",
     "trade": "[sym] [buy|sell] [qty] [--limit P] [--stop S] [--target T] [--twap N] [--post-only]",
     "quote": "[ticker] — last, day range, RVOL (no fabricated bid/ask)",
+    "india": "[symbol] [exchange=AUTO] — NSE/BSE quote + IST session (RELIANCE->RELIANCE.NS)",
+    "indicators": "[symbol] — RSI/MACD/Bollinger/Stoch/ATR/ADX/VWAP card",
+    "stats": "[symbol] — Sharpe/Sortino/MaxDD/VaR/CVaR/beta card",
+    "reason": "[symbol] — ReasonForge stance + confidence + tradable verdict",
     "risk": "[p] [b] — VaR95/99, CVaR, Kelly sizing",
     "fundamental": "[ticker] — Piotroski, Altman, DCF",
     "report": "[md|pdf] — client tear-sheet",
@@ -170,8 +174,10 @@ class Terminal:
                  "quant": self._c_quant, "portfolio": self._c_portfolio, "auto": self._c_auto,
                  "manual": self._c_manual,                  "kill": self._c_kill, "flatten": self._c_flatten,
                  "clear": self._c_clear, "help": self._c_help, "unlock": self._c_unlock,
-                 "backtest": self._c_backtest, "trade": self._c_trade,
-                 "quote": self._c_quote, "risk": self._c_risk,
+                  "backtest": self._c_backtest, "trade": self._c_trade,
+                  "quote": self._c_quote, "risk": self._c_risk,
+                  "india": self._c_india, "indicators": self._c_indicators,
+                  "stats": self._c_stats, "reason": self._c_reason,
                  "fundamental": self._c_fundamental, "report": self._c_report,
                  "mode": self._c_mode, "theme": self._c_theme, "workspace": self._c_workspace,
                  "quit": lambda a: "bye", "exit": lambda a: "bye"}
@@ -479,6 +485,47 @@ class Terminal:
         return (f"{args[0].upper()} ${last:,.2f} ({chg:+.2%}){badge} [{qf.provenance.tier}]\n"
                 f"day range {rng} | RVOL {rvol:.1f}x | spread: n/a on daily bars "
                 f"(no fabricated bid/ask)")
+
+    def _c_india(self, args: list) -> str:
+        if not args:
+            return "usage: /india [symbol] [exchange=AUTO] (e.g. /india RELIANCE, /india NIFTY)"
+        from delta_os import opencode_tools as _OT
+
+        sym = args[0]
+        exch = args[1] if len(args) > 1 else "AUTO"
+        out = _OT.tool_india_market(sym, exchange=exch)
+        badge = f" {out['badge']}" if out["badge"] else ""
+        m = out["market"]
+        cur = "Rs." if out.get("currency") == "INR" else "$"
+        return (f"{out['symbol']} {cur}{out['price']:,.2f} ({out['change_pct']:+.2f}%)"
+                f"{badge} [{out['tier']}] via {out['yahoo_symbol']}\n"
+                f"NSE: {m['market']} @ {m['ist_time']} ({m['reason']})")
+
+    def _c_indicators(self, args: list) -> str:
+        if not args:
+            return "usage: /indicators [symbol] (e.g. /indicators RELIANCE)"
+        from delta_os import opencode_tools as _OT
+
+        out = _OT.tool_indicators(args[0])
+        badge = f" {out['badge']}" if out["badge"] else ""
+        return f"{out['card']}{badge} [{out['tier']}]"
+
+    def _c_stats(self, args: list) -> str:
+        if not args:
+            return "usage: /stats [symbol] (e.g. /stats RELIANCE.NS)"
+        from delta_os import opencode_tools as _OT
+
+        out = _OT.tool_statistics(args[0])
+        badge = f" {out['badge']}" if out["badge"] else ""
+        return f"{out['card']}{badge} [{out['tier']}]"
+
+    def _c_reason(self, args: list) -> str:
+        if not args:
+            return "usage: /reason [symbol] (e.g. /reason RELIANCE)"
+        from delta_os import opencode_tools as _OT
+
+        out = _OT.tool_reasonforge(args[0])
+        return out["card"]
 
     def _c_risk(self, args: list) -> str:
         from delta_os import quantkit as Q

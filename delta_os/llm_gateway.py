@@ -233,7 +233,9 @@ class Tool:
 
 
 def research_tools(data_router, fred_key: str = "") -> list[Tool]:
-    """get_market_quote / get_fred_series / calculate_var bound to live code."""
+    """get_market_quote / get_fred_series / calculate_var bound to live code,
+    plus the 5 OpenCode domains (financial-data, india-market, indicators,
+    statistics, reasonforge-logic) via delta_os.opencode_tools."""
     def quote(symbol: str):
         qf = data_router.quote(symbol)
         px = float(qf.frame["close"].iloc[-1])
@@ -252,9 +254,42 @@ def research_tools(data_router, fred_key: str = "") -> list[Tool]:
         qf = data_router.quote(symbol, days=days)
         return _Q.var_cvar(qf.frame["close"].pct_change().dropna(), level=level)
 
+    def india_quote(symbol: str, exchange: str = "AUTO", days: int = 180):
+        from delta_os import opencode_tools as _OT
+
+        out = _OT.tool_india_market(symbol, days=int(days), exchange=exchange)
+        out.pop("frame", None)
+        return out
+
+    def get_indicators(symbol: str, exchange: str = "AUTO", days: int = 252):
+        from delta_os import opencode_tools as _OT
+
+        out = _OT.tool_indicators(symbol, days=int(days), exchange=exchange)
+        return {"symbol": out["symbol"], "card": out["card"],
+                "summary": out["summary"], "badge": out["badge"]}
+
+    def get_statistics(symbol: str, exchange: str = "AUTO", days: int = 252):
+        from delta_os import opencode_tools as _OT
+
+        out = _OT.tool_statistics(symbol, days=int(days), exchange=exchange)
+        return {"symbol": out["symbol"], "card": out["card"],
+                "statistics": out["statistics"], "badge": out["badge"]}
+
+    def reason(symbol: str, exchange: str = "AUTO", days: int = 252):
+        from delta_os import opencode_tools as _OT
+
+        out = _OT.tool_reasonforge(symbol, days=int(days), exchange=exchange)
+        return {"symbol": out["symbol"], "stance": out["stance"],
+                "confidence": out["confidence"], "card": out["card"],
+                "tradable": out["tradable"], "badge": out["badge"]}
+
     return [Tool("get_market_quote", quote, "{symbol}"),
             Tool("get_fred_series", fred, "{series}"),
-            Tool("calculate_var", var, "{level?, symbol?, days?}")]
+            Tool("calculate_var", var, "{level?, symbol?, days?}"),
+            Tool("india_quote", india_quote, "{symbol, exchange?, days?}"),
+            Tool("get_indicators", get_indicators, "{symbol, exchange?, days?}"),
+            Tool("get_statistics", get_statistics, "{symbol, exchange?, days?}"),
+            Tool("synthesize_reason", reason, "{symbol, exchange?, days?}")]
 
 
 __all__ = ["GATEWAY_VERSION", "ROLE_DEFAULTS", "PROVIDERS", "ModelUnavailable",

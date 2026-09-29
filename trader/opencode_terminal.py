@@ -114,7 +114,7 @@ class DeltaCompleter:
 
 # Slash commands executed by the LIVE delta_os core (never stubs).
 _LIVE_PASSTHROUGH = (
-    "quote", "quant", "risk", "fundamental", "report", "news", "macro",
+    "quote", "india", "indicators", "stats", "reason", "quant", "risk", "fundamental", "report", "news", "macro",
     "track", "portfolio", "trade", "backtest", "model", "broker", "auth",
     "kill", "unlock", "flatten", "mode", "theme", "workspace", "auto",
     "manual", "clear", "help", "status",
@@ -397,7 +397,7 @@ class OpenCodeTerminal:
                 f"{'=' * 50}\nSystem: OPERATIONAL")
 
     def _cmd_help(self, args: str) -> str:
-        cats = {"Trading": ["quote", "quant", "risk", "fundamental", "report", "trade", "news", "macro"],
+        cats = {"Trading": ["quote", "india", "quant", "indicators", "stats", "reason", "risk", "fundamental", "report", "trade", "news", "macro"],
                 "Portfolio": ["portfolio", "track", "backtest", "flatten", "kill"],
                 "System": ["mode", "theme", "workspace", "model", "broker", "auth", "status", "clear", "exit", "help"]}
         lines = ["DELTA OS Commands  (type / + Tab to fuzzy-search)", "=" * 50, ""]

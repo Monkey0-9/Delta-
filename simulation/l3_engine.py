@@ -12,8 +12,24 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from decimal import Decimal
+from enum import Enum
 
 ENGINE_VERSION = "microstructure-v1"
+
+
+class ReplacePriorityPolicy(str, Enum):
+    """Exchange-specific cancel/replace queue-priority semantics.
+
+    RETAIN_IF_DECREASE: price/side unchanged AND new qty <= old qty keeps
+        queue position (in-place qty update). Otherwise cancel+add.
+    LOSE_PRIORITY:      every replace is cancel+add (goes to back of queue).
+    NEW_PRIORITY:       explicit alias for LOSE_PRIORITY for venues that
+        document replace-as-new-order.
+    """
+
+    RETAIN_IF_DECREASE = "RETAIN_IF_DECREASE"
+    LOSE_PRIORITY = "LOSE_PRIORITY"
+    NEW_PRIORITY = "NEW_PRIORITY"
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +73,7 @@ class L3Book:
     _idx: dict = field(default_factory=dict)  # id -> (price, side)
     _fills: list = field(default_factory=list)
     _seq: int = 0
+    policy: ReplacePriorityPolicy = ReplacePriorityPolicy.RETAIN_IF_DECREASE
 
     def queue_position(self, order_id: str) -> int:
         loc = self._idx.get(order_id)
@@ -92,12 +109,36 @@ class L3Book:
             self._cancel(ev.order_id)
             return []
         if ev.kind == "REPLACE":
-            self._cancel(ev.order_id)
-            return self._add(ev)
+            self.replace(ev)
+            return []
         if ev.kind == "EXPIRE":
             self._cancel(ev.order_id)
             return []
         return []
+
+    def replace(self, ev: L3Event) -> bool:
+        """Venue-policy-aware cancel/replace. Returns False if order unknown."""
+        loc = self._idx.get(ev.order_id)
+        if not loc:
+            return False
+        old_price, old_side = loc
+        if self.policy in (ReplacePriorityPolicy.LOSE_PRIORITY,
+                           ReplacePriorityPolicy.NEW_PRIORITY):
+            self._cancel(ev.order_id)
+            self._add(ev)
+            return True
+        # RETAIN_IF_DECREASE
+        if ev.side == old_side and ev.price == old_price:
+            q = self._book(old_side).get(old_price, [])
+            for r in q:
+                if r.order_id == ev.order_id:
+                    if ev.qty <= r.qty:
+                        r.qty = ev.qty  # in-place: priority retained
+                        return True
+                    break
+        self._cancel(ev.order_id)
+        self._add(ev)
+        return True
 
     def _book(self, side: str) -> dict:
         return self._bids if side == "buy" else self._asks
