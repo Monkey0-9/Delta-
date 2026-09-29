@@ -81,3 +81,5 @@
 {"t": "2026-09-29T15:20:55.319548+00:00", "run_id": "EXP-F8C5B4FF", "regime": "normal_vol_risk_on", "evidence": {"vol_ratio": 0.826, "avg_corr": -0.044, "mom_20d": 0.0263, "liq_ratio": 0.83}}
 {"t": "2026-09-29T16:29:01.508951+00:00", "run_id": "EXP-F8C5B4FF", "regime": "normal_vol_risk_on", "evidence": {"vol_ratio": 0.826, "avg_corr": -0.044, "mom_20d": 0.0263, "liq_ratio": 0.83}}
 {"t": "2026-09-29T16:29:10.048759+00:00", "run_id": "EXP-F8C5B4FF", "regime": "normal_vol_risk_on", "evidence": {"vol_ratio": 0.826, "avg_corr": -0.044, "mom_20d": 0.0263, "liq_ratio": 0.83}}
+{"t": "2026-09-29T16:34:10.626545+00:00", "run_id": "EXP-F8C5B4FF", "regime": "normal_vol_risk_on", "evidence": {"vol_ratio": 0.826, "avg_corr": -0.044, "mom_20d": 0.0263, "liq_ratio": 0.83}}
+{"t": "2026-09-29T16:34:19.184991+00:00", "run_id": "EXP-F8C5B4FF", "regime": "normal_vol_risk_on", "evidence": {"vol_ratio": 0.826, "avg_corr": -0.044, "mom_20d": 0.0263, "liq_ratio": 0.83}}
