@@ -4,24 +4,36 @@ from __future__ import annotations
 
 def header_text(h: dict) -> str:
     mode = str(h.get("mode", "PAPER")).upper()
-    market = str(h.get("market", "CLOSED")).upper()
+    market = str(h.get("market", "LIVE")).upper()
     data = str(h.get("data", "HEALTHY")).upper()
     risk = str(h.get("risk", "SAFE")).upper()
     clock = str(h.get("clock_utc", ""))
-    # Image 1 (console-safe): DELTA | QUANT INTELLIGENCE CLI | • MARKETS | • DATA | • RISK | [MODE] | clock
-    # (Uses • U+2022 which survives cp1252; avoids Δ/●/◉ which crash Windows consoles.)
+    context_symbol = h.get("symbol", "")
+
+    # Mode visual formatting
+    if mode == "LIVE":
+        mode_str = "MODE: LIVE [!] "
+    elif mode == "RESEARCH":
+        mode_str = "MODE: RESEARCH"
+    else:
+        mode_str = f"MODE: {mode}"
+
+    # Symbol context tag if active
+    sym_tag = f"  |  {context_symbol}" if context_symbol else ""
+
     return (
-        "DELTA  |  QUANT INTELLIGENCE CLI  |  "
-        f"MARKETS {market}  |  DATA {data}  |  RISK {risk}  |  "
-        f"[{mode}]  |  {clock}".strip()
+        f"DELTA  |  MARKET {market}  |  DATA {data}  |  RISK {risk}  |  "
+        f"{mode_str}{sym_tag}  |  {clock}".strip()
     )
 
 
 def footer_text(f: dict) -> str:
+    ctx = f.get("context", "none")
     return (
         f"Model: {f.get('model', 'delta-fm-research')}  |  "
         f"Agent: {f.get('agent', 'quant-researcher')}  |  "
-        f"Session: {f.get('session', 'default')}"
+        f"Session: {f.get('session', 'default')}  |  "
+        f"Context: {ctx}"
     )
 
 

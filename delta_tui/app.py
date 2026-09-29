@@ -443,7 +443,7 @@ class DeltaApp:
     def render_current(self) -> str:
         self.refresh_chrome()
         name = self.store.workspace
-        # new-session splash while no turns yet
+        # State A: New-session splash while no conversation turns yet
         if not self.store.conversation and name == "home":
             screen = SCREENS["home"]
             try:
@@ -452,6 +452,21 @@ class DeltaApp:
                 vm = screen.build_viewmodel(self.store)
                 splash = screen.render_text(vm)
             return f"{self.header()}\n{mode_banner(self.store.mode)}\n\n{splash}\n{self.footer()}"
+
+        # State B: Active conversation workspace when on home with conversation history
+        if name == "home" and self.store.conversation:
+            lines = [self.header(), mode_banner(self.store.mode), ""]
+            for turn in self.store.conversation[-12:]:
+                role = turn.get("role", "You")
+                text = turn.get("text", "")
+                lines.append(f"  {role}")
+                for line in text.split("\n"):
+                    lines.append(f"  {line}")
+                lines.append("")
+            lines.append(self.footer())
+            return "\n".join(lines)
+
+        # State C: Contextual workspace screen (market, research, risk, etc.)
         screen = SCREENS.get(name, SCREENS["home"])
         vm = screen.build_viewmodel(self.store)
         return f"{self.header()}\n{mode_banner(self.store.mode)}\n\n{screen.render_text(vm)}\n{self.footer()}"
