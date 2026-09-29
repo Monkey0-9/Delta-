@@ -513,6 +513,7 @@ def run() -> dict[str, Any]:
         "wave": "W93",
         "name": "Python-Rust Correctness Parity",
         "status": "PASS" if passed else "FAIL",
+        "backend": type(native).__name__,
         "kernel_count": len(results),
         "passed_count": passed_count,
         "failed_count": failed_count,
