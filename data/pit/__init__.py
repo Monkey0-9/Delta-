@@ -6,10 +6,18 @@ from data.pit.manifest_system import (
     DatasetManifest,
     PITManifestSystem,
 )
+from data.pit.construction_pipeline import (
+    PITFrameSnapshot,
+    PITConstructionPipeline,
+)
+from data.pit.query_engine import PITQueryEngine
 
 __all__ = [
     "ManifestStatus",
     "PITSnapshot",
     "DatasetManifest",
     "PITManifestSystem",
+    "PITFrameSnapshot",
+    "PITConstructionPipeline",
+    "PITQueryEngine",
 ]

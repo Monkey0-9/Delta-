@@ -8,6 +8,10 @@ from .classifier import RegimeClassifier, Regime, RegimeType
 from .hmm import HiddenMarkovModel, HMMParameters
 from .features import RegimeFeatures
 from .kalman_filter import KalmanFilter, KalmanParameters, KalmanState
+from .hmm_enhanced import EnhancedHMM, EnhancedHMMParameters, BayesianStatePosterior
+from .markov_switching import MarkovSwitching, MarkovSwitchingParameters
+from .bayesian_state import BayesianStateEstimator, BayesianStateParameters
+from .regime_forecaster import RegimeForecaster, RegimeForecasterParameters
 
 __all__ = [
     "RegimeClassifier",
@@ -19,4 +23,13 @@ __all__ = [
     "KalmanFilter",
     "KalmanParameters",
     "KalmanState",
+    "EnhancedHMM",
+    "EnhancedHMMParameters",
+    "BayesianStatePosterior",
+    "MarkovSwitching",
+    "MarkovSwitchingParameters",
+    "BayesianStateEstimator",
+    "BayesianStateParameters",
+    "RegimeForecaster",
+    "RegimeForecasterParameters",
 ]

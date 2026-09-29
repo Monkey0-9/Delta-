@@ -1,4 +1,4 @@
-"""HOME — command cockpit. Answers: what is happening / matters / needs attention."""
+"""HOME — new-session splash matching Image 1. Disappears once conversation starts."""
 from __future__ import annotations
 
 from .base import BaseScreen
@@ -19,11 +19,34 @@ class HomeScreen(BaseScreen):
         )
 
     def render_text(self, vm: HomeVM) -> str:
-        lines = [
-            f"HOME [{vm.mode}]  regime={vm.regime} liq={vm.liquidity}",
-            f"NLV ${vm.net_liq:,.0f}  gross {vm.gross_pct:.1f}%  net {vm.net_pct:.1f}%",
-            f"VaR99 {vm.var99:.2f}%  ES99 {vm.es99:.2f}%  DD {vm.drawdown:.2f}%",
-        ]
-        for o in vm.opportunities[:5]:
-            lines.append(f"  - {o}")
-        return "\n".join(lines)
+        # Splash only — no portfolio numbers here (minimal philosophy).
+        # Conversation screens own numbers once the session is active.
+        return "\n".join([
+            "",
+            "                         DELTA",
+            "               QUANT INTELLIGENCE CLI",
+            "",
+            "     RESEARCH  |  SIMULATE  |  ANALYZE  |  EXECUTE  |  LEARN",
+            "",
+            "  >  Ask DELTA anything, run a strategy, analyze a market, or type / for commands...   [Ctrl+K]",
+            "",
+            "       Model: delta-fm-research  |  Agent: quant-researcher  |  Session: default",
+            "                    / for commands  |  Ctrl+O open browser  |  Ctrl+X K risk",
+            "",
+        ])
+
+    def render_for(self, store: TerminalStore) -> str:
+        """Splash with live model/agent/session chips."""
+        return "\n".join([
+            "",
+            "                         DELTA",
+            "               QUANT INTELLIGENCE CLI",
+            "",
+            "     RESEARCH  |  SIMULATE  |  ANALYZE  |  EXECUTE  |  LEARN",
+            "",
+            "  >  Ask DELTA anything, run a strategy, analyze a market, or type / for commands...   [Ctrl+K]",
+            "",
+            f"       Model: {store.model}  |  Agent: {store.agent}  |  Session: {store.session_id}",
+            "                    / for commands  |  Ctrl+O open browser  |  Ctrl+X K risk",
+            "",
+        ])

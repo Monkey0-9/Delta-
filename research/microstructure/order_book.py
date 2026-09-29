@@ -106,7 +106,14 @@ class OrderBook:
             )
             book[order.price] = new_level
         else:
-            bisect.insort(price_list, order.price)
+            if reverse:
+                # Bids: keep descending (best bid first at index 0)
+                idx = 0
+                while idx < len(price_list) and price_list[idx] > order.price:
+                    idx += 1
+                price_list.insert(idx, order.price)
+            else:
+                bisect.insort(price_list, order.price)
             book[order.price] = PriceLevel(
                 price=order.price,
                 total_quantity=order.quantity,
@@ -153,9 +160,10 @@ class OrderBook:
             else:
                 # Remove price level
                 del book[order.price]
-                index = bisect.bisect_left(price_list, order.price)
-                if index < len(price_list) and price_list[index] == order.price:
-                    price_list.pop(index)
+                try:
+                    price_list.remove(order.price)
+                except ValueError:
+                    pass
 
     def modify_order(self, order_id: str, new_quantity: float) -> bool:
         """Modify order quantity."""

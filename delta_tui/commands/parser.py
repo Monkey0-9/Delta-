@@ -17,7 +17,9 @@ def parse(text: str) -> dict:
                 "args": parts[1:], "raw": t}
     low = t.lower()
     for name in ("book", "market", "portfolio", "risk", "research",
-                 "alpha", "execution", "orders", "system", "scenario"):
+                 "alpha", "execution", "orders", "system", "scenario",
+                 "simulate", "backtest", "trade", "automation", "learn",
+                 "analyze", "model", "agent", "session", "auth", "open"):
         if low.startswith("/" + name) or low.startswith(name):
             m = _SYM.search(t.upper())
             return {"kind": "nl", "action": lookup(name),

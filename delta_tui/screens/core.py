@@ -12,11 +12,30 @@ class MarketScreen(BaseScreen):
     name = "market"
 
     def build_viewmodel(self, store: TerminalStore) -> MarketVM:
+        indices = (("SPX", 0.74), ("NASDAQ", 1.03), ("VIX", 17.4))
+        regime, sectors, events = "NEUTRAL", (("TECH", 1.8), ("ENERGY", 0.4), ("FIN", 0.9)), (("09:30", "OPEN"), ("16:00", "CLOSE"))
+        try:  # live macro when backend reachable; never crash the TUI
+            from delta_os.data_router import DataRouter
+
+            q = DataRouter().quote("SPY", days=5)
+            last = float(q.frame["close"].iloc[-1])
+            prev = float(q.frame["close"].iloc[-2]) if len(q.frame) > 1 else last
+            chg = (last / prev - 1.0) * 100.0 if prev else 0.0
+            indices = (("SPY", round(chg, 2)), ("NASDAQ", 1.03), ("VIX", 17.4))
+            tag = getattr(getattr(q, "provenance", None), "tier", "") or ""
+            if "SYNTH" in str(tag).upper() or "STALE" in str(tag).upper():
+                store.data_health = "DEGRADED"
+                store.data_live = False
+            else:
+                store.data_health = "HEALTHY"
+                store.data_live = True
+        except Exception:
+            pass
         return MarketVM(
-            indices=(("SPX", 0.74), ("NASDAQ", 1.03), ("VIX", 17.4)),
-            regime="NEUTRAL",
-            sectors=(("TECH", 1.8), ("ENERGY", 0.4), ("FIN", 0.9)),
-            events=(("09:30", "OPEN"), ("16:00", "CLOSE")),
+            indices=indices,
+            regime=regime,
+            sectors=sectors,
+            events=events,
             mode=store.mode.value,
         )
 
@@ -29,11 +48,30 @@ class SecurityScreen(BaseScreen):
     name = "security"
 
     def build_viewmodel(self, store: TerminalStore) -> QuoteVM:
-        px = 177.42
+        px, chg, bid, ask, vwap, src = 177.42, 1.82, 177.41, 177.43, 176.91, "cache"
+        try:
+            from delta_os.data_router import DataRouter
+
+            q = DataRouter().quote(store.symbol, days=10)
+            closes = q.frame["close"]
+            px = float(closes.iloc[-1])
+            prev = float(closes.iloc[-2]) if len(closes) > 1 else px
+            chg = (px / prev - 1.0) * 100.0 if prev else 0.0
+            bid, ask = px - 0.01, px + 0.01
+            try:
+                vwap = float(q.frame["close"].tail(5).mean())
+            except Exception:
+                vwap = px
+            prov = getattr(q, "provenance", None)
+            src = str(getattr(prov, "tier", "live") or "live").lower()
+            store.data_live = "synth" not in src and "stale" not in src
+            store.data_health = "HEALTHY" if store.data_live else "DEGRADED"
+        except Exception:
+            pass
         return QuoteVM(
-            symbol=store.symbol, last=Number(px, source="yahoo"),
-            change_pct=1.82, bid=px - 0.01, ask=px + 0.01,
-            bid_sz=1800, ask_sz=1200, vwap=176.91, mode=store.mode.value)
+            symbol=store.symbol, last=Number(px, source=src),
+            change_pct=chg, bid=bid, ask=ask,
+            bid_sz=1800, ask_sz=1200, vwap=vwap, mode=store.mode.value)
 
     def render_text(self, vm: QuoteVM) -> str:
         return (f"{vm.symbol} [{vm.mode}] last {vm.last.render()} "
@@ -46,6 +84,13 @@ class BookScreen(BaseScreen):
 
     def build_viewmodel(self, store: TerminalStore) -> BookVM:
         px = 177.42
+        try:
+            from delta_os.data_router import DataRouter
+
+            q = DataRouter().quote(store.symbol, days=5)
+            px = float(q.frame["close"].iloc[-1])
+        except Exception:
+            pass
         bids = tuple({"price": px - 0.01 * i, "size": 1800 + i * 2000} for i in range(5))
         asks = tuple({"price": px + 0.01 * (i + 1), "size": 1200 + i * 1800} for i in range(5))
         return BookVM(symbol=store.symbol, bids=bids, asks=asks,
@@ -105,11 +150,15 @@ class RiskScreen(BaseScreen):
     name = "risk"
 
     def build_viewmodel(self, store: TerminalStore) -> RiskVM:
-        return RiskVM(status="GREEN", gross=143.0, net=37.0,
+        status = store.risk_state or "SAFE"
+        # Normalize to GREEN/YELLOW/RED display while preserving SAFE/REVIEW/BLOCKED semantics
+        display = {"SAFE": "GREEN", "REVIEW": "YELLOW", "BLOCKED": "RED"}.get(status.upper(), "GREEN")
+        return RiskVM(status=display, gross=143.0, net=37.0,
                       var99=2.14, es99=3.31,
                       watches=("concentration:OK", "sector:OK", "liquidity:OK"),
                       mode=store.mode.value)
 
     def render_text(self, vm: RiskVM) -> str:
         return (f"RISK [{vm.mode}] {vm.status} gross {vm.gross:.0f}/{vm.gross_lim:.0f} "
-                f"net {vm.net:.0f}/{vm.net_lim:.0f} VaR99 {vm.var99:.2f}%")
+                f"net {vm.net:.0f}/{vm.net_lim:.0f} VaR99 {vm.var99:.2f}%  "
+                f"Ctrl+X K kill-switch · research stays available")

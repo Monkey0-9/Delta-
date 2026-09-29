@@ -1,4 +1,4 @@
-"""Leader-key map: Ctrl+X then key. Ctrl+K alone is NEVER kill."""
+"""Leader-key map: Ctrl+X then key. Ctrl+K focuses palette/kill-hint (never instant kill)."""
 from __future__ import annotations
 
 LEADER = "ctrl+x"
@@ -17,6 +17,9 @@ BINDINGS: dict[str, str] = {
     "ctrl+x n": "research_new",
     "ctrl+x t": "session_new",
     "ctrl+p": "palette",
+    "ctrl+k": "palette",      # Image 1 hint: opens / palette + kill shortcut hint
+    "ctrl+o": "open",         # browser handoff
+    "/": "palette",
     "escape": "back",
     "tab": "next_pane",
 }
