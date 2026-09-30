@@ -1,0 +1,21 @@
+base: Qwen/Qwen3-0.6B-Base
+task: sft
+
+data:
+  train: ./data/finance_sft/delta_finance_sft.jsonl
+  format: alpaca
+  val_split: 0.1
+  max_length: 256
+
+training:
+  epochs: 3
+  lr: 0.0002
+  batch_size: 1
+  gradient_checkpointing: true
+  stream_layers: true
+  lora:
+    r: 8
+    alpha: 16
+  quantization: 4bit
+
+output: ./artifacts/finance_model/soup_delta_fm_0p6b

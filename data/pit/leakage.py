@@ -41,6 +41,19 @@ class LeakFinding:
     detail: str
 
 
+def _as_utc(ts: Any) -> Any:
+    """Normalize datetime-like to tz-aware UTC Timestamp.
+
+    P0-8 fix: pd.Timestamp(tz_aware, tz='UTC') raises in modern pandas, so
+    guards crashed on exactly the inputs they must check. Convert aware
+    values, localize naive ones.
+    """
+    t = pd.Timestamp(ts)
+    if t.tzinfo is None:
+        return t.tz_localize("UTC")
+    return t.tz_convert("UTC")
+
+
 def check_timestamp_leakage(df: pd.DataFrame, asof_col: str = "asof",
                             publish_col: str = "publication_ts") -> LeakFinding:
     bad = PITConstructionPipeline.detect_lookahead(df, asof_col, publish_col)
@@ -65,7 +78,7 @@ def check_universe_survivorship(members: pd.DataFrame,
     first decision date whose history would otherwise be backfilled."""
     if "listing_ts" not in members.columns:
         return LeakFinding("universe_survivorship", 0, (), "no listing_ts: skip")
-    first = pd.Timestamp(first_decision, tz="UTC")
+    first = _as_utc(first_decision)
     lst = pd.to_datetime(members["listing_ts"], utc=True)
     bad = members.index[lst > first]
     syms = tuple(members.loc[bad, "symbol"].head(5)) if "symbol" in members.columns else tuple(bad[:5])
@@ -83,8 +96,8 @@ def check_target_leakage(features_asof: pd.Series, target_ts: pd.Series) -> Leak
 
 def check_train_test_contamination(train_end: Any, test_start: Any,
                                    embargo: str = "5D") -> LeakFinding:
-    te = pd.Timestamp(train_end, tz="UTC")
-    ts = pd.Timestamp(test_start, tz="UTC")
+    te = _as_utc(train_end)
+    ts = _as_utc(test_start)
     gap = ts - te
     need = pd.Timedelta(embargo)
     if gap < need:

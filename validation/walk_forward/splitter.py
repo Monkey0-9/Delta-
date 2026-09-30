@@ -12,14 +12,20 @@ class WalkForwardSplit:
 
 
 def walk_forward_splits(
-    n: int, *, train: int, test: int, step: int, purge: int = 0, embargo: int = 0
+    n: int, *, train: int, test: int, step: int, purge: int = 1, embargo: int = 1
 ) -> list[WalkForwardSplit]:
     """Chronological splits with no overlap between train and test.
 
     purge: bars dropped from the end of each train window (leakage guard).
     embargo: bars skipped between train-end and test-start (adjacent-info guard).
-    Both default to 0 for backward compatibility.
+    P0 fail-closed fix (2026-09-30): defaults are now 1/1, not 0/0. A zero
+    purge/embargo silently permits look-ahead when labels span multiple bars
+    (Lopez de Prado AFML Ch.7). Callers needing the legacy exact partition
+    for non-temporal unit tests must pass purge=0, embargo=0 explicitly and
+    document why temporal leakage is impossible.
     """
+    if purge < 0 or embargo < 0:
+        raise ValueError("purge/embargo must be >= 0.")
     splits: list[WalkForwardSplit] = []
     start = 0
     while start + train + test + embargo <= n:

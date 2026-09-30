@@ -1,0 +1,12 @@
+{
+  "file": "delta_finance_grounded.jsonl",
+  "rows": 174,
+  "stages": {
+    "S1_domain": 64,
+    "S2_numerical": 70,
+    "S3_refusal": 40
+  },
+  "sha256": "1ca58ef12080cc05aad944d3b068a535fb66cebda65a5d6553e4473bf1661fcb",
+  "seed": 20260930,
+  "live_numbers": false
+}

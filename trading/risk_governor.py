@@ -21,7 +21,15 @@ class RiskCheckResult:
 
 
 class RiskGovernor:
-    """Pre-trade risk governor enforcing position limits and leverage constraints"""
+    """Pre-trade risk governor enforcing position limits and leverage constraints.
+
+    DEPRECATED for standalone order approval (P0 2026-09-30): this governor
+    checks position/leverage/buying-power only — it has NO kill-switch, auth,
+    stale-data, idempotency, or synthetic-source checks. The authoritative
+    gate is ``risk.firewall.firewall.RiskFirewall`` via
+    ``core.oms.gateway.OrderGateway``. Use :meth:`check_order_with_firewall`
+    or the gateway; direct ``check_order`` approval must never reach a broker.
+    """
     
     def __init__(self, config: Dict[str, Any]):
         self.max_position_pct = config.get("max_position_pct", 5.0)

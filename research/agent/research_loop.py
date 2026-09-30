@@ -76,6 +76,7 @@ class ResearchLoop:
         permissions: Any = None,
         role: str = "researcher",
         backtest_tool: str = "backtest",
+        strict: bool = False,
     ) -> None:
         """
         Initialize research loop.
@@ -88,11 +89,17 @@ class ResearchLoop:
                 to synthetic scoring.
             role: Role used for permission checks.
             backtest_tool: Registered tool name preferred for scoring.
+            strict: P0 fail-closed flag (2026-09-30). When True, a backtest
+                tool exception propagates instead of silently falling back
+                to ``synthetic`` scoring, so dead research can never pass
+                as scored. Default False for backward compat; promotion
+                pipelines must use strict=True.
         """
         self._registry = registry
         self._permissions = permissions
         self._role = role
         self._backtest_tool = backtest_tool
+        self._strict = strict
 
     def _can_use_backtest(self) -> bool:
         """Check backtest tool availability and authorization."""
@@ -162,6 +169,8 @@ class ResearchLoop:
                     )
                     tool_used = self._backtest_tool
                 except Exception as exc:  # noqa: BLE001 - offline fallback
+                    if self._strict:
+                        raise
                     score = _synthetic_score(current, i)
                     detail = {"fallback": True, "error": str(exc)}
                     tool_used = "synthetic"
@@ -200,6 +209,8 @@ class ResearchLoop:
             "provenance": [entry.__dict__ for entry in provenance],
             "max_iter": max_iter,
             "converged": len(history) > 0,
+            "synthetic_used": any(h["tool_used"] == "synthetic" for h in history),
+            "strict": self._strict,
         }
 
 

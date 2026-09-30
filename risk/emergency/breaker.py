@@ -43,6 +43,19 @@ class CircuitBreaker:
         self._events: list[BreakerEvent] = []
         self._override_count = 0
         self._last_trigger_time: datetime | None = None
+        self._halt_callbacks: list[Any] = []
+        self._kill_board = None
+
+    def register_halt_callback(self, cb: Any) -> None:
+        """Register an engine-halt hook. P0 fix: trigger() without a halt
+        target was decorative (comments admitted cancel/flatten 'would'
+        happen). Now trigger() runs every registered callback; zero
+        callbacks is logged in the event details so the gap is visible."""
+        self._halt_callbacks.append(cb)
+
+    def bind_to_kill_board(self, board: Any) -> None:
+        """Two-way bind: breaker OPEN mirrors board GLOBAL active."""
+        self._kill_board = board
     
     def trigger(self, reason: str, details: dict[str, Any] | None = None) -> BreakerEvent:
         """
@@ -72,13 +85,39 @@ class CircuitBreaker:
         )
         
         self._events.append(event)
-        
-        # In production, this would:
-        # 1. Cancel all open orders via OMS
-        # 2. Flatten positions to neutral
-        # 3. Send emergency alerts
-        # 4. Log to immutable audit trail
-        
+
+        # P0 fix: actually halt. Run registered OMS/engine halt hooks and
+        # mirror into the bound KillSwitchBoard GLOBAL layer when present.
+        halt_errors: list[str] = []
+        for cb in self._halt_callbacks:
+            try:
+                res = cb()
+                # Support async hooks without making trigger() async: if the
+                # callback returns a coroutine, run it to completion when no
+                # loop is running, else leave it to the caller's loop via
+                # explicit scheduling note in details.
+                import asyncio as _asyncio
+                import inspect as _inspect
+                if _inspect.isawaitable(res):
+                    try:
+                        _asyncio.get_running_loop()
+                    except RuntimeError:
+                        _asyncio.run(res)  # type: ignore[arg-type]
+                    else:
+                        halt_errors.append("async_halt_callback_deferred")
+            except Exception as exc:  # fail closed: record, stay OPEN
+                halt_errors.append(str(exc))
+        if self._kill_board is not None:
+            try:
+                self._kill_board.glob.activate(actor=f"breaker:{reason[:64]}")
+            except Exception as exc:
+                halt_errors.append(f"board_bind_failed:{exc}")
+        if halt_errors or not self._halt_callbacks:
+            event.details["halt_callbacks"] = {
+                "count": len(self._halt_callbacks),
+                "errors": halt_errors,
+            }
+
         return event
     
     def reset(self, reason: str = "Manual reset") -> BreakerEvent:

@@ -12,8 +12,10 @@ from validation.walk_forward.splitter import walk_forward_splits
 def test_walk_forward_no_overlap() -> None:
     splits = walk_forward_splits(100, train=50, test=10, step=10)
     for s in splits:
-        assert s.train_end == s.test_start
+        # Fail-closed defaults purge=1, embargo=1: train_end + purge + embargo == test_start.
+        assert s.train_end + 2 == s.test_start
         assert s.test_end - s.test_start == 10
+        assert s.train_end > s.train_start
 
 
 def test_oos_flags_weak_strategy() -> None:

@@ -30,9 +30,11 @@ def run_walk_forward(
     evaluate: Callable[[int, int, int, int], Decimal],
     min_metric: Decimal = Decimal("0"),
     min_pass_rate: Decimal = Decimal("0.5"),
+    purge: int = 1,
+    embargo: int = 1,
 ) -> WalkForwardReport:
     """Execute fn over chronological splits. Deterministic, fail-closed."""
-    splits = walk_forward_splits(n, train=train, test=test, step=step)
+    splits = walk_forward_splits(n, train=train, test=test, step=step, purge=purge, embargo=embargo)
     folds: list[FoldResult] = []
     for i, s in enumerate(splits):
         metric = evaluate(s.train_start, s.train_end, s.test_start, s.test_end)

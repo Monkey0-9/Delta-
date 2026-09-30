@@ -14,14 +14,35 @@ logger = logging.getLogger(__name__)
 
 class AuditEntry:
     """Single audit entry with hash chain"""
-    
-    def __init__(self, entry_type: str, data: Dict[str, Any], 
-                 previous_hash: Optional[str] = None):
+
+    def __init__(self, entry_type: str, data: Dict[str, Any],
+                  previous_hash: Optional[str] = None,
+                  timestamp: Optional[str] = None):
         self.entry_type = entry_type
         self.data = data
-        self.timestamp = datetime.utcnow().isoformat()
+        # P0 fix: preserve original timestamp on reload. Previously _load_ledger
+        # reconstructed entries with a fresh utcnow(), so the recomputed hash
+        # never matched the stored hash and the entire history was dropped.
+        # Timezone-aware UTC ISO-8601; naive legacy timestamps are assumed UTC.
+        if timestamp is None:
+            from datetime import timezone
+            self.timestamp = datetime.now(timezone.utc).isoformat()
+        else:
+            self.timestamp = timestamp
         self.previous_hash = previous_hash
         self.hash = self._compute_hash()
+
+    @classmethod
+    def from_dict(cls, payload: Dict[str, Any]) -> "AuditEntry":
+        """Reconstruct without mutating timestamp/hash; verify on demand."""
+        entry = cls.__new__(cls)
+        entry.entry_type = payload["entry_type"]
+        entry.data = payload["data"]
+        entry.timestamp = payload["timestamp"]
+        entry.previous_hash = payload.get("previous_hash")
+        # Preserve stored hash; caller verifies via _compute_hash().
+        entry.hash = payload["hash"]
+        return entry
     
     def _compute_hash(self) -> str:
         """Compute SHA-256 hash of entry"""
@@ -59,14 +80,11 @@ class AuditLedger:
                     line = line.strip()
                     if line:
                         entry_data = json.loads(line)
-                        entry = AuditEntry(
-                            entry_type=entry_data["entry_type"],
-                            data=entry_data["data"],
-                            previous_hash=entry_data.get("previous_hash")
-                        )
+                        # P0 fix: reconstruct with preserved timestamp/hash.
+                        entry = AuditEntry.from_dict(entry_data)
                         # Verify hash
-                        if entry.hash != entry_data["hash"]:
-                            logger.error(f"Hash mismatch in audit entry: {entry.hash} != {entry_data['hash']}")
+                        if entry._compute_hash() != entry_data["hash"]:
+                            logger.error(f"Hash mismatch in audit entry: {entry._compute_hash()} != {entry_data['hash']}")
                             continue
                         
                         self._entries.append(entry)
