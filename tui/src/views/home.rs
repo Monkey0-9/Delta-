@@ -122,6 +122,10 @@ pub fn render_home_view(frame: &mut Frame, area: Rect, state: &ApplicationState)
         .split(inner_area);
 
     let input_text = &state.ui.input_buffer;
+    let pos = state.ui.cursor_pos.min(input_text.len());
+    let blink_on = (state.ui.tick_count / 3) % 2 == 0;
+    let cursor_glyph = if blink_on { "█" } else { " " };
+
     let mut left_spans = vec![
         Span::styled(" > ", Style::default().fg(ThemeColors::ACCENT).add_modifier(Modifier::BOLD)),
         Span::styled("│ ", Style::default().fg(ThemeColors::BORDER_NORMAL)),
@@ -129,19 +133,24 @@ pub fn render_home_view(frame: &mut Frame, area: Rect, state: &ApplicationState)
 
     if input_text.is_empty() {
         let placeholder = "Ask DELTA anything, run a strategy, analyze a market, or type / for commands...";
-        let max_len = (prompt_chunks[0].width as usize).saturating_sub(6);
+        let max_len = (prompt_chunks[0].width as usize).saturating_sub(8);
         let truncated = if placeholder.len() > max_len {
             &placeholder[..max_len.saturating_sub(3)]
         } else {
             placeholder
         };
+        left_spans.push(Span::styled(cursor_glyph, Style::default().fg(ThemeColors::ACCENT)));
         left_spans.push(Span::styled(truncated, Style::default().fg(ThemeColors::TEXT_SECONDARY)));
     } else {
         left_spans.push(Span::styled(
-            input_text,
+            &input_text[..pos],
             Style::default().fg(Color::Rgb(255, 255, 255)).add_modifier(Modifier::BOLD),
         ));
-        left_spans.push(Span::styled("█", Style::default().fg(ThemeColors::ACCENT)));
+        left_spans.push(Span::styled(cursor_glyph, Style::default().fg(ThemeColors::ACCENT)));
+        left_spans.push(Span::styled(
+            &input_text[pos..],
+            Style::default().fg(Color::Rgb(255, 255, 255)).add_modifier(Modifier::BOLD),
+        ));
     }
 
     let right_spans = vec![
@@ -151,6 +160,12 @@ pub fn render_home_view(frame: &mut Frame, area: Rect, state: &ApplicationState)
 
     frame.render_widget(Paragraph::new(Line::from(left_spans)), prompt_chunks[0]);
     frame.render_widget(Paragraph::new(Line::from(right_spans)).alignment(Alignment::Right), prompt_chunks[1]);
+
+    // Set hardware terminal cursor so it blinks in the console at the exact typing location!
+    let cursor_offset = if input_text.is_empty() { 0 } else { pos as u16 };
+    let cur_x = prompt_chunks[0].x + 3 + 2 + cursor_offset.min(prompt_chunks[0].width.saturating_sub(1));
+    let cur_y = prompt_chunks[0].y;
+    frame.set_cursor_position((cur_x, cur_y));
 
     // 6. Selector Chips: Model, Agent, Session
     let active_model = &state.model.active_model;
