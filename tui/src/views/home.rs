@@ -1,12 +1,11 @@
 //! HOME View — Institutional landing & primary workspace for DELTA terminal.
 //!
-//! Matches exact visual specification from user upload (media_1790758501869.png):
-//! - Prominent centered DELTA geometric chevron logo in luminescent teal (#20C9A6)
-//! - Centered typography: "DELTA" / "QUANT INTELLIGENCE CLI"
-//! - Navigation ribbon: "RESEARCH  │  SIMULATE  │  ANALYZE  │  EXECUTE  │  LEARN"
-//! - Interactive rounded prompt card with live input typing and "Ctrl + K ✧" indicator
-//! - Model, Agent, and Session selector chips
-//! - Pristine, distraction-free institutional aesthetic
+//! Matches exact OpenCode visual specification:
+//! - State A (Empty conversation): Prominent centered DELTA chevron logo, title,
+//!   navigation ribbon, rounded prompt card with live blinking cursor, selector chips.
+//! - State B (Active conversation): Clean, scrollable conversation stream with user and
+//!   DELTA turns, markdown highlights, docked prompt card with blinking cursor, selector chips.
+//! - Zero cluttered boxes, zero fake technical noise.
 
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
@@ -23,6 +22,15 @@ use crate::{
 };
 
 pub fn render_home_view(frame: &mut Frame, area: Rect, state: &ApplicationState) {
+    if state.research.turns.is_empty() {
+        render_landing_state_a(frame, area, state);
+    } else {
+        render_conversation_state_b(frame, area, state);
+    }
+}
+
+/// State A: Clean minimal hero landing
+fn render_landing_state_a(frame: &mut Frame, area: Rect, state: &ApplicationState) {
     let tier = WidthTier::from_width(area.width);
 
     // Total vertical height of frontpart elements: 17 rows
@@ -192,4 +200,191 @@ pub fn render_home_view(frame: &mut Frame, area: Rect, state: &ApplicationState)
         Span::styled(format!("{active_session} ∨"), Style::default().fg(ThemeColors::ACCENT).add_modifier(Modifier::BOLD)),
     ];
     frame.render_widget(Paragraph::new(Line::from(chip_spans)).alignment(Alignment::Center), v_chunks[10]);
+}
+
+/// State B: Clean active conversational stream (OpenCode style)
+fn render_conversation_state_b(frame: &mut Frame, area: Rect, state: &ApplicationState) {
+    let tier = WidthTier::from_width(area.width);
+    let box_width = match tier {
+        WidthTier::Compact80 => 74.min(area.width.saturating_sub(2)),
+        WidthTier::Standard100 => 86.min(area.width.saturating_sub(4)),
+        WidthTier::Medium120 => 96.min(area.width.saturating_sub(6)),
+        WidthTier::Wide160 | WidthTier::Ultrawide200 => 102.min(area.width.saturating_sub(8)),
+    };
+    let box_x = (area.width.saturating_sub(box_width)) / 2;
+
+    // Layout:
+    // 0: Conversation stream (scrollable, occupies everything above prompt)
+    // 1: gap
+    // 2: Prompt card (3 rows)
+    // 3: Selector chips (1 row)
+    let v_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(4),
+            Constraint::Length(1),
+            Constraint::Length(3),
+            Constraint::Length(1),
+        ])
+        .split(area);
+
+    let stream_area = Rect::new(area.x + box_x, v_chunks[0].y, box_width, v_chunks[0].height);
+
+    let active_model = &state.model.active_model;
+    let active_agent = state.agents.agents.get(state.agents.selected_agent_idx)
+        .map(|a| a.name.as_str())
+        .unwrap_or("quant-researcher");
+
+    // Build conversation stream lines
+    let mut stream_lines: Vec<Line> = Vec::new();
+    for (prompt, response) in &state.research.turns {
+        // User turn
+        stream_lines.push(Line::from(vec![
+            Span::styled(" > You ", Style::default().fg(Color::Rgb(255, 255, 255)).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("  {}", prompt), Style::default().fg(Color::Rgb(255, 255, 255)).add_modifier(Modifier::BOLD)),
+        ]));
+        stream_lines.push(Line::from(""));
+
+        // Assistant turn header
+        stream_lines.push(Line::from(vec![
+            Span::styled(" ▲ DELTA ", Style::default().fg(ThemeColors::ACCENT).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("  Model {} · Agent {}", active_model, active_agent), Style::default().fg(ThemeColors::TEXT_MUTED)),
+        ]));
+        stream_lines.push(Line::from(""));
+
+        // Assistant response lines
+        for r_line in response.split('\n') {
+            let trimmed = r_line.trim_start();
+            if trimmed.starts_with('●') {
+                let char_offset = trimmed.char_indices().nth(1).map(|(i, _)| i).unwrap_or(trimmed.len());
+                stream_lines.push(Line::from(vec![
+                    Span::raw("   "),
+                    Span::styled("● ", Style::default().fg(ThemeColors::ACCENT)),
+                    Span::styled(&trimmed[char_offset..], Style::default().fg(ThemeColors::TEXT_PRIMARY)),
+                ]));
+            } else if trimmed.starts_with('[') && trimmed.ends_with(']') {
+                stream_lines.push(Line::from(vec![
+                    Span::raw("   "),
+                    Span::styled(trimmed, Style::default().fg(ThemeColors::ACCENT).add_modifier(Modifier::BOLD)),
+                ]));
+            } else if trimmed.ends_with(':') || trimmed.contains(" · ") || trimmed.starts_with("CORE MODEL") || trimmed.starts_with("DELTA CREDENTIAL") {
+                stream_lines.push(Line::from(vec![
+                    Span::raw("   "),
+                    Span::styled(trimmed, Style::default().fg(Color::Rgb(255, 255, 255)).add_modifier(Modifier::BOLD)),
+                ]));
+            } else {
+                stream_lines.push(Line::from(vec![
+                    Span::raw("   "),
+                    Span::styled(r_line, Style::default().fg(ThemeColors::TEXT_SECONDARY)),
+                ]));
+            }
+        }
+        stream_lines.push(Line::from(""));
+
+        // Turn separator
+        let divider_width = (box_width as usize).saturating_sub(4);
+        stream_lines.push(Line::from(Span::styled(
+            "─".repeat(divider_width),
+            Style::default().fg(ThemeColors::BORDER_MUTED),
+        )));
+        stream_lines.push(Line::from(""));
+    }
+
+    // Auto-scroll so newest conversation lines are always in view
+    let total_lines = stream_lines.len() as u16;
+    let visible_height = stream_area.height;
+    let scroll_y = if total_lines > visible_height {
+        total_lines - visible_height
+    } else {
+        0
+    };
+
+    let stream_para = Paragraph::new(stream_lines).scroll((scroll_y, 0));
+    frame.render_widget(stream_para, stream_area);
+
+    // Prompt Card in v_chunks[2]
+    let box_area = Rect::new(area.x + box_x, v_chunks[2].y, box_width, 3);
+    let prompt_block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(ThemeColors::ACCENT));
+
+    let inner_area = prompt_block.inner(box_area);
+    frame.render_widget(prompt_block, box_area);
+
+    let prompt_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Min(20),
+            Constraint::Length(14),
+        ])
+        .split(inner_area);
+
+    let input_text = &state.ui.input_buffer;
+    let pos = state.ui.cursor_pos.min(input_text.len());
+    let blink_on = (state.ui.tick_count / 3) % 2 == 0;
+    let cursor_glyph = if blink_on { "█" } else { " " };
+
+    let mut left_spans = vec![
+        Span::styled(" > ", Style::default().fg(ThemeColors::ACCENT).add_modifier(Modifier::BOLD)),
+        Span::styled("│ ", Style::default().fg(ThemeColors::BORDER_NORMAL)),
+    ];
+
+    if input_text.is_empty() {
+        let placeholder = "Ask DELTA anything, run a strategy, analyze a market, or type / for commands...";
+        let max_len = (prompt_chunks[0].width as usize).saturating_sub(8);
+        let truncated = if placeholder.len() > max_len {
+            &placeholder[..max_len.saturating_sub(3)]
+        } else {
+            placeholder
+        };
+        left_spans.push(Span::styled(cursor_glyph, Style::default().fg(ThemeColors::ACCENT)));
+        left_spans.push(Span::styled(truncated, Style::default().fg(ThemeColors::TEXT_SECONDARY)));
+    } else {
+        left_spans.push(Span::styled(
+            &input_text[..pos],
+            Style::default().fg(Color::Rgb(255, 255, 255)).add_modifier(Modifier::BOLD),
+        ));
+        left_spans.push(Span::styled(cursor_glyph, Style::default().fg(ThemeColors::ACCENT)));
+        left_spans.push(Span::styled(
+            &input_text[pos..],
+            Style::default().fg(Color::Rgb(255, 255, 255)).add_modifier(Modifier::BOLD),
+        ));
+    }
+
+    let right_spans = vec![
+        Span::styled("Ctrl + K  ✧", Style::default().fg(ThemeColors::ACCENT).add_modifier(Modifier::BOLD)),
+        Span::raw(" "),
+    ];
+
+    frame.render_widget(Paragraph::new(Line::from(left_spans)), prompt_chunks[0]);
+    frame.render_widget(Paragraph::new(Line::from(right_spans)).alignment(Alignment::Right), prompt_chunks[1]);
+
+    // Set hardware terminal cursor so it blinks in the console at the exact typing location!
+    let cursor_offset = if input_text.is_empty() { 0 } else { pos as u16 };
+    let cur_x = prompt_chunks[0].x + 3 + 2 + cursor_offset.min(prompt_chunks[0].width.saturating_sub(1));
+    let cur_y = prompt_chunks[0].y;
+    frame.set_cursor_position((cur_x, cur_y));
+
+    // Selector chips in v_chunks[3]
+    let active_session = if state.workspace.is_empty() {
+        "default"
+    } else {
+        &state.workspace
+    };
+
+    let chip_spans = vec![
+        Span::styled("❖ ", Style::default().fg(ThemeColors::ACCENT)),
+        Span::styled("Model: ", Style::default().fg(ThemeColors::TEXT_MUTED)),
+        Span::styled(format!("{active_model} ∨"), Style::default().fg(ThemeColors::ACCENT).add_modifier(Modifier::BOLD)),
+        Span::styled("    │    ", Style::default().fg(ThemeColors::BORDER_MUTED)),
+        Span::styled("👤 ", Style::default().fg(ThemeColors::ACCENT)),
+        Span::styled("Agent: ", Style::default().fg(ThemeColors::TEXT_MUTED)),
+        Span::styled(format!("{active_agent} ∨"), Style::default().fg(ThemeColors::ACCENT).add_modifier(Modifier::BOLD)),
+        Span::styled("    │    ", Style::default().fg(ThemeColors::BORDER_MUTED)),
+        Span::styled("≡ ", Style::default().fg(ThemeColors::ACCENT)),
+        Span::styled("Session: ", Style::default().fg(ThemeColors::TEXT_MUTED)),
+        Span::styled(format!("{active_session} ∨"), Style::default().fg(ThemeColors::ACCENT).add_modifier(Modifier::BOLD)),
+    ];
+    frame.render_widget(Paragraph::new(Line::from(chip_spans)).alignment(Alignment::Center), v_chunks[3]);
 }

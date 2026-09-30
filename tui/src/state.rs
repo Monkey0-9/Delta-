@@ -151,12 +151,7 @@ impl Default for ResearchState {
             selected_symbol: "SPY".into(),
             active_hypothesis: "Cross-asset momentum regime sensitivity".into(),
             experiment_status: "IDLE".into(),
-            turns: vec![
-                (
-                    "System initialized".into(),
-                    "DELTA Quantitative Research Engine online. Ask any question or enter a command.".into(),
-                )
-            ],
+            turns: Vec::new(),
         }
     }
 }

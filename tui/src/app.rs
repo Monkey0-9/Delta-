@@ -210,7 +210,7 @@ impl App {
 ● yfinance        : Historical multi-asset price action & fundamental aggregates\n\n\
 [STATUS: 8 CORE MCP SERVERS LOADED & CERTIFIED FOR DELTA RUNTIME]".into(),
                     ));
-                    self.state.nav.current_view = ViewId::Research;
+                    self.state.nav.current_view = ViewId::Home;
                     if let Some(bridge) = &self.bridge {
                         let b = bridge.clone();
                         tokio::spawn(async move {
@@ -229,7 +229,7 @@ impl App {
 ● Memory Safety : Secrets cleared and zeroized on session termination\n\
 ● Active Keys   : Groq (free tier), FRED Macro, Alpaca Paper DMA".into(),
                     ));
-                    self.state.nav.current_view = ViewId::Research;
+                    self.state.nav.current_view = ViewId::Home;
                     return;
                 } else if text.starts_with("/system") {
                     self.state.nav.current_view = ViewId::System;
@@ -238,7 +238,7 @@ impl App {
                     self.state.nav.current_view = ViewId::Logs;
                     return;
                 } else if text.starts_with("/research") {
-                    self.state.nav.current_view = ViewId::Research;
+                    self.state.nav.current_view = ViewId::Home;
                     return;
                 } else if text.starts_with("/session") || text.starts_with("/ws") {
                     let parts: Vec<&str> = text.split_whitespace().collect();
@@ -251,10 +251,6 @@ impl App {
                     return;
                 } else if text == "/clear" || text == "/cls" {
                     self.state.research.turns.clear();
-                    self.state.research.turns.push((
-                        "System reset".into(),
-                        "Workspace cleared. Type a query or / for commands.".into(),
-                    ));
                     return;
                 } else if text == "/help" || text == "/?" {
                     self.state.ui.help_open = true;
@@ -290,7 +286,7 @@ impl App {
 ● ATR (14)        : $6.40 (Normalized Volatility: 1.33%)\n\
 ● ADX (14)        : 26.8 (Trending Regime Confirmed)"),
                     ));
-                    self.state.nav.current_view = ViewId::Research;
+                    self.state.nav.current_view = ViewId::Home;
                     if let Some(bridge) = &self.bridge {
                         let b = bridge.clone();
                         let cmd_str = text.clone();
@@ -312,7 +308,7 @@ impl App {
 ● VaR (99% 1d)    : 2.34% ($1,840 exposure basis)\n\
 ● Expected Shortfall: 3.12% (CVaR tail conditional)"),
                     ));
-                    self.state.nav.current_view = ViewId::Research;
+                    self.state.nav.current_view = ViewId::Home;
                     if let Some(bridge) = &self.bridge {
                         let b = bridge.clone();
                         let cmd_str = text.clone();
@@ -332,7 +328,7 @@ impl App {
 ● Liquidity Haircut   : 0.0% (Average daily dollar volume > $500M)\n\
 ● Tradable Interlock  : PERMITTED (Risk Governor checks clear)"),
                     ));
-                    self.state.nav.current_view = ViewId::Research;
+                    self.state.nav.current_view = ViewId::Home;
                     if let Some(bridge) = &self.bridge {
                         let b = bridge.clone();
                         let cmd_str = text.clone();
@@ -356,7 +352,7 @@ impl App {
                         text.clone(),
                         "DELTA Quantitative Intelligence parsing context and querying real runtime...".into(),
                     ));
-                    self.state.nav.current_view = ViewId::Research;
+                    self.state.nav.current_view = ViewId::Home;
 
                     // If contains ticker symbol, update active symbol
                     for word in text.split_whitespace() {
@@ -802,7 +798,7 @@ mod tests {
         // Test /mcp tool suite registration
         app.state.ui.input_buffer = "/mcp".to_string();
         app.update(Action::SubmitInput);
-        assert_eq!(app.state.nav.current_view, ViewId::Research);
+        assert_eq!(app.state.nav.current_view, ViewId::Home);
         assert!(!app.state.research.turns.is_empty());
         let last_turn = app.state.research.turns.last().unwrap();
         assert!(last_turn.1.contains("CORE MODEL CONTEXT PROTOCOL (MCP) INTEGRATIONS"));
@@ -817,11 +813,10 @@ mod tests {
         app.update(Action::SubmitInput);
         assert_eq!(app.state.nav.current_view, ViewId::Home);
 
-        // Test /clear clears turns and puts clean reset message
+        // Test /clear clears turns back to empty State A
         app.state.ui.input_buffer = "/clear".to_string();
         app.update(Action::SubmitInput);
-        assert_eq!(app.state.research.turns.len(), 1);
-        assert!(app.state.research.turns[0].1.contains("Workspace cleared"));
+        assert!(app.state.research.turns.is_empty());
     }
 
     #[test]
