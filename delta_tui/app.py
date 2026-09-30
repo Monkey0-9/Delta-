@@ -15,9 +15,11 @@ from __future__ import annotations
 import shutil
 from datetime import datetime, timezone
 
+# pyrefly: ignore [missing-import]
 from config.mode import DeltaMode, mode_banner
+# pyrefly: ignore [missing-import]
 from .commands import parser as cmd_parser
-from .commands.palette import entries as palette_entries, format_palette_box
+from .commands.palette import format_palette_box
 from .commands.registry import lookup
 from .state import store as store_mod
 from .state.selectors import footer_model, header_model, status_model
@@ -84,7 +86,9 @@ class DeltaApp:
     def backend(self):
         if self._backend is None:
             try:
+                # pyrefly: ignore [missing-import]
                 from delta_os.repl import Terminal as _OsTerminal
+                # pyrefly: ignore [missing-import]
                 from delta_os.repl import _load_session as _ls
 
                 term = _OsTerminal()
@@ -314,10 +318,12 @@ class DeltaApp:
     def _route_nl_to_backend(self, t: str) -> str:
         # 1) FinanceCommandRouter + TraderRuntime when available
         try:
+            # pyrefly: ignore [missing-import]
             from trader.command_router import FinanceCommandRouter
 
             req = FinanceCommandRouter().route(t)
             try:
+                # pyrefly: ignore [missing-import]
                 from apps.cli.delta import ExistingSystemBackend
 
                 resp = ExistingSystemBackend().dispatch(req)

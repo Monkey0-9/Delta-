@@ -57,6 +57,13 @@ for _name, _desc, _screen, _sym, _cat in [
     ("system", "System operational health", "system", False, "System/AI"),
     ("home", "Return to home view", "home", False, "System/AI"),
     ("kill", "EMERGENCY kill switch (halt execution)", "system", False, "Primary"),
+    # Convergence verbs previously only in trader/opencode_terminal fallback.
+    ("mode", "Switch agent execution mode", "session", False, "System/AI"),
+    ("theme", "Switch terminal theme", "home", False, "System/AI"),
+    ("workspace", "Switch active workspace", "home", False, "System/AI"),
+    ("status", "Workspace + execution status", "system", False, "System/AI"),
+    ("clear", "Clear conversation view", "home", False, "System/AI"),
+    ("help", "Command help", "home", False, "System/AI"),
 ]:
     _reg(CommandAction(name=_name, description=_desc, screen=_screen,
                        needs_symbol=_sym, category=_cat, risky=("kill" in _name), run=_go(_screen)))

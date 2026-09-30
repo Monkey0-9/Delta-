@@ -202,3 +202,87 @@ fn test_quant_numeric_alignments() {
     assert_eq!(format_basis_points(-4.2), "-4.2 bps");
     assert_eq!(format_quantity(500.0), "500");
 }
+
+#[test]
+fn test_context_autocomplete_engine() {
+    let mut app = App::new(None);
+    app.state.market.watchlist = vec!["NVDA".into(), "AAPL".into(), "MSFT".into()];
+    
+    // Type "@NV"
+    app.update(Action::InputChar('@'));
+    app.update(Action::InputChar('N'));
+    app.update(Action::InputChar('V'));
+
+    assert!(app.state.ui.context_dropdown_open);
+
+    let query_opt = delta_tui::input::ContextCompleter::get_active_query(
+        &app.state.ui.input_buffer,
+        app.state.ui.cursor_pos,
+    );
+    assert!(query_opt.is_some());
+    let (_, query) = query_opt.unwrap();
+    assert_eq!(query, "NV");
+
+    let matches = delta_tui::input::ContextCompleter::resolve_matches(&query, &app.state);
+    assert!(!matches.is_empty());
+    assert_eq!(matches[0].tag, "@NVDA");
+
+    // Select with Tab/Enter
+    app.update(Action::ContextSelect);
+    assert!(!app.state.ui.context_dropdown_open);
+    assert_eq!(app.state.ui.input_buffer, "@NVDA ");
+}
+
+#[test]
+fn test_order_ticket_lifecycle_and_safety() {
+    let mut app = App::new(None);
+    app.state.ui.input_buffer = "/order NVDA 200".into();
+    app.update(Action::SubmitInput);
+
+    assert!(app.state.ui.order_ticket.is_open);
+    assert_eq!(app.state.ui.order_ticket.symbol, "NVDA");
+    assert_eq!(app.state.ui.order_ticket.qty, 200.0);
+    assert_eq!(app.state.ui.order_ticket.side, "BUY");
+
+    // Confirm order
+    app.update(Action::ConfirmOrderTicket);
+    assert!(!app.state.ui.order_ticket.is_open);
+    assert!(app.state.ui.order_ticket.confirmed);
+
+    // Verify turn was logged with full provenance
+    let last_turn = app.state.research.turns.last().unwrap();
+    assert!(last_turn.1.contains("INSTITUTIONAL ORDER ROUTED & CONFIRMED"));
+    assert!(last_turn.1.contains("NVDA"));
+}
+
+#[test]
+fn test_attention_triage_generation() {
+    let mut state = delta_tui::state::ApplicationState::default();
+    
+    // Baseline: healthy system produces zero critical alerts
+    let items = delta_tui::widgets::attention::AttentionItem::collect_from_state(&state);
+    assert!(!items.iter().any(|i| i.level == delta_tui::widgets::attention::AttentionLevel::Critical));
+
+    // Simulate Kill Switch Halted
+    state.risk.killswitch_halted = true;
+    let items_halted = delta_tui::widgets::attention::AttentionItem::collect_from_state(&state);
+    assert!(items_halted.iter().any(|i| i.level == delta_tui::widgets::attention::AttentionLevel::Critical));
+    assert!(items_halted[0].title.contains("EXECUTION HALTED"));
+}
+
+#[test]
+fn test_candlestick_and_research_data_structures() {
+    use delta_tui::charts::candlestick::{CandlestickChart, PricePoint};
+
+    let points = vec![
+        PricePoint { time: "09:30".into(), price: 180.0, volume: 10_000.0 },
+        PricePoint { time: "10:00".into(), price: 182.5, volume: 15_000.0 },
+        PricePoint { time: "10:30".into(), price: 184.32, volume: 22_000.0 },
+    ];
+
+    let chart = CandlestickChart::new("NVDA", &points, "1D", 184.32, 2.4);
+    assert_eq!(chart.symbol, "NVDA");
+    assert_eq!(chart.data.len(), 3);
+    assert_eq!(chart.last_price, 184.32);
+    assert!(chart.show_volume);
+}

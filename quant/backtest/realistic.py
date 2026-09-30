@@ -385,26 +385,38 @@ class OrderBookSimulator:
         volatility: float,
         latency_jitter_ms: float = 0.0,
     ) -> Tuple[float, List[Fill]]:
-        """Simulate market order with market impact"""
+        """Simulate market order with market impact.
+
+        Fail-closed on an empty book: the legacy ``100.0`` fallback invented
+        a price that masqueraded as market truth. An empty book raises
+        LiquidityError instead of executing at a fiction.
+        """
         fills = []
-        
+
         # Apply latency jitter
         effective_time = current_time + timedelta(milliseconds=latency_jitter_ms)
-        
+
+        if order.side in [OrderSide.BUY, OrderSide.COVER]:
+            if not order_book.asks:
+                raise LiquidityError(f"empty ask book for {order.symbol}: cannot price market buy")
+            base_price = order_book.asks[0].price
+        else:
+            if not order_book.bids:
+                raise LiquidityError(f"empty bid book for {order.symbol}: cannot price market sell")
+            base_price = order_book.bids[0].price
+
         # Calculate market impact
         impact_bps = impact_calculator.calculate_impact(
-            order.side, order.quantity, avg_daily_volume, volatility, order_book.asks[0].price if order_book.asks else 100.0
+            order.side, order.quantity, avg_daily_volume, volatility, base_price
         )
-        
+
         # Determine execution price with impact
         if order.side in [OrderSide.BUY, OrderSide.COVER]:
             # Buy: add impact to ask price
-            base_price = order_book.asks[0].price if order_book.asks else 100.0
             impact_adjustment = base_price * (impact_bps / 10000)
             execution_price = base_price + impact_adjustment
         else:
             # Sell: subtract impact from bid price
-            base_price = order_book.bids[0].price if order_book.bids else 100.0
             impact_adjustment = base_price * (impact_bps / 10000)
             execution_price = base_price - impact_adjustment
         
@@ -423,6 +435,14 @@ class OrderBookSimulator:
         fills.append(fill)
         
         return order.quantity, fills
+
+
+class LookaheadError(RuntimeError):
+    """Raised when the PIT leakage gate fails: the backtest is not research-valid."""
+
+
+class LiquidityError(RuntimeError):
+    """Raised when execution is impossible (empty book) instead of inventing a price."""
 
 
 class LatencySimulator:
@@ -564,24 +584,58 @@ class RealisticBacktester:
         order_book: OrderBook,
         avg_daily_volume: float,
         volatility: float,
+        *,
+        event_time: datetime | None = None,
     ) -> List[Fill]:
-        """Execute an order with realistic simulation"""
+        """Execute an order with realistic simulation.
+
+        ``event_time`` is REQUIRED: execution timestamps derive from the
+        simulation event, never wall clock. Falling back to
+        ``order.timestamp`` (often ``datetime.now()`` at construction) is a
+        look-ahead/latency falsification and raises TypeError.
+        """
         self.orders.append(order)
-        
+
+        if event_time is None:
+            raise TypeError("execute_order requires event_time (simulation event timestamp).")
+
         latency = self.latency_simulator.get_latency()
-        
+        now = event_time
+
         if order.order_type == OrderType.MARKET:
             filled_qty, fills = self.order_book_simulator.simulate_market_order_fill(
-                order, order_book, datetime.now(), self.impact_calculator,
+                order, order_book, now, self.impact_calculator,
                 avg_daily_volume, volatility, latency
             )
         elif order.order_type == OrderType.LIMIT:
             filled_qty, fills = self.order_book_simulator.simulate_limit_order_fill(
-                order, order_book, datetime.now(), latency
+                order, order_book, now, latency
             )
         else:
-            # Other order types not implemented
-            return []
+            # Unsupported order types are REJECTED explicitly — silently
+            # dropping them (return []) falsifies fills and returns.
+            reject = Fill(
+                fill_id=f"fill_{order.order_id}_rejected",
+                order_id=order.order_id,
+                symbol=order.symbol,
+                side=order.side,
+                quantity=0.0,
+                price=0.0,
+                timestamp=now,
+                fill_type=FillType.REJECTED,
+                metadata={"reason": f"unsupported order type: {order.order_type.value}"},
+            )
+            self.fills.append(reject)
+            self.trade_history.append({
+                "timestamp": reject.timestamp,
+                "symbol": reject.symbol,
+                "side": reject.side.value,
+                "quantity": 0.0,
+                "price": 0.0,
+                "commission": 0.0,
+                "type": reject.fill_type.value,
+            })
+            return [reject]
         
         # Update positions and cash
         for fill in fills:
@@ -629,16 +683,42 @@ class RealisticBacktester:
         start_date: datetime,
         end_date: datetime,
     ) -> BacktestResult:
-        """Run a complete backtest"""
+        """Run a complete backtest.
+
+        PIT gate: when ``signals`` carries ``asof``/``publication_ts`` columns,
+        the leakage battery (``data.pit.leakage``) runs first and ANY violation
+        raises ``LookaheadError`` — a backtest that cannot prove information
+        availability is not research-valid.
+        """
         # Reset state
         self.cash = self.initial_capital
         self.positions = {}
         self.fills = []
         self.trade_history = []
-        
+
+        if {"asof", "publication_ts"}.issubset(signals.columns):
+            try:
+                from data.pit.leakage import run_leakage_battery, battery_passed
+            except ImportError:
+                from delta.data.pit.leakage import (  # type: ignore
+                    run_leakage_battery, battery_passed)
+            findings = run_leakage_battery(frame=signals)
+            if not battery_passed(findings):
+                bad = [f for f in findings if f.n_violations]
+                raise LookaheadError(
+                    "PIT leakage gate failed: "
+                    + "; ".join(f"{f.check}({f.n_violations})" for f in bad)
+                )
+
         # Generate daily returns
         portfolio_values = []
         timestamps = []
+
+        # Rolling realized volatility per symbol (20d, min 5) replaces the
+        # legacy hard-coded 0.2: cost estimates must come from the data.
+        log_px = np.log(price_data.astype(float).replace(0, np.nan).ffill())
+        roll_vol = (log_px.diff().rolling(20, min_periods=5).std() * np.sqrt(252)
+                    ).fillna(0.2)
         
         for date in pd.date_range(start_date, end_date, freq='D'):
             if date not in price_data.index:
@@ -668,19 +748,37 @@ class RealisticBacktester:
                             timestamp=date,
                         )
                         
-                        # Create dummy order book
+                        # Create order book from the day's price (no invented
+                        # liquidity: fail-closed handled in the fill simulator).
+                        px = float(current_prices.get(symbol, float("nan")))
+                        if not np.isfinite(px):
+                            continue
                         order_book = OrderBook(
                             symbol=symbol,
                             timestamp=date,
-                            bids=[OrderBookLevel(current_prices.get(symbol, 100) - 0.01, 10000, 10)],
-                            asks=[OrderBookLevel(current_prices.get(symbol, 100) + 0.01, 10000, 10)],
+                            bids=[OrderBookLevel(px - 0.01, 10000, 10)],
+                            asks=[OrderBookLevel(px + 0.01, 10000, 10)],
                         )
                         
+                        # Scalar ADV: DataFrame.get(symbol) returns a Series —
+                        # passing that into the impact model silently vectorizes
+                        # prices/cash into Series (P0 type-coercion defect).
+                        if isinstance(volume_data, pd.DataFrame):
+                            adv = float(volume_data[symbol].loc[date]) \
+                                if symbol in volume_data.columns else 1_000_000.0
+                        elif isinstance(volume_data, dict):
+                            adv = float(volume_data.get(symbol, 1_000_000))
+                        else:
+                            adv = 1_000_000.0
+                        vol = float(roll_vol[symbol].loc[date]) \
+                            if symbol in roll_vol.columns else 0.2
                         self.execute_order(
                             order,
                             order_book,
-                            volume_data.get(symbol, 1_000_000),
-                            0.2,  # Default volatility
+                            adv,
+                            vol,
+                            event_time=date.to_pydatetime()
+                            if hasattr(date, "to_pydatetime") else date,
                         )
         
         # Calculate performance metrics
@@ -705,9 +803,24 @@ class RealisticBacktester:
         # Calmar ratio
         calmar_ratio = annualized_return / abs(max_drawdown) if max_drawdown != 0 else 0
         
-        # Win rate
-        winning_trades = len([t for t in self.trade_history if t.get('side') in ['BUY', 'COVER']])
-        win_rate = winning_trades / len(self.trade_history) if self.trade_history else 0
+        # Win rate / profit factor / avg trade: round-trip accounting on cash
+        # flows (buys = outflow, sells = inflow). Legacy code counted BUY fills
+        # as "wins" by construction — replaced with P&L-based measurement.
+        cash_flows = []
+        for t in self.trade_history:
+            signed = -t["price"] * t["quantity"] - t["commission"] \
+                if t.get("side") in ["BUY", "buy", "COVER", "cover"] \
+                else t["price"] * t["quantity"] - t["commission"]
+            cash_flows.append(signed)
+        n_trades = len(self.trade_history)
+        gains = sum(c for c in cash_flows if c > 0)
+        losses = -sum(c for c in cash_flows if c < 0)
+        wins = sum(1 for c in cash_flows if c > 0)
+        win_rate = wins / n_trades if n_trades else 0.0
+        profit_factor = (gains / losses) if losses > 0 else (float("inf") if gains > 0 else 0.0)
+        avg_trade_return = (sum(cash_flows) / n_trades / self.initial_capital) if n_trades else 0.0
+        gross_notional = sum(t["price"] * t["quantity"] for t in self.trade_history)
+        turnover = gross_notional / self.initial_capital if self.initial_capital else 0.0
         
         # Transaction costs
         total_commission = sum(t['commission'] for t in self.trade_history)
@@ -721,10 +834,32 @@ class RealisticBacktester:
         )
         market_impact = total_impact / self.initial_capital
         
-        # Statistical validation
-        deflated_sharpe = self.statistical_validator.calculate_deflated_sharpe(returns, sharpe_ratio)
-        pbo = self.statistical_validator.calculate_pbo(returns)
-        white_pvalue = self.statistical_validator.white_reality_check(returns, returns)
+        # Statistical validation: research-exact procedures in
+        # quant.validation.robust. Honest inputs:
+        #  - DSR n_trials=1 (single strategy evaluated; the caller that
+        #    screened N variants must pass N — passing n_trades inflated SR0).
+        #  - PBO needs an INDEPENDENT (T, N) trial matrix. A single return
+        #    series cannot produce one, so PBO is reported as NaN with reason
+        #    instead of a meaningless self-lag number.
+        #  - Reality check benchmarks against buy-and-hold price drift, not
+        #    the strategy against itself (p ~ 0.5 by construction).
+        from quant.validation.robust import (
+            deflated_sharpe_probability as _dsr,
+        )
+        skew = float(stats.skew(returns)) if len(returns) > 2 else 0.0
+        kurt = float(stats.kurtosis(returns, fisher=False)) if len(returns) > 3 else 3.0
+        try:
+            deflated_sharpe = _dsr(sharpe_ratio, len(returns), 1, skew, kurt)
+        except ValueError:
+            deflated_sharpe = float("nan")
+        pbo = float("nan")  # requires independent multi-trial matrix; see pbo_cscv
+        white_pvalue = float("nan")
+        try:
+            from quant.validation.robust import reality_check_pvalue as _rc
+            bench = price_data.pct_change().mean(axis=1).reindex(returns.index).fillna(0.0)
+            white_pvalue = _rc(returns, bench, n_boot=200)
+        except (ValueError, KeyError):
+            white_pvalue = float("nan")
         
         # Information coefficient
         if 'signal' in signals.columns:
@@ -744,10 +879,10 @@ class RealisticBacktester:
             max_drawdown=max_drawdown,
             calmar_ratio=calmar_ratio,
             win_rate=win_rate,
-            profit_factor=0.0,  # To be calculated
+            profit_factor=profit_factor,
             total_trades=len(self.trade_history),
-            avg_trade_return=0.0,  # To be calculated
-            turnover=0.0,  # To be calculated
+            avg_trade_return=avg_trade_return,
+            turnover=turnover,
             transaction_costs=transaction_costs,
             market_impact=market_impact,
             deflated_sharpe=deflated_sharpe,

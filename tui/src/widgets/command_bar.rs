@@ -20,7 +20,7 @@ pub fn render_command_bar(frame: &mut Frame, area: Rect, state: &ApplicationStat
 
     let input_text = &state.ui.input_buffer;
     let pos = state.ui.cursor_pos.min(input_text.len());
-    let blink_on = (state.ui.tick_count / 3) % 2 == 0;
+    let blink_on = (state.ui.tick_count / 3).is_multiple_of(2);
     let cursor_glyph = if blink_on { "█" } else { " " };
 
     let left_spans = if input_text.is_empty() {

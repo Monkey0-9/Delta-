@@ -8,32 +8,37 @@
 
 use ratatui::style::{Color, Modifier, Style};
 
-/// Core semantic colors
+/// Core semantic colors matching DELTA Professional Quant Specification
 pub struct ThemeColors;
 
 impl ThemeColors {
-    pub const BG_DARK: Color = Color::Rgb(8, 9, 9);
-    pub const BG_SURFACE: Color = Color::Rgb(15, 17, 19);
-    pub const BG_ELEVATED: Color = Color::Rgb(24, 27, 31);
-    pub const BG_HIGHLIGHT: Color = Color::Rgb(32, 36, 42);
+    // Background and Surface hierarchy (Dark-first, never pure black)
+    pub const BG_DARK: Color = Color::Rgb(11, 13, 16);       // #0B0D10 Background
+    pub const BG_SURFACE: Color = Color::Rgb(16, 19, 24);    // #101318 Primary surface
+    pub const BG_ELEVATED: Color = Color::Rgb(21, 25, 34);   // #151922 Secondary surface
+    pub const BG_HIGHLIGHT: Color = Color::Rgb(26, 31, 40);  // #1A1F28 Elevated surface
 
-    pub const TEXT_PRIMARY: Color = Color::Rgb(241, 245, 249);
-    pub const TEXT_SECONDARY: Color = Color::Rgb(148, 163, 184);
-    pub const TEXT_MUTED: Color = Color::Rgb(100, 116, 139);
+    // Typography hierarchy (JetBrains / Cascadia / IBM Plex compatible contrast)
+    pub const TEXT_PRIMARY: Color = Color::Rgb(231, 234, 240);   // #E7EAF0 Primary text
+    pub const TEXT_SECONDARY: Color = Color::Rgb(163, 170, 183); // #A3AAB7 Secondary text
+    pub const TEXT_MUTED: Color = Color::Rgb(111, 119, 133);     // #6F7785 Muted text
 
-    pub const BORDER_NORMAL: Color = Color::Rgb(51, 65, 85);
-    pub const BORDER_FOCUSED: Color = Color::Rgb(32, 201, 166);
-    pub const BORDER_MUTED: Color = Color::Rgb(30, 41, 59);
+    // Structural borders
+    pub const BORDER_NORMAL: Color = Color::Rgb(37, 43, 53);     // #252B35 Border
+    pub const BORDER_FOCUSED: Color = Color::Rgb(32, 201, 166);  // Cool cyan accent
+    pub const BORDER_MUTED: Color = Color::Rgb(26, 31, 40);      // Elevated surface border
 
-    pub const ACCENT: Color = Color::Rgb(32, 201, 166); // Teal/Cyan accent
-    pub const ACCENT_ALT: Color = Color::Rgb(56, 189, 248); // Subtle blue
+    // Accents
+    pub const ACCENT: Color = Color::Rgb(32, 201, 166);          // Cool cyan / teal
+    pub const ACCENT_ALT: Color = Color::Rgb(56, 189, 248);      // Cool blue
 
-    pub const POSITIVE: Color = Color::Rgb(16, 185, 129); // Subtle Green
-    pub const NEGATIVE: Color = Color::Rgb(239, 68, 68); // Subtle Red
-    pub const WARNING: Color = Color::Rgb(245, 158, 11); // Amber / Yellow
-    pub const CRITICAL: Color = Color::Rgb(220, 38, 38); // Strong Red
-    pub const PAPER_BADGE: Color = Color::Rgb(245, 158, 11); // Amber
-    pub const LIVE_BADGE: Color = Color::Rgb(239, 68, 68); // Red
+    // Color Semantics (Never used purely for decoration)
+    pub const POSITIVE: Color = Color::Rgb(16, 185, 129);        // Restrained Green (Profit / Healthy)
+    pub const NEGATIVE: Color = Color::Rgb(239, 68, 68);         // Restrained Red (Loss / Rejected)
+    pub const WARNING: Color = Color::Rgb(245, 158, 11);         // Amber (Approaching limit / Stale)
+    pub const CRITICAL: Color = Color::Rgb(220, 38, 38);        // Strong Red (Critical risk / Failure)
+    pub const PAPER_BADGE: Color = Color::Rgb(245, 158, 11);     // Amber badge
+    pub const LIVE_BADGE: Color = Color::Rgb(239, 68, 68);       // High-contrast red badge
 }
 
 /// Pre-built reusable styles for widgets and views

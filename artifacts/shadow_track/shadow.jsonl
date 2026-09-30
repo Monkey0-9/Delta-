@@ -1,3 +1,0 @@
-{"action": "BUY", "brier": 0.00083, "expected_return": 0.0435, "hit": true, "horizon": "week", "px_T": 336.13, "px_final": 341.07, "realized": 0.0147, "seed": 7, "source": "yahoo", "symbol": "AAPL", "t": "2026-09-27T13:24:44Z"}
-{"action": "BUY", "brier": 0.000559, "expected_return": 0.06898, "hit": true, "horizon": "week", "px_T": 493.78, "px_final": 516.17, "realized": 0.04534, "seed": 7, "source": "yahoo", "symbol": "MSFT", "t": "2026-09-27T13:24:44Z"}
-{"action": "AVOID", "brier": 0.000315, "expected_return": -0.03664, "hit": true, "horizon": "week", "px_T": 349.67, "px_final": 343.06, "realized": -0.0189, "seed": 7, "source": "yahoo", "symbol": "JPM", "t": "2026-09-27T13:24:44Z"}

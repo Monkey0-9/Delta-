@@ -40,9 +40,7 @@ pub fn render_header(frame: &mut Frame, area: Rect, state: &ApplicationState) {
         ]
     };
 
-    let mkt_status_str = if state.market.market_status == "OPEN" {
-        "LIVE"
-    } else if state.market.market_status.is_empty() {
+    let mkt_status_str = if state.market.market_status == "OPEN" || state.market.market_status.is_empty() {
         "LIVE"
     } else {
         &state.market.market_status

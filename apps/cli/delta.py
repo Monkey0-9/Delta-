@@ -5,7 +5,6 @@ from typing import Any
 
 from trader.intent import FinanceIntent, Intent
 from trader.runtime import TraderRuntime
-from trader.terminal import DeltaTerminal
 from trader.opencode_terminal import OpenCodeTerminal
 
 

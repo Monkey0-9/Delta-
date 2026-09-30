@@ -4,10 +4,21 @@ Triple-layer emergency kill switch for order cancellation and position liquidati
 
 import asyncio
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Callable, Awaitable
 from datetime import datetime
+try:
+    from core.domain.timestamp import utc_now
+except ImportError:  # installed-package layout
+    from delta.core.domain.timestamp import utc_now  # type: ignore
+try:
+    from core.events import EventBus, EventType, Event
+except ImportError:  # installed-package layout
+    from delta.core.events import EventBus, EventType, Event  # type: ignore
+try:
+    from core.events.event_bus import EventBus as _EB  # noqa: F401 (re-export check)
+except ImportError:
+    pass
 from delta.trading.broker_base import UniversalBrokerAdapter, Order, Position
-from delta.core.events import EventBus, EventType
 
 logger = logging.getLogger(__name__)
 
@@ -27,20 +38,29 @@ class KillSwitch:
         self.event_bus = event_bus
         self.state = KillSwitchState.ARMED
         self.triggered_at: Optional[datetime] = None
+        self.triggered_by: str = ""
         self.cancelled_orders_count = 0
         self.liquidated_positions_count = 0
         self._lock = asyncio.Lock()
-    
-    async def trigger(self, flatten_positions: bool = False) -> Dict[str, Any]:
+        self._halt_callbacks: List[Callable[[], Awaitable[None] | None]] = []
+
+    def register_halt_callback(self, cb: Callable[[], Awaitable[None] | None]) -> None:
+        """Register an engine-halt hook (Layer 2). Called on trigger; a
+        kill switch with no registered halt target is a decorative switch."""
+        self._halt_callbacks.append(cb)
+
+    async def trigger(self, flatten_positions: bool = False, *,
+                      actor: str = "operator") -> Dict[str, Any]:
         """Trigger the kill switch (Layer 1: Cancel orders, Layer 2: Lock engine)"""
         async with self._lock:
             if self.state == KillSwitchState.TRIGGERED:
                 logger.warning("Kill switch already triggered")
                 return {"status": "already_triggered"}
-            
-            logger.critical("KILL SWITCH TRIGGERED")
+
+            logger.critical("KILL SWITCH TRIGGERED by %s", actor)
             self.state = KillSwitchState.TRIGGERED
-            self.triggered_at = datetime.utcnow()
+            self.triggered_at = utc_now()
+            self.triggered_by = actor
             
             results = {
                 "triggered_at": self.triggered_at.isoformat(),
@@ -97,11 +117,11 @@ class KillSwitch:
                     }
                     logger.error(f"Layer 3 error: {e}")
             
-            # Publish event
+            # Publish event (tz-aware clock; Event import fixed — was NameError)
             await self.event_bus.publish(Event(
                 event_type=EventType.KILL_SWITCH_TRIGGERED,
                 data=results,
-                timestamp=datetime.utcnow(),
+                timestamp=utc_now(),
                 source="kill_switch"
             ))
             
@@ -117,10 +137,19 @@ class KillSwitch:
             raise
     
     async def _lock_engine(self) -> None:
-        """Lock the trading engine into HALTED state"""
-        # This would interface with the main trading engine
-        # For now, we'll just update state
-        pass
+        """Lock the trading engine into HALTED state via registered hooks.
+
+        Previously a ``pass`` placeholder: Layer 2 claimed to lock the engine
+        but executed nothing. Now every registered halt callback runs; with
+        zero callbacks registered a warning is logged so the gap is visible.
+        """
+        if not self._halt_callbacks:
+            logger.warning("Layer 2: no engine halt callbacks registered — engine NOT locked")
+            return
+        for cb in self._halt_callbacks:
+            res = cb()
+            if asyncio.isawaitable(res):
+                await res
     
     async def _flatten_all_positions(self) -> int:
         """Flatten all positions to cash"""
@@ -168,11 +197,18 @@ class KillSwitch:
         """Check if kill switch is armed"""
         return self.state == KillSwitchState.ARMED
     
-    def reset(self) -> None:
-        """Reset the kill switch (requires admin action)"""
-        logger.warning("Kill switch reset - ADMIN ACTION")
+    def reset(self, *, actor: str, reason: str = "") -> None:
+        """Reset the kill switch. Authenticated: only the triggering actor
+        may re-arm (mirrors risk.kill_switch.KillSwitch). Previously any
+        caller could silently re-arm live trading."""
+        if self.state == KillSwitchState.ARMED:
+            return
+        if actor != self.triggered_by:
+            raise PermissionError("only the triggering actor may reset the kill switch.")
+        logger.warning("Kill switch reset by %s: %s", actor, reason)
         self.state = KillSwitchState.ARMED
         self.triggered_at = None
+        self.triggered_by = ""
         self.cancelled_orders_count = 0
         self.liquidated_positions_count = 0
     
@@ -187,12 +223,14 @@ class KillSwitch:
             "liquidated_positions": self.liquidated_positions_count
         }
     
-    def arm(self) -> None:
+    def arm(self, *, actor: str = "operator") -> None:
         """Arm the kill switch"""
         self.state = KillSwitchState.ARMED
-        logger.info("Kill switch armed")
-    
-    def disarm(self) -> None:
-        """Disarm the kill switch"""
+        logger.info("Kill switch armed by %s", actor)
+
+    def disarm(self, *, actor: str, reason: str = "") -> None:
+        """Disarm the kill switch (authenticated — previously anonymous)."""
+        if not actor:
+            raise PermissionError("disarm requires an authenticated actor.")
         self.state = KillSwitchState.COOLDOWN
-        logger.warning("Kill switch disarmed - entering cooldown")
+        logger.warning("Kill switch disarmed by %s: %s — entering cooldown", actor, reason)

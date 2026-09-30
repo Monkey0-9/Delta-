@@ -131,7 +131,7 @@ fn render_landing_state_a(frame: &mut Frame, area: Rect, state: &ApplicationStat
 
     let input_text = &state.ui.input_buffer;
     let pos = state.ui.cursor_pos.min(input_text.len());
-    let blink_on = (state.ui.tick_count / 3) % 2 == 0;
+    let blink_on = (state.ui.tick_count / 3).is_multiple_of(2);
     let cursor_glyph = if blink_on { "█" } else { " " };
 
     let mut left_spans = vec![
@@ -200,6 +200,14 @@ fn render_landing_state_a(frame: &mut Frame, area: Rect, state: &ApplicationStat
         Span::styled(format!("{active_session} ∨"), Style::default().fg(ThemeColors::ACCENT).add_modifier(Modifier::BOLD)),
     ];
     frame.render_widget(Paragraph::new(Line::from(chip_spans)).alignment(Alignment::Center), v_chunks[10]);
+
+    // Context autocomplete dropdown (anchored above prompt card)
+    if state.ui.context_dropdown_open {
+        if let Some((_, q)) = crate::input::ContextCompleter::get_active_query(input_text, pos) {
+            let matches = crate::input::ContextCompleter::resolve_matches(&q, state);
+            crate::input::ContextCompleter::render_dropdown(frame, box_area, &matches, state.ui.context_selected_idx);
+        }
+    }
 }
 
 /// State B: Clean active conversational stream (OpenCode style)
@@ -237,6 +245,25 @@ fn render_conversation_state_b(frame: &mut Frame, area: Rect, state: &Applicatio
 
     // Build conversation stream lines
     let mut stream_lines: Vec<Line> = Vec::new();
+
+    // Attention Triage Bar (Section 41)
+    let attention_items = crate::widgets::attention::AttentionItem::collect_from_state(state);
+    if let Some(top_item) = attention_items.first() {
+        let (icon, color) = match top_item.level {
+            crate::widgets::attention::AttentionLevel::Critical => ("▲ CRITICAL: ", ThemeColors::CRITICAL),
+            crate::widgets::attention::AttentionLevel::Warning => ("⚠ ATTENTION: ", ThemeColors::WARNING),
+            crate::widgets::attention::AttentionLevel::Info => ("● ATTENTION TRIAGE: ", ThemeColors::ACCENT),
+        };
+        stream_lines.push(Line::from(vec![
+            Span::styled(icon, Style::default().fg(color).add_modifier(Modifier::BOLD)),
+            Span::styled(&top_item.title, Style::default().fg(Color::Rgb(255, 255, 255)).add_modifier(Modifier::BOLD)),
+            Span::raw(" ─ "),
+            Span::styled(&top_item.detail, Style::default().fg(ThemeColors::TEXT_SECONDARY)),
+            Span::styled(format!("  [{}]", top_item.action_hint), Style::default().fg(ThemeColors::ACCENT)),
+        ]));
+        stream_lines.push(Line::from(""));
+    }
+
     for (prompt, response) in &state.research.turns {
         // User turn
         stream_lines.push(Line::from(vec![
@@ -293,11 +320,7 @@ fn render_conversation_state_b(frame: &mut Frame, area: Rect, state: &Applicatio
     // Auto-scroll so newest conversation lines are always in view
     let total_lines = stream_lines.len() as u16;
     let visible_height = stream_area.height;
-    let scroll_y = if total_lines > visible_height {
-        total_lines - visible_height
-    } else {
-        0
-    };
+    let scroll_y = total_lines.saturating_sub(visible_height);
 
     let stream_para = Paragraph::new(stream_lines).scroll((scroll_y, 0));
     frame.render_widget(stream_para, stream_area);
@@ -322,7 +345,7 @@ fn render_conversation_state_b(frame: &mut Frame, area: Rect, state: &Applicatio
 
     let input_text = &state.ui.input_buffer;
     let pos = state.ui.cursor_pos.min(input_text.len());
-    let blink_on = (state.ui.tick_count / 3) % 2 == 0;
+    let blink_on = (state.ui.tick_count / 3).is_multiple_of(2);
     let cursor_glyph = if blink_on { "█" } else { " " };
 
     let mut left_spans = vec![
@@ -387,4 +410,12 @@ fn render_conversation_state_b(frame: &mut Frame, area: Rect, state: &Applicatio
         Span::styled(format!("{active_session} ∨"), Style::default().fg(ThemeColors::ACCENT).add_modifier(Modifier::BOLD)),
     ];
     frame.render_widget(Paragraph::new(Line::from(chip_spans)).alignment(Alignment::Center), v_chunks[3]);
+
+    // Context autocomplete dropdown (anchored above prompt card)
+    if state.ui.context_dropdown_open {
+        if let Some((_, q)) = crate::input::ContextCompleter::get_active_query(input_text, pos) {
+            let matches = crate::input::ContextCompleter::resolve_matches(&q, state);
+            crate::input::ContextCompleter::render_dropdown(frame, box_area, &matches, state.ui.context_selected_idx);
+        }
+    }
 }

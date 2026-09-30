@@ -104,27 +104,36 @@ class RiskGovernor:
     
     def calculate_position_size(self, account: AccountInfo, current_price: float,
                                win_prob: float, payout_ratio: float) -> int:
-        """Calculate optimal position size using Fractional Kelly Criterion"""
+        """Calculate optimal position size using Fractional Kelly Criterion.
+
+        P0 fix: negative-edge bets MUST return 0 (flat), never a forced
+        minimum of 1 share. The previous ``max(1, quantity)`` silently
+        converted "no edge" into "take a small position" — a fail-open
+        defect. Fail-closed: kelly <= 0 -> 0.
+        """
         try:
             # Kelly Criterion: f* = (p*b - q) / b
             # where p = win probability, b = payout ratio, q = 1-p
             q = 1 - win_prob
             kelly_fraction = (win_prob * payout_ratio - q) / payout_ratio
             
+            # Fail-closed: no edge -> no position (never force min 1 share).
+            if kelly_fraction <= 0:
+                return 0
             # Apply conservative safety fraction
             adjusted_fraction = kelly_fraction * self.kelly_fraction
-            
+
             # Ensure positive and bounded
             adjusted_fraction = max(0, min(adjusted_fraction, 0.25))
-            
+
             # Calculate position value
             position_value = account.portfolio_value * adjusted_fraction
-            
+
             # Calculate quantity
             quantity = int(position_value / current_price)
-            
-            # Ensure minimum size of 1
-            quantity = max(1, quantity)
+
+            if quantity <= 0:
+                return 0
             
             # Check against position limit
             max_position_value = account.portfolio_value * (self.max_position_pct / 100)
@@ -137,8 +146,9 @@ class RiskGovernor:
             
         except Exception as e:
             logger.error(f"Error calculating position size: {e}")
-            # Return conservative default
-            return int((account.portfolio_value * 0.01) / current_price)
+            # Fail-closed: on any numerical failure (zero/NaN price,
+            # zero payout, overflow) take NO position, never a 1% default.
+            return 0
     
     def set_position_limit(self, symbol: str, max_quantity: int) -> None:
         """Set a custom position limit for a symbol"""

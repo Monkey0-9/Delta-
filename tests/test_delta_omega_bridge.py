@@ -123,7 +123,7 @@ def test_red_button_halts_before_approval():
 
     import sys as _sys
 
-    _spec = _ilu.spec_from_file_location("legacy_simple_firewall", "risk/firewall.py")
+    _spec = _ilu.spec_from_file_location("legacy_simple_firewall", "risk/firewall_legacy_float.py")
     assert _spec is not None and _spec.loader is not None
     legacy = _ilu.module_from_spec(_spec)
     _sys.modules["legacy_simple_firewall"] = legacy

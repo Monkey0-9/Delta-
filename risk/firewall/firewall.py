@@ -4,7 +4,10 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import uuid4
 
-from risk.kill_switch.kill_switch import KillSwitch
+try:
+    from risk.kill_switch.kill_switch import KillSwitch, KillSwitchBoard
+except ImportError:  # installed-package layout
+    from delta.risk.kill_switch.kill_switch import KillSwitch, KillSwitchBoard  # type: ignore
 from risk.limits.limits import RiskLimits
 from risk.pre_trade.validation import (
     RiskDecision,
@@ -43,10 +46,18 @@ class RiskFirewall:
     def __init__(
         self,
         limits: RiskLimits | None = None,
-        kill_switch: KillSwitch | None = None,
+        kill_switch: KillSwitch | KillSwitchBoard | None = None,
     ) -> None:
         self._limits = limits or RiskLimits()
-        self._kill = kill_switch or KillSwitch()
+        # Triple-layer board preferred: ANY of global/strategy/broker blocks.
+        # A lone KillSwitch is accepted for backward compat and wrapped.
+        if kill_switch is None:
+            kill_switch = KillSwitchBoard()
+        elif isinstance(kill_switch, KillSwitch):
+            kill_switch = KillSwitchBoard(
+                glob=kill_switch, strategy=KillSwitch(), broker=KillSwitch()
+            )
+        self._kill = kill_switch
         self._seen_keys: set[str] = set()
         self._order_counts: list[datetime] = []
 
@@ -73,11 +84,15 @@ class RiskFirewall:
         now = now or datetime.now(timezone.utc)
 
         # ---------------------------------------------------------------
-        # 1. Kill switch
+        # 1. Kill switch (triple-layer board)
         # ---------------------------------------------------------------
-        # Independent of model confidence.
+        # Independent of model confidence. RiskHaltException (kernel
+        # red-button) is uncatchable-by-policy and must propagate, never
+        # degrade to an advisory BLOCK verdict.
         try:
             self._kill.check()
+        except RiskHaltException:
+            raise
         except RuntimeError:
             return self._decide(
                 intent,

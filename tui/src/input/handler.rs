@@ -31,6 +31,26 @@ pub fn handle_key_event(key: KeyEvent, state: &ApplicationState) -> Action {
         }
     }
 
+    // Modal interceptor: Order Ticket
+    if state.ui.order_ticket.is_open {
+        match key.code {
+            KeyCode::Enter => return Action::ConfirmOrderTicket,
+            KeyCode::Esc => return Action::CloseOrderTicket,
+            _ => return Action::None,
+        }
+    }
+
+    // Modal interceptor: @ Context Autocomplete Dropdown
+    if state.ui.context_dropdown_open {
+        match key.code {
+            KeyCode::Tab | KeyCode::Enter => return Action::ContextSelect,
+            KeyCode::Down => return Action::ContextNext,
+            KeyCode::Up => return Action::ContextPrev,
+            KeyCode::Esc => return Action::CloseModal,
+            _ => {}
+        }
+    }
+
     // Modal interceptor: Selectors (Model, Agent, Session)
     if state.ui.model_selector_open || state.ui.agent_selector_open || state.ui.session_selector_open {
         match key.code {
@@ -54,13 +74,11 @@ pub fn handle_key_event(key: KeyEvent, state: &ApplicationState) -> Action {
                 q.pop();
                 return Action::PaletteSearch(q);
             }
-            KeyCode::Char(c) => {
-                if !key.modifiers.contains(KeyModifiers::CONTROL) {
+            KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
                     let mut q = state.ui.palette_query.clone();
                     q.push(c);
                     return Action::PaletteSearch(q);
                 }
-            }
             _ => {}
         }
     }

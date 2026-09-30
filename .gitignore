@@ -80,7 +80,19 @@ htmlcov/
 
 # Accidental / temporary artifacts
 Delta-/
-=*.0.0
+.opencode/
+.devin/
+*.docx
+DELTA_TREE.txt
+delta_source_snapshot.txt
+delta_project_files.txt
+DELTA_*.md
+parity_check_gate.exe
+*.pyd
+*.whl
+archive/
+artifacts/
+exports/
 pytest
 *.tmp
 *.bak

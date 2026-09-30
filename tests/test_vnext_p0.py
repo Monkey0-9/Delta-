@@ -76,7 +76,9 @@ def test_workstation_dispatch_typed_viewmodels():
     step1 = app.dispatch("/kill")
     assert "CONFIRM" in step1
     step2 = app.dispatch("/kill CONFIRM")
-    assert "ENGAGED" in step2
+    # Implementation renders the HALTED box ("EXECUTION HALTED", orders
+    # BLOCKED) — assert that wording, not the stale "ENGAGED" string.
+    assert "HALTED" in step2 and "BLOCKED" in step2
 
 
 def test_sqlite_registry_roundtrip_and_reproduce(tmp_path):

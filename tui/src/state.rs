@@ -249,6 +249,37 @@ pub struct LogsState {
 }
 
 #[derive(Debug, Clone)]
+pub struct OrderTicketState {
+    pub is_open: bool,
+    pub symbol: String,
+    pub side: String,
+    pub qty: f64,
+    pub order_type: String,
+    pub limit_price: f64,
+    pub tif: String,
+    pub venue: String,
+    pub is_live: bool,
+    pub confirmed: bool,
+}
+
+impl Default for OrderTicketState {
+    fn default() -> Self {
+        Self {
+            is_open: false,
+            symbol: "NVDA".into(),
+            side: "BUY".into(),
+            qty: 100.0,
+            order_type: "LIMIT".into(),
+            limit_price: 184.20,
+            tif: "DAY".into(),
+            venue: "AUTO (Paper DMA)".into(),
+            is_live: false,
+            confirmed: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct UIState {
     pub input_buffer: String,
     pub cursor_pos: usize,
@@ -264,6 +295,9 @@ pub struct UIState {
     pub session_selector_open: bool,
     pub session_selected_idx: usize,
     pub available_sessions: Vec<String>,
+    pub context_dropdown_open: bool,
+    pub context_selected_idx: usize,
+    pub order_ticket: OrderTicketState,
     pub tick_count: u64,
     pub terminal_width: u16,
     pub terminal_height: u16,
@@ -294,6 +328,9 @@ impl Default for UIState {
                 "equities-l/s".into(),
                 "crypto-stat-arb".into(),
             ],
+            context_dropdown_open: false,
+            context_selected_idx: 0,
+            order_ticket: OrderTicketState::default(),
             tick_count: 0,
             terminal_width: 120,
             terminal_height: 35,

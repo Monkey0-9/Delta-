@@ -94,6 +94,13 @@ pub enum Action {
     SelectorPrev,
     ExecuteSelector,
 
+    // Context autocomplete & Order ticket
+    ContextNext,
+    ContextPrev,
+    ContextSelect,
+    ConfirmOrderTicket,
+    CloseOrderTicket,
+
     // Table / List Navigation
     TableNext,
     TablePrev,

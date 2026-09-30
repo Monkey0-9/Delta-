@@ -36,17 +36,14 @@ impl EventHandler {
                         match evt {
                             CrosstermEvent::Key(key) => {
                                 // On Windows, ignore Release events to prevent double-firing
-                                if key.kind == KeyEventKind::Press {
-                                    if tx.send(Event::Key(key)).is_err() {
-                                        break;
-                                    }
-                                }
-                            }
-                            CrosstermEvent::Resize(w, h) => {
-                                if tx.send(Event::Resize(w, h)).is_err() {
+                                if key.kind == KeyEventKind::Press && tx.send(Event::Key(key)).is_err() {
                                     break;
                                 }
                             }
+                            CrosstermEvent::Resize(w, h)
+                                if tx.send(Event::Resize(w, h)).is_err() => {
+                                    break;
+                                }
                             _ => {}
                         }
                     }
