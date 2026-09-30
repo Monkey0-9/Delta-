@@ -34,9 +34,24 @@ class TerminalStore:
     alerts: list[str] = field(default_factory=list)
     conversation: list[dict[str, str]] = field(default_factory=list)
     browser_ref: str = ""
+    hypothesis: str = "H-2026-0041"
+    experiment: str = "EXP-9182"
+    strategy: str = "momentum-v4"
+    dataset: str = "US_EQ_PIT_2026_08"
+    research_status: str = "OOS validation"
     updated_at: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
+
+    @property
+    def context_str(self) -> str:
+        parts = []
+        if self.symbol:
+            parts.append(self.symbol)
+        parts.append(f"Portfolio {self.session_id.upper()}")
+        if self.hypothesis and self.workspace == "research":
+            parts.append(self.hypothesis)
+        return " · ".join(parts) if parts else "none"
 
     def set_screen(self, name: str) -> None:
         self.workspace = name

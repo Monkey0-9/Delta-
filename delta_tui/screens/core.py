@@ -111,13 +111,24 @@ class ResearchScreen(BaseScreen):
         vm = store.viewmodels.get("research")
         if vm is not None:
             return vm
-        return ResearchVM(experiment_id="EXP-LOCAL", hypothesis="pending",
-                          stage="planned", mode="RESEARCH")
+        return ResearchVM(experiment_id=getattr(store, "experiment", "EXP-9182"),
+                          hypothesis=getattr(store, "hypothesis", "H-2026-0041"),
+                          stage=getattr(store, "research_status", "OOS validation"),
+                          mode=store.mode.value)
 
     def render_text(self, vm: ResearchVM) -> str:
-        return (f"RESEARCH {vm.experiment_id} [{vm.mode}]\n"
-                f"hypothesis: {vm.hypothesis}\nstage: {vm.stage} "
-                f"verdict: {vm.verdict}")
+        return "\n".join([
+            f"RESEARCH [{vm.mode}]",
+            "",
+            f"Session:    NVDA regime research",
+            f"Hypothesis: {vm.hypothesis}",
+            f"Experiment: {vm.experiment_id}",
+            f"Strategy:   momentum-v4",
+            f"Dataset:    US_EQ_PIT_2026_08",
+            f"Status:     {vm.stage}",
+            "",
+            "[Open analysis ↗] [Run research] [Simulate]",
+        ])
 
 
 class AlphaScreen(BaseScreen):

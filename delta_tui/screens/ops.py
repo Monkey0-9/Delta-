@@ -1,9 +1,42 @@
-"""EXECUTION / ORDERS / SCENARIOS / MODELS / SYSTEM / SESSION screens."""
+"""EXECUTION / ORDERS / SCENARIOS / MODELS / SYSTEM / SESSION / AUTOMATION screens."""
 from __future__ import annotations
 
 from .base import BaseScreen
 from ..state.store import TerminalStore
 from ..viewmodels.models import ExecutionVM, SystemVM
+
+
+class AutomationScreen(BaseScreen):
+    name = "automation"
+
+    def build_viewmodel(self, store: TerminalStore):
+        return {
+            "mode": store.mode.value,
+            "symbol": store.symbol,
+            "items": [
+                {"name": "Morning portfolio review", "schedule": "Every trading day · 07:30", "status": "Active"},
+                {"name": "Risk regime watch", "schedule": "Active · event driven", "status": "Active"},
+                {"name": f"{store.symbol} research monitor", "schedule": "Paused", "status": "Paused"},
+            ]
+        }
+
+    def render_text(self, vm) -> str:
+        symbol = vm.get("symbol", "NVDA")
+        lines = [
+            "AUTOMATIONS",
+            "",
+            "● Morning portfolio review",
+            "  Every trading day · 07:30",
+            "",
+            "● Risk regime watch",
+            "  Active · event driven",
+            "",
+            f"○ {symbol} research monitor",
+            "  Paused",
+            "",
+            "[Create] [Pause] [Resume] [History]",
+        ]
+        return "\n".join(lines)
 
 
 class ExecutionScreen(BaseScreen):

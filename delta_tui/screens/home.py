@@ -1,4 +1,4 @@
-"""HOME — new-session splash matching Image 1. Disappears once conversation starts."""
+"""HOME — new-session splash matching Section 22 specification. Disappears once conversation starts."""
 from __future__ import annotations
 
 from .base import BaseScreen
@@ -19,34 +19,40 @@ class HomeScreen(BaseScreen):
         )
 
     def render_text(self, vm: HomeVM) -> str:
-        # Splash only — no portfolio numbers here (minimal philosophy).
-        # Conversation screens own numbers once the session is active.
+        # Minimal landing screen — strictly no giant cards or implementation noise
         return "\n".join([
             "",
             "                         DELTA",
-            "               QUANT INTELLIGENCE CLI",
+            "                  QUANT INTELLIGENCE",
             "",
-            "     RESEARCH  |  SIMULATE  |  ANALYZE  |  EXECUTE  |  LEARN",
             "",
-            "  >  Ask DELTA anything, run a strategy, analyze a market, or type / for commands...   [Ctrl+K]",
+            "  > Ask DELTA anything, research a strategy, analyze a market...",
             "",
-            "       Model: delta-fm-research  |  Agent: quant-researcher  |  Session: default",
-            "                    / for commands  |  Ctrl+O open browser  |  Ctrl+X K risk",
+            "",
+            "       Model  delta-fm-research   Agent  quant-researcher",
+            "       Session  default            Context  none",
+            "",
+            "",
+            "                     / for commands · @ for context",
             "",
         ])
 
     def render_for(self, store: TerminalStore) -> str:
-        """Splash with live model/agent/session chips."""
+        """Splash with live model/agent/session/context chips."""
+        ctx = store.context_str if hasattr(store, "context_str") else (store.symbol or "none")
         return "\n".join([
             "",
             "                         DELTA",
-            "               QUANT INTELLIGENCE CLI",
+            "                  QUANT INTELLIGENCE",
             "",
-            "     RESEARCH  |  SIMULATE  |  ANALYZE  |  EXECUTE  |  LEARN",
             "",
-            "  >  Ask DELTA anything, run a strategy, analyze a market, or type / for commands...   [Ctrl+K]",
+            "  > Ask DELTA anything, research a strategy, analyze a market...",
             "",
-            f"       Model: {store.model}  |  Agent: {store.agent}  |  Session: {store.session_id}",
-            "                    / for commands  |  Ctrl+O open browser  |  Ctrl+X K risk",
+            "",
+            f"       Model  {store.model:<18} Agent  {store.agent}",
+            f"       Session  {store.session_id:<16} Context  {ctx}",
+            "",
+            "",
+            "                     / for commands · @ for context",
             "",
         ])

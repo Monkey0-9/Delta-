@@ -28,6 +28,7 @@ def footer_model(s: TerminalStore) -> dict:
         "model": s.model,
         "agent": s.agent,
         "session": s.session_id,
+        "context": s.context_str,
         "mode": s.mode.value,
         "risk": s.risk_state or "SAFE",
     }

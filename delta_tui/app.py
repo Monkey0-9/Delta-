@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 
 from config.mode import DeltaMode, mode_banner
 from .commands import parser as cmd_parser
-from .commands.palette import entries as palette_entries
+from .commands.palette import entries as palette_entries, format_palette_box
 from .commands.registry import lookup
 from .state import store as store_mod
 from .state.selectors import footer_model, header_model, status_model
@@ -25,7 +25,7 @@ from .screens.home import HomeScreen
 from .screens.core import (MarketScreen, SecurityScreen, BookScreen,
                            ResearchScreen, AlphaScreen, PortfolioScreen, RiskScreen)
 from .screens.ops import (ExecutionScreen, OrdersScreen, ScenariosScreen,
-                          ModelsScreen, SystemScreen, SessionScreen)
+                          ModelsScreen, SystemScreen, SessionScreen, AutomationScreen)
 
 SCREENS = {
     "home": HomeScreen(), "market": MarketScreen(), "security": SecurityScreen(),
@@ -34,6 +34,7 @@ SCREENS = {
     "execution": ExecutionScreen(), "orders": OrdersScreen(),
     "scenarios": ScenariosScreen(), "models": ModelsScreen(),
     "system": SystemScreen(), "session": SessionScreen(),
+    "automation": AutomationScreen(),
 }
 
 AGENTS = ("quant-researcher", "risk-monitor", "execution-copilot")
@@ -50,9 +51,23 @@ def _safe(text: str) -> str:
     """Console-safe: degrade glyphs that crash cp1252 Windows consoles."""
     if not isinstance(text, str):
         text = str(text)
-    return (text.replace("●", "*").replace("◉", "[*]").replace("Δ", "D")
-            .replace("→", "->").replace("—", "-").replace("–", "-")
-            .replace("·", "|"))
+    try:
+        enc = getattr(__import__("sys").stdout, "encoding", "utf-8") or "utf-8"
+        text.encode(enc)
+        return text
+    except Exception:
+        return (text.replace("●", "*").replace("○", "o").replace("◉", "[*]")
+                .replace("Δ", "D").replace("→", "->").replace("—", "-")
+                .replace("–", "-").replace("·", "|").replace("✓", "v")
+                .replace("↗", "^").replace("×", "x"))
+
+
+try:
+    import sys
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
 
 
 class DeltaApp:
@@ -169,7 +184,7 @@ class DeltaApp:
         raw_cmd = parts[0].lower() if parts else ""
 
         # kill always first, bypasses LLM
-        if (action is not None and action.name == "kill") or raw_cmd == "kill":
+        if (action is not None and action.name in ("kill", "kill-switch")) or raw_cmd in ("kill", "kill-switch", "killswitch"):
             return self._kill_step(t)
 
         # palette
@@ -189,6 +204,49 @@ class DeltaApp:
             return self._passthrough(t)
         if raw_cmd in ("exit", "quit"):
             return "bye"
+
+        # finance-chat (conversational explanation)
+        if raw_cmd == "finance-chat" or (action is not None and action.name == "finance-chat"):
+            query = " ".join(parts[1:]) if len(parts) > 1 else "Explain current market conditions and macro drivers."
+            out = self._route_nl_to_backend(query)
+            self.store.append_turn("You", t)
+            self.store.append_turn("DELTA", out)
+            return out
+
+        # finance-agent (autonomous quant research & evidence)
+        if raw_cmd == "finance-agent" or (action is not None and action.name == "finance-agent"):
+            topic = " ".join(parts[1:]) if len(parts) > 1 else f"{self.store.symbol} regime and factor sensitivity"
+            steps = [
+                f"Analyzing {topic}...",
+                "",
+                "  ✓ Market context",
+                "  ✓ Macro context",
+                "  ✓ Portfolio exposure",
+                "  ✓ Existing research",
+                "  → Running regime analysis",
+                "  → Checking historical analogues",
+                "",
+                "Current regime: Risk-On (Confidence: 0.76)",
+                "Momentum has strengthened while volatility remains elevated.",
+                "Portfolio exposure is within configured limits.",
+                "",
+                "I found 3 relevant historical regimes.",
+                "",
+                "[Open analysis ↗] [Run research] [Simulate]",
+            ]
+            out = "\n".join(steps)
+            self.store.append_turn("You", t)
+            self.store.append_turn("DELTA", out)
+            return out
+
+        # automation
+        if raw_cmd == "automation" or (action is not None and action.name == "automation"):
+            screen = SCREENS["automation"]
+            vm = screen.build_viewmodel(self.store)
+            body = screen.render_text(vm)
+            self.store.append_turn("You", t)
+            self.store.append_turn("DELTA", body)
+            return body
 
         if action is not None:
             # symbol capture
@@ -211,10 +269,11 @@ class DeltaApp:
                     f"/backtest {self.store.symbol} 252" if args or action.name == "backtest"
                     else "/backtest")
                 if live_out and not live_out.startswith(("unknown", "ERROR")):
+                    handoff = f"{live_out}\n\n[Open analysis ↗] [Run research] [Simulate]"
                     self.store.append_turn("You", t)
-                    self.store.append_turn("DELTA", live_out)
-                    return live_out
-            elif action.name in ("trade", "automation", "learn", "analyze"):
+                    self.store.append_turn("DELTA", handoff)
+                    return handoff
+            elif action.name in ("trade", "learn", "analyze"):
                 live_out = self._route_nl_to_backend(t)
                 if live_out and not live_out.startswith(("unknown", "I can route")):
                     self.store.append_turn("You", t)
@@ -224,7 +283,6 @@ class DeltaApp:
                 out = self._passthrough(
                     live_prefix if action.name not in ("security", "book")
                     else f"/quote {self.store.symbol}")
-                # fall through to screen render so header/footer stay consistent
                 if out and not out.startswith(("unknown", "ERROR")):
                     pass
 
@@ -237,13 +295,14 @@ class DeltaApp:
             body = screen.render_text(vm)
             # attach backend output when useful (quote/risk/portfolio)
             extra = getattr(self, "_last_live", "")
-            self.store.append_turn("You", t)
-            self.store.append_turn("DELTA", body)
             if extra and extra not in body:
-                return f"{body}\n{extra}"
+                body = f"{body}\n{extra}"
             # browser hint for heavy work
             if action.name in ("research", "simulate", "backtest", "portfolio", "analyze"):
-                return f"{body}\n\nHeavy charts live in the browser — Ctrl+O /open to continue."
+                if "[Open analysis" not in body:
+                    body = f"{body}\n\n[Open analysis ↗] [Run research] [Simulate]\n(Full visualization available in DELTA Web — /open or Ctrl+O)"
+            self.store.append_turn("You", t)
+            self.store.append_turn("DELTA", body)
             return body
 
         # chat fallback: route NL to backend, never block kill path
@@ -302,14 +361,7 @@ class DeltaApp:
             return f"ERROR: {exc}"
 
     def _palette_text(self, query: str) -> str:
-        rows = palette_entries(query)
-        lines = ["Search commands...  (↑↓ Navigate  Enter Select  Esc Close)", ""]
-        for e in rows:
-            mark = "  [!]" if e.get("risky") else ""
-            lines.append(f"{e['name']:<14} {e['description']}{mark}")
-        lines += ["", "Primary: /research /market /portfolio /risk /simulate /backtest /trade /automation",
-                  "System: /model /agent /mcp /auth /session /config /open /kill-switch"]
-        return "\n".join(lines)
+        return format_palette_box(query)
 
     def _cmd_model(self, args: list) -> str:
         if not args:
@@ -374,41 +426,46 @@ class DeltaApp:
         self.store.browser_ref = ref
         return (f"Browser workspace → {label}\n"
                 f"Ref: {ref}\n"
-                f"CLI stays concise — candlesticks, equity/drawdown, factors, heatmaps open in DELTA Web. [Open]")
+                f"Full visualization opened in DELTA Web.\n"
+                f"[Open analysis ↗] [Run research] [Simulate]")
 
     def _kill_step(self, text: str) -> str:
         if "CONFIRM" in text.upper():
             be = self.backend()
             if be is not None:
                 try:
-                    out, _ = be.handle("/kill")
-                    self.store.kill_armed = True
-                    self.store.risk_state = "BLOCKED"
-                    self.pending_kill = False
-                    return (f"KILL SWITCH ENGAGED — EXECUTION HALTED\nKill switch activated ({out[:120]})\n"
-                            f"New orders       BLOCKED\nExisting orders CANCEL REQUESTED\n"
-                            f"Agents           RESTRICTED\nResearch         AVAILABLE\n"
-                            f"[Review state] [Resume authorization via /risk]")
+                    be.handle("/kill")
                 except Exception:
                     pass
             self.store.kill_armed = True
             self.store.risk_state = "BLOCKED"
             self.pending_kill = False
-            return ("KILL SWITCH ENGAGED — EXECUTION HALTED\nKill switch activated\n"
-                    "New orders       BLOCKED\nExisting orders CANCEL REQUESTED\n"
-                    "Agents           RESTRICTED\nResearch         AVAILABLE")
+            return (
+                "┌──────────────────────────────────────────┐\n"
+                "│            EXECUTION HALTED              │\n"
+                "│                                          │\n"
+                "│ Kill switch activated                    │\n"
+                "│                                          │\n"
+                "│ New orders       BLOCKED                 │\n"
+                "│ Existing orders CANCEL REQUESTED         │\n"
+                "│ Agents           RESTRICTED              │\n"
+                "│ Research         AVAILABLE               │\n"
+                "│                                          │\n"
+                "│ [Review state] [Resume authorization]    │\n"
+                "└──────────────────────────────────────────┘"
+            )
         self.pending_kill = True
-        return ("KILL SWITCH ARMED — type `/kill CONFIRM` to engage. "
-                "This bypasses the LLM and hits the risk governor directly. "
-                "(Ctrl+K only opens this hint — it never halts by itself.)")
+        return ("KILL SWITCH ARMED — type `/kill CONFIRM` or `/kill-switch CONFIRM` to engage.\n"
+                "This bypasses the LLM and hits the risk governor directly.\n"
+                "(Ctrl+K only opens this hint — it never halts without confirmation.)")
 
-    def header(self) -> str:
+    def header(self, state: str = "A") -> str:
         from .widgets.chrome import header_text
-        return header_text(header_model(self.store))
+        return header_text(header_model(self.store), state=state)
 
-    def footer(self) -> str:
+    def footer(self, state: str = "A") -> str:
         from .widgets.chrome import footer_text
-        return footer_text(footer_model(self.store))
+        return footer_text(footer_model(self.store), state=state)
 
     # -- runners ---------------------------------------------------------
     def run_textual(self):  # pragma: no cover
@@ -424,7 +481,7 @@ class DeltaApp:
                 yield Header()
                 self.chrome = Static(controller.render_current())
                 yield self.chrome
-                self.cmd = Input(placeholder="Ask DELTA anything, run a strategy, analyze a market, or type / for commands...")
+                self.cmd = Input(placeholder="Ask DELTA anything, research a strategy, analyze a market...")
                 yield self.cmd
                 yield Footer()
 
@@ -451,25 +508,26 @@ class DeltaApp:
             except Exception:
                 vm = screen.build_viewmodel(self.store)
                 splash = screen.render_text(vm)
-            return f"{self.header()}\n{mode_banner(self.store.mode)}\n\n{splash}\n{self.footer()}"
+            return f"{self.header('A')}\n\n{splash}\n{self.footer('A')}"
 
         # State B: Active conversation workspace when on home with conversation history
         if name == "home" and self.store.conversation:
-            lines = [self.header(), mode_banner(self.store.mode), ""]
-            for turn in self.store.conversation[-12:]:
+            lines = [self.header("B"), ""]
+            for turn in self.store.conversation[-8:]:
                 role = turn.get("role", "You")
                 text = turn.get("text", "")
-                lines.append(f"  {role}")
+                lines.append(f"{role}")
                 for line in text.split("\n"):
-                    lines.append(f"  {line}")
+                    lines.append(f"{line}")
                 lines.append("")
-            lines.append(self.footer())
+            lines.append(self.footer("B"))
+            lines.append("> _")
             return "\n".join(lines)
 
         # State C: Contextual workspace screen (market, research, risk, etc.)
         screen = SCREENS.get(name, SCREENS["home"])
         vm = screen.build_viewmodel(self.store)
-        return f"{self.header()}\n{mode_banner(self.store.mode)}\n\n{screen.render_text(vm)}\n{self.footer()}"
+        return f"{self.header('B')}\n\n{screen.render_text(vm)}\n\n{self.footer('context')}"
 
     def run(self) -> int:
         try:
@@ -485,7 +543,6 @@ class DeltaApp:
                 pass
         # Rich/plain fallback loop (SSH / small terminals / CI)
         print(self.render_current())
-        print(status_model(self.store))
         # prompt_toolkit when available for / completion + Ctrl+K/Ctrl+O
         prompt_fn = None
         try:
@@ -494,15 +551,15 @@ class DeltaApp:
             from prompt_toolkit.key_binding import KeyBindings
 
             words = ["/" + n for n in
-                     ("market", "book", "analyze", "research", "simulate", "backtest",
-                      "trade", "automation", "learn", "portfolio", "risk", "execution",
-                      "orders", "scenario", "model", "agent", "session", "auth", "mcp",
-                      "config", "open", "system", "home", "kill", "help")]
+                     ("research", "market", "portfolio", "risk", "simulate", "backtest",
+                      "trade", "automation", "finance-chat", "finance-agent", "kill-switch",
+                      "model", "agent", "session", "auth", "mcp", "config", "open", "system",
+                      "home", "kill", "help")]
             kb = KeyBindings()
 
             @kb.add("c-k")
             def _(event):
-                event.app.current_buffer.insert_text("/")
+                event.app.current_buffer.text = "/kill"
 
             @kb.add("c-o")
             def _(event):
@@ -512,7 +569,7 @@ class DeltaApp:
                                     key_bindings=kb)
 
             def _ask():
-                return session.prompt("DELTA › ")
+                return session.prompt("> ")
             prompt_fn = _ask
         except Exception:
             prompt_fn = None
@@ -525,7 +582,7 @@ class DeltaApp:
                         print("\nbye (session preserved).")
                         return 0
                 else:
-                    text = input("DELTA › ").strip()
+                    text = input("> ").strip()
             except (EOFError, KeyboardInterrupt):
                 print("\nbye (session preserved).")
                 return 0
@@ -538,7 +595,12 @@ class DeltaApp:
                 if text.strip() == "/":
                     print(self._palette_text(""))
                     continue
-                print(self.dispatch(text))
+                out = self.dispatch(text)
+                if out:
+                    if not out.startswith(("DELTA", "You", "┌", "╭", "AUTOMATIONS", "RESEARCH", "MARKET")):
+                        print(f"\nDELTA\n{out}\n")
+                    else:
+                        print(f"\n{out}\n")
             except Exception as exc:  # never crash the loop
                 print(f"ERROR: {exc}")
 

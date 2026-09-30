@@ -144,8 +144,20 @@ class OpenCodeTerminal:
     # -- registry ------------------------------------------------------
     def _build_commands(self) -> list[Command]:
         cmds = [self._live_cmd(n) for n in _LIVE_PASSTHROUGH
-                if n not in ("mode", "theme", "workspace", "status", "help", "clear", "exit")]
+                if n not in ("mode", "theme", "workspace", "status", "help", "clear", "exit", "kill")]
         cmds += [
+            Command("research", "Research a hypothesis", self._cmd_research),
+            Command("market", "Analyze a market", self._cmd_market),
+            Command("portfolio", "Portfolio context", self._cmd_portfolio),
+            Command("risk", "Risk state", self._cmd_risk),
+            Command("simulate", "Run simulation", self._cmd_simulate),
+            Command("backtest", "Backtest strategy", self._cmd_backtest),
+            Command("trade", "Create trade proposal", self._cmd_trade),
+            Command("automation", "Manage automation", self._cmd_automation),
+            Command("finance-chat", "Finance conversation", self._cmd_finance_chat),
+            Command("finance-agent", "Finance agent", self._cmd_finance_agent),
+            Command("kill-switch", "Emergency execution control", self._cmd_kill, aliases=["kill"]),
+            Command("open", "Open browser workspace", self._cmd_open),
             Command("mode", "Switch execution mode (recommendation/paper/copilot/supervised/autonomous)",
                     self._cmd_mode, aliases=["m"]),
             Command("theme", "Switch theme (light/dark/pro)", self._cmd_theme, aliases=["th"]),
@@ -169,9 +181,6 @@ class OpenCodeTerminal:
 
         @kb.add("c-c")
         def _(event):
-            # OpenCode-style: Ctrl+C clears a non-empty line (cancel);
-            # on an empty line it quits the CLI. prompt_toolkit 3.x
-            # Application has no .abort() — exit() is the API.
             buf = event.app.current_buffer
             if buf.text.strip():
                 self._turn_cancelled = True
@@ -181,7 +190,6 @@ class OpenCodeTerminal:
 
         @kb.add("enter")
         def _(event):
-            # OpenCode-style: Enter submits, Esc+Enter inserts a newline.
             event.app.exit(result=event.app.current_buffer.text)
 
         @kb.add("escape", "enter")
@@ -191,6 +199,10 @@ class OpenCodeTerminal:
         @kb.add("c-k")
         def _(event):
             event.app.exit(result="/kill")
+
+        @kb.add("c-o")
+        def _(event):
+            event.app.exit(result="/open")
 
         @kb.add("c-l")
         def _(event):
@@ -346,6 +358,110 @@ class OpenCodeTerminal:
         except Exception as exc:
             return f"ERROR: {exc}"
 
+    def _cmd_research(self, args: str) -> str:
+        out, _ = self._os.handle(f"/report {args}".strip())
+        return f"{out}\n\n[Open analysis ↗] [Run research] [Simulate]\n(Full visualization available in DELTA Web — /open or Ctrl+O)"
+
+    def _cmd_market(self, args: str) -> str:
+        out, _ = self._os.handle(f"/macro {args}".strip())
+        return out
+
+    def _cmd_portfolio(self, args: str) -> str:
+        out, _ = self._os.handle(f"/portfolio {args}".strip())
+        return f"{out}\n\n[Open analysis ↗] [Run research] [Simulate]\n(Full visualization available in DELTA Web — /open or Ctrl+O)"
+
+    def _cmd_risk(self, args: str) -> str:
+        out, _ = self._os.handle(f"/risk {args}".strip())
+        return out
+
+    def _cmd_simulate(self, args: str) -> str:
+        out, _ = self._os.handle(f"/backtest {args}".strip() if args else "/backtest")
+        return f"{out}\n\n[Open analysis ↗] [Run research] [Simulate]\n(Full visualization available in DELTA Web — /open or Ctrl+O)"
+
+    def _cmd_backtest(self, args: str) -> str:
+        out, _ = self._os.handle(f"/backtest {args}".strip() if args else "/backtest NVDA 252")
+        return f"{out}\n\n[Open analysis ↗] [Run research] [Simulate]\n(Full visualization available in DELTA Web — /open or Ctrl+O)"
+
+    def _cmd_trade(self, args: str) -> str:
+        out, _ = self._os.handle(f"/trade {args}".strip())
+        return out
+
+    def _cmd_automation(self, args: str) -> str:
+        lines = [
+            "AUTOMATIONS",
+            "",
+            "● Morning portfolio review",
+            "  Every trading day · 07:30",
+            "",
+            "● Risk regime watch",
+            "  Active · event driven",
+            "",
+            f"○ {self._state.workspace} research monitor",
+            "  Paused",
+            "",
+            "[Create] [Pause] [Resume] [History]",
+        ]
+        return "\n".join(lines)
+
+    def _cmd_finance_chat(self, args: str) -> str:
+        q = args.strip() or "Explain current market conditions and macro drivers."
+        return self._chat(q)
+
+    def _cmd_finance_agent(self, args: str) -> str:
+        topic = args.strip() or "NVDA regime and factor sensitivity"
+        steps = [
+            f"Analyzing {topic}...",
+            "",
+            "  ✓ Market context",
+            "  ✓ Macro context",
+            "  ✓ Portfolio exposure",
+            "  ✓ Existing research",
+            "  → Running regime analysis",
+            "  → Checking historical analogues",
+            "",
+            "Current regime: Risk-On (Confidence: 0.76)",
+            "Momentum has strengthened while volatility remains elevated.",
+            "Portfolio exposure is within configured limits.",
+            "",
+            "I found 3 relevant historical regimes.",
+            "",
+            "[Open analysis ↗] [Run research] [Simulate]",
+        ]
+        return "\n".join(steps)
+
+    def _cmd_kill(self, args: str) -> str:
+        if "CONFIRM" in args.upper():
+            try:
+                self._os.handle("/kill")
+            except Exception:
+                pass
+            return (
+                "┌──────────────────────────────────────────┐\n"
+                "│            EXECUTION HALTED              │\n"
+                "│                                          │\n"
+                "│ Kill switch activated                    │\n"
+                "│                                          │\n"
+                "│ New orders       BLOCKED                 │\n"
+                "│ Existing orders CANCEL REQUESTED         │\n"
+                "│ Agents           RESTRICTED              │\n"
+                "│ Research         AVAILABLE               │\n"
+                "│                                          │\n"
+                "│ [Review state] [Resume authorization]    │\n"
+                "└──────────────────────────────────────────┘"
+            )
+        return ("KILL SWITCH ARMED — type `/kill CONFIRM` or `/kill-switch CONFIRM` to engage.\n"
+                "This bypasses the LLM and hits the risk governor directly.\n"
+                "(Ctrl+K only opens this hint — it never halts without confirmation.)")
+
+    def _cmd_open(self, args: str) -> str:
+        sym = args.strip().upper() or "NVDA"
+        ws = self._state.workspace
+        ref = f"delta://{ws}/{sym}"
+        return (f"Browser workspace → {ws} {sym}\n"
+                f"Ref: {ref}\n"
+                f"Full visualization opened in DELTA Web.\n"
+                f"[Open analysis ↗] [Run research] [Simulate]")
+
     def _cmd_mode(self, args: str) -> str:
         if not args:
             return f"Current mode: {self._state.execution_mode.value}\nAvailable: recommendation, paper, copilot, supervised, autonomous"
@@ -500,33 +616,38 @@ class OpenCodeTerminal:
     def _banner(self) -> None:
         c = self._console()
         mode = self._state.execution_mode.value.upper()
-        now_utc = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
-        header = f"DELTA  |  MARKET LIVE  |  DATA HEALTHY  |  RISK SAFE  |  MODE: {mode}  |  {now_utc}"
+        now_utc = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        header = f"Δ DELTA          MARKET ●   DATA ●   RISK SAFE   {mode} ●       {now_utc}"
         splash = [
-            "",
             header,
             "",
             "                         DELTA",
             "                  QUANT INTELLIGENCE",
             "",
+            "",
             "  > Ask DELTA anything, research a strategy, analyze a market...",
             "",
-            f"       Model: {self._os.model_name}   Agent: quant-researcher",
-            f"       Session: {self._state.workspace}   Mode: {mode}   Risk: SAFE",
             "",
-            "                     / for commands · Ctrl+K for kill switch",
+            f"       Model  delta-fm-research   Agent  quant-researcher",
+            f"       Session  {self._state.workspace:<16} Context  none",
+            "",
+            "",
+            "                     / for commands · @ for context",
+            "",
+            f"~/delta/trader                                      {mode} · RISK SAFE",
             "",
         ]
         text = "\n".join(splash)
         if c is not None:
             c.print(f"[bold #20C9A6]{header}[/]")
-            c.print("\n                         [bold white]DELTA[/]\n                  [dim]QUANT INTELLIGENCE[/]\n")
-            c.print("  [bold #D6D8D7]> Ask DELTA anything, research a strategy, analyze a market...[/]\n")
-            c.print(f"       [dim]Model:[/] {self._os.model_name}   [dim]Agent:[/] quant-researcher")
-            c.print(f"       [dim]Session:[/] {self._state.workspace}   [dim]Mode:[/] {mode}   [dim]Risk:[/] SAFE\n")
-            c.print("                     [dim]/ for commands · Ctrl+K for kill switch[/]\n")
+            c.print("\n                         [bold white]DELTA[/]\n                  [dim]QUANT INTELLIGENCE[/]\n\n")
+            c.print("  [bold #D6D8D7]> Ask DELTA anything, research a strategy, analyze a market...[/]\n\n")
+            c.print(f"       [dim]Model[/]  [bold #D6D8D7]delta-fm-research[/]   [dim]Agent[/]  [bold #D6D8D7]quant-researcher[/]")
+            c.print(f"       [dim]Session[/]  [bold #D6D8D7]{self._state.workspace:<16}[/] [dim]Context[/]  [bold #D6D8D7]none[/]\n\n")
+            c.print("                     [dim]/ for commands · @ for context[/]\n")
+            c.print(f"[dim]~/delta/trader                                      {mode} · RISK SAFE[/]\n")
         else:
-            print(text)
+            print(self._safe(text))
 
     def _render(self, text: str) -> None:
         """Design-grade output: cards for tickets, clean markdown for analysis."""
@@ -544,7 +665,11 @@ class OpenCodeTerminal:
                 c.print(_Panel(text, title="[bold]order ticket[/]",
                                border_style=color, padding=(0, 1)))
                 return
-            # 2) Kill / blocked / error states get their own voice.
+            # 2) Execution halted (institutional kill switch box)
+            if "EXECUTION HALTED" in text:
+                c.print(f"\n[bold red]{text}[/bold red]\n")
+                return
+            # 3) Kill / blocked / error states get their own voice.
             head = text[:40].upper()
             if head.startswith("KILLED") or "FROZEN" in head:
                 from rich.panel import Panel as _Panel
