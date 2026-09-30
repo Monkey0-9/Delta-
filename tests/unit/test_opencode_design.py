@@ -14,16 +14,18 @@ def test_state_a_landing_minimal():
     rendered = app.render_current()
     # State A header
     assert "DELTA" in rendered
+    assert "QUANT INTELLIGENCE CLI" in rendered
     assert "MARKET" in rendered
-    assert "RISK SAFE" in rendered
+    assert "DATA" in rendered
+    assert "RISK" in rendered
     assert "PAPER" in rendered
-    # State A minimal splash
-    assert "QUANT INTELLIGENCE" in rendered
-    assert "> Ask DELTA anything, research a strategy, analyze a market..." in rendered
-    assert "Model  delta-fm-research" in rendered
-    assert "Agent  quant-researcher" in rendered
-    assert "/ for commands" in rendered
-    assert "~/delta/trader" in rendered
+    # State A exact frontpart elements
+    assert "RESEARCH  |  SIMULATE  |  ANALYZE  |  EXECUTE  |  LEARN" in rendered
+    assert "Ask DELTA anything, run a strategy, analyze a market, or type / for commands..." in rendered
+    assert "Ctrl + K" in rendered
+    assert "Model: delta-fm-research" in rendered
+    assert "Agent: quant-researcher" in rendered
+    assert "Session: default" in rendered
     # Zero technical noise
     assert "Python" not in rendered
     assert "CUDA" not in rendered

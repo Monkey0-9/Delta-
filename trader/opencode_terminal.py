@@ -567,13 +567,13 @@ class OpenCodeTerminal:
 
     def _toolbar(self) -> Any:
         mode = self._state.execution_mode.value.upper()
-        return (f" DELTA  |  MARKET LIVE  |  DATA HEALTHY  |  RISK SAFE  |  "
-                f"MODE: {mode}  |  / commands  |  Ctrl+K kill")
+        return (f"▲ DELTA  |  QUANT INTELLIGENCE CLI  |  ● MARKETS LIVE  |  ● DATA HEALTHY  |  ● RISK SAFE  |  "
+                f"⬡ {mode}  |  / commands  |  Ctrl+K kill")
 
     def _status_line(self) -> str:
         now_utc = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
         mode = self._state.execution_mode.value.upper()
-        return f"DELTA  |  MARKET LIVE  |  DATA HEALTHY  |  RISK SAFE  |  MODE: {mode}  |  {now_utc}"
+        return f"▲ DELTA  |  QUANT INTELLIGENCE CLI      ● MARKETS LIVE  |  ● DATA HEALTHY  |  ● RISK SAFE  |  ⬡ {mode}  |  {now_utc}"
 
     def _console(self) -> Any:
         try:
@@ -611,43 +611,45 @@ class OpenCodeTerminal:
         except Exception:
             return (text.replace("σ", "sig").replace("—", "-")
                     .replace("→", "->").replace("▲", "^").replace("▼", "v")
+                    .replace("⬡", "[o]").replace("✧", "*").replace("❖", "[+]")
+                    .replace("👤", "@").replace("≡", "=").replace("∨", "v")
                     .encode("ascii", "replace").decode("ascii"))
 
     def _banner(self) -> None:
         c = self._console()
         mode = self._state.execution_mode.value.upper()
-        now_utc = datetime.now(timezone.utc).strftime("%H:%M:%S")
-        header = f"Δ DELTA          MARKET ●   DATA ●   RISK SAFE   {mode} ●       {now_utc}"
-        splash = [
-            header,
-            "",
-            "                         DELTA",
-            "                  QUANT INTELLIGENCE",
-            "",
-            "",
-            "  > Ask DELTA anything, research a strategy, analyze a market...",
-            "",
-            "",
-            f"       Model  delta-fm-research   Agent  quant-researcher",
-            f"       Session  {self._state.workspace:<16} Context  none",
-            "",
-            "",
-            "                     / for commands · @ for context",
-            "",
-            f"~/delta/trader                                      {mode} · RISK SAFE",
-            "",
-        ]
-        text = "\n".join(splash)
-        if c is not None:
-            c.print(f"[bold #20C9A6]{header}[/]")
-            c.print("\n                         [bold white]DELTA[/]\n                  [dim]QUANT INTELLIGENCE[/]\n\n")
-            c.print("  [bold #D6D8D7]> Ask DELTA anything, research a strategy, analyze a market...[/]\n\n")
-            c.print(f"       [dim]Model[/]  [bold #D6D8D7]delta-fm-research[/]   [dim]Agent[/]  [bold #D6D8D7]quant-researcher[/]")
-            c.print(f"       [dim]Session[/]  [bold #D6D8D7]{self._state.workspace:<16}[/] [dim]Context[/]  [bold #D6D8D7]none[/]\n\n")
-            c.print("                     [dim]/ for commands · @ for context[/]\n")
-            c.print(f"[dim]~/delta/trader                                      {mode} · RISK SAFE[/]\n")
-        else:
-            print(self._safe(text))
+        now_utc = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
+        h_dict = {
+            "mode": mode,
+            "market_live": self._state.market_status == "OPEN",
+            "data": "HEALTHY",
+            "risk": "SAFE",
+            "clock_utc": now_utc,
+        }
+        store_dict = {
+            "model": "delta-fm-research",
+            "agent": "quant-researcher",
+            "session": self._state.workspace,
+        }
+        try:
+            import shutil
+            from delta_tui.widgets.chrome import header_rich, header_text, render_frontpart
+            width = shutil.get_terminal_size((100, 30)).columns
+            if c is not None:
+                hdr = header_rich(h_dict, state="A", width=width)
+                body = render_frontpart(store_dict, width=width, use_rich=True)
+                c.print(hdr)
+                c.print(body)
+                return
+            else:
+                hdr = header_text(h_dict, state="A", width=width)
+                body = render_frontpart(store_dict, width=width, use_rich=False)
+                print(self._safe(f"{hdr}\n{body}"))
+                return
+        except Exception:
+            pass
+        header = f"▲ DELTA  |  QUANT INTELLIGENCE CLI      ● MARKETS LIVE  |  ● DATA HEALTHY  |  ● RISK SAFE  |  ⬡ {mode}  |  {now_utc}"
+        print(self._safe(header))
 
     def _render(self, text: str) -> None:
         """Design-grade output: cards for tickets, clean markdown for analysis."""

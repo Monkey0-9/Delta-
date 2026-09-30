@@ -1,9 +1,11 @@
-"""HOME — new-session splash matching Section 22 specification. Disappears once conversation starts."""
+"""HOME — new-session splash matching user specification frontpart. Disappears once conversation starts."""
 from __future__ import annotations
+import shutil
 
 from .base import BaseScreen
 from ..state.store import TerminalStore
 from ..viewmodels.models import HomeVM
+from ..widgets.chrome import render_frontpart
 
 
 class HomeScreen(BaseScreen):
@@ -19,40 +21,10 @@ class HomeScreen(BaseScreen):
         )
 
     def render_text(self, vm: HomeVM) -> str:
-        # Minimal landing screen — strictly no giant cards or implementation noise
-        return "\n".join([
-            "",
-            "                         DELTA",
-            "                  QUANT INTELLIGENCE",
-            "",
-            "",
-            "  > Ask DELTA anything, research a strategy, analyze a market...",
-            "",
-            "",
-            "       Model  delta-fm-research   Agent  quant-researcher",
-            "       Session  default            Context  none",
-            "",
-            "",
-            "                     / for commands · @ for context",
-            "",
-        ])
+        width = shutil.get_terminal_size((100, 30)).columns
+        return render_frontpart({"model": "delta-fm-research", "agent": "quant-researcher", "session": "default"}, width=width)
 
     def render_for(self, store: TerminalStore) -> str:
-        """Splash with live model/agent/session/context chips."""
-        ctx = store.context_str if hasattr(store, "context_str") else (store.symbol or "none")
-        return "\n".join([
-            "",
-            "                         DELTA",
-            "                  QUANT INTELLIGENCE",
-            "",
-            "",
-            "  > Ask DELTA anything, research a strategy, analyze a market...",
-            "",
-            "",
-            f"       Model  {store.model:<18} Agent  {store.agent}",
-            f"       Session  {store.session_id:<16} Context  {ctx}",
-            "",
-            "",
-            "                     / for commands · @ for context",
-            "",
-        ])
+        """Splash with live model/agent/session/context chips matching exact user frontpart."""
+        width = shutil.get_terminal_size((100, 30)).columns
+        return render_frontpart(store, width=width)

@@ -542,7 +542,22 @@ class DeltaApp:
             except Exception:
                 pass
         # Rich/plain fallback loop (SSH / small terminals / CI)
-        print(self.render_current())
+        c = None
+        try:
+            from rich.console import Console
+            c = Console()
+        except Exception:
+            c = None
+
+        if c is not None and not self.store.conversation and self.store.workspace == "home":
+            from .widgets.chrome import header_rich, render_frontpart
+            width = shutil.get_terminal_size((100, 30)).columns
+            hdr = header_rich(header_model(self.store), state="A", width=width)
+            body = render_frontpart(self.store, width=width, use_rich=True)
+            c.print(hdr)
+            c.print(body)
+        else:
+            print(self.render_current())
         # prompt_toolkit when available for / completion + Ctrl+K/Ctrl+O
         prompt_fn = None
         try:
