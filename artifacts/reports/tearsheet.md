@@ -1,5 +1,5 @@
 # DELTA OS Tear-Sheet (EQUITIES-ALPHA)
-2026-09-30 09:35 UTC
+2026-09-30 11:41 UTC
 mode=MANUAL broker=paper model=qwen-3.6
 macro=n/a var99=n/a
 

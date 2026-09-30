@@ -180,21 +180,39 @@ class ExistingSystemBackend:
 
 
 def main() -> None:
-    """Single `delta` launcher: bare -> Textual workstation; args -> typer subs."""
+    """Single `delta` launcher: bare -> native Rust TUI workstation (with fail-soft fallback); args -> typer subs."""
+    import os
     import sys
+    import subprocess
+    from pathlib import Path
 
-    if len(sys.argv) > 1:
+    if len(sys.argv) > 1 and sys.argv[1] not in ("--native", "-n"):
         from apps.cli.main import app
 
         app()
         return
-    # Canonical workstation: delta_tui (Textual full-screen, Rich fallback).
-    # Legacy prompt_toolkit REPLs (trader/opencode_terminal, delta_os.repl,
-    # cli/app) are quarantined — do not reintroduce them here.
+
+    # Institutional Native Terminal: Rust Ratatui application
+    root = Path(__file__).resolve().parents[2]
+    native_candidates = [
+        root / "target" / "release" / "delta-tui.exe",
+        root / "target" / "release" / "delta-tui",
+        root / "target" / "debug" / "delta-tui.exe",
+        root / "target" / "debug" / "delta-tui",
+    ]
+    valid_exes = [e for e in native_candidates if e.is_file()]
+    if valid_exes:
+        newest = max(valid_exes, key=lambda p: p.stat().st_mtime)
+        try:
+            ret = subprocess.run([str(newest)])
+            raise SystemExit(ret.returncode)
+        except Exception:
+            pass
+
+    # Python workstation fallback
     try:
         from delta_tui.app import DeltaApp
         from config.mode import DeltaMode
-        import os
 
         raise SystemExit(DeltaApp(DeltaMode.parse(os.getenv("DELTA_MODE", "PAPER"))).run())
     except SystemExit:

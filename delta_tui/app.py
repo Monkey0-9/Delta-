@@ -460,10 +460,12 @@ class DeltaApp:
                 "(Ctrl+K only opens this hint — it never halts without confirmation.)")
 
     def header(self, state: str = "A") -> str:
+        # pyrefly: ignore [missing-import]
         from .widgets.chrome import header_text
         return header_text(header_model(self.store), state=state)
 
     def footer(self, state: str = "A") -> str:
+        # pyrefly: ignore [missing-import]
         from .widgets.chrome import footer_text
         return footer_text(footer_model(self.store), state=state)
 
@@ -550,6 +552,7 @@ class DeltaApp:
             c = None
 
         if c is not None and not self.store.conversation and self.store.workspace == "home":
+            # pyrefly: ignore [missing-import]
             from .widgets.chrome import header_rich, render_frontpart
             width = shutil.get_terminal_size((100, 30)).columns
             hdr = header_rich(header_model(self.store), state="A", width=width)
@@ -566,10 +569,10 @@ class DeltaApp:
             from prompt_toolkit.key_binding import KeyBindings
 
             words = ["/" + n for n in
-                     ("research", "market", "portfolio", "risk", "simulate", "backtest",
-                      "trade", "automation", "finance-chat", "finance-agent", "kill-switch",
-                      "model", "agent", "session", "auth", "mcp", "config", "open", "system",
-                      "home", "kill", "help")]
+                    ("research", "market", "portfolio", "risk", "simulate", "backtest",
+                    "trade", "automation", "finance-chat", "finance-agent", "kill-switch",
+                    "model", "agent", "session", "auth", "mcp", "config", "open", "system",
+                    "home", "kill", "help")]
             kb = KeyBindings()
 
             @kb.add("c-k")
