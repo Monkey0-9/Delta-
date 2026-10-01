@@ -52,6 +52,12 @@ _CLOSE = time(16, 0)
 _EARLY_CLOSE = time(13, 0)
 
 
+def _utc(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 def _et(dt_utc: datetime) -> datetime:
     if dt_utc.tzinfo is None:
         dt_utc = dt_utc.replace(tzinfo=timezone.utc)
@@ -90,6 +96,48 @@ class ExchangeCalendar:
 
     def is_open(self, ts: datetime) -> bool:
         return self.session(ts) == "regular"
+
+    def next_open(self, ts: datetime) -> datetime:
+        """Next regular-session open (09:30 ET) strictly after ts. Bounded 14d."""
+        from datetime import timedelta
+        cur = _et(ts)
+        for _ in range(14):
+            d = cur.date()
+            if self.is_open_day(d):
+                op = datetime.combine(d, _OPEN)
+                op = op.replace(tzinfo=_ET) if _ET else op.replace(tzinfo=timezone.utc)
+                if op.astimezone(timezone.utc) > _utc(ts):
+                    return op.astimezone(timezone.utc)
+            cur = (cur + timedelta(days=1)).replace(hour=0, minute=0)
+        raise ValueError("no open session within 14d")
+
+    def next_close(self, ts: datetime) -> datetime:
+        from datetime import timedelta
+        cur = _et(ts)
+        for _ in range(14):
+            d = cur.date()
+            if self.is_open_day(d):
+                ce = _EARLY_CLOSE if self.is_early_close(d) else _CLOSE
+                cl = datetime.combine(d, ce)
+                cl = cl.replace(tzinfo=_ET) if _ET else cl.replace(tzinfo=timezone.utc)
+                if cl.astimezone(timezone.utc) > _utc(ts):
+                    return cl.astimezone(timezone.utc)
+            cur = (cur + timedelta(days=1)).replace(hour=0, minute=0)
+        raise ValueError("no close session within 14d")
+
+    def is_auction(self, ts: datetime) -> bool:
+        """Closing-auction window: last 10 min of regular session."""
+        from datetime import timedelta
+        if self.session(ts) != "regular":
+            return False
+        return (self.next_close(ts) - _utc(ts)) <= timedelta(minutes=10)
+
+    def is_halted(self, ts: datetime) -> bool:
+        return self.session(ts) == "halt"
+
+    def __post_init__(self) -> None:
+        if self.venue not in ("NYSE", "NASDAQ"):
+            raise ValueError(f"unknown venue {self.venue}: calendar fail-closed")
 
 
 __all__ = ["ExchangeCalendar"]

@@ -58,6 +58,8 @@ pub struct PortfolioInfo {
     pub equity: f64,
     pub day_pnl: f64,
     pub day_pnl_pct: f64,
+    #[serde(default)]
+    pub realized_pnl: f64,
     pub gross_exposure: f64,
     pub net_exposure: f64,
     pub leverage: f64,
@@ -89,6 +91,20 @@ pub struct RiskInfo {
     pub net_limit: f64,
     pub killswitch_armed: bool,
     pub killswitch_halted: bool,
+    #[serde(default)]
+    pub var95_dollar: f64,
+    #[serde(default)]
+    pub var99_dollar: f64,
+    #[serde(default)]
+    pub cvar_dollar: f64,
+    #[serde(default)]
+    pub market_beta: f64,
+    #[serde(default)]
+    pub concentration_pct: f64,
+    #[serde(default)]
+    pub rate_shock_impact: f64,
+    #[serde(default)]
+    pub oil_shock_impact: f64,
     #[serde(default)]
     pub alerts: Vec<RiskAlertInfo>,
 }
@@ -158,6 +174,12 @@ pub struct SystemInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DepthLevel {
+    pub price: f64,
+    pub size: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct QuoteResponse {
     pub symbol: String,
     pub price: f64,
@@ -170,6 +192,28 @@ pub struct QuoteResponse {
     pub sparkline: Vec<f64>,
     pub status: String,
     pub error: Option<String>,
+    #[serde(default)]
+    pub rsi: Option<f64>,
+    #[serde(default)]
+    pub macd: Option<f64>,
+    #[serde(default)]
+    pub macd_signal: Option<f64>,
+    #[serde(default)]
+    pub bb_upper: Option<f64>,
+    #[serde(default)]
+    pub bb_middle: Option<f64>,
+    #[serde(default)]
+    pub bb_lower: Option<f64>,
+    #[serde(default)]
+    pub atr: Option<f64>,
+    #[serde(default)]
+    pub vwap: Option<f64>,
+    #[serde(default)]
+    pub regime: Option<String>,
+    #[serde(default)]
+    pub depth_bids: Vec<DepthLevel>,
+    #[serde(default)]
+    pub depth_asks: Vec<DepthLevel>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

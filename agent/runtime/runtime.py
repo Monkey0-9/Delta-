@@ -60,6 +60,13 @@ class AgentRuntime:
         return tuple(messages)
 
     def execute(self, task: AgentTask) -> AgentRunResult:
+        from agent.runtime.budgets import DEFAULT_BUDGETS, BudgetTracker
+        tracker = BudgetTracker(budget=DEFAULT_BUDGETS.get("research", DEFAULT_BUDGETS["research"]))
+        tracker.start()
+        ok, msg = tracker.check()
+        if not ok:
+            return AgentRunResult(task_id=task.task_id, status=AgentTaskStatus.FAILED,
+                                  plan=self.plan(task), messages=(f"DENIED: {msg}",))
         plan = self.plan(task)
         violations = self.validate_plan(plan)
 

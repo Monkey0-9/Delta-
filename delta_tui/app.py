@@ -152,12 +152,13 @@ class DeltaApp:
     def refresh_chrome(self) -> None:
         """Update market/data/risk chips from live sources. Best-effort only."""
         s = self.store
-        # market hours (NYSE ET approx -> UTC): 13:30-20:00 Mon-Fri
+        # Venue calendar authority (no UTC hack): NYSE via exchange_calendar.
         try:
+            from data.market.exchange_calendar import ExchangeCalendar
             now = datetime.now(timezone.utc)
-            s.market_live = now.weekday() < 5 and (13, 30) <= (now.hour, now.minute) < (20, 0)
+            s.market_live = ExchangeCalendar(venue="NYSE").is_open(now)
         except Exception:
-            pass
+            s.market_live = False
         be = self.backend()
         if be is not None:
             try:
@@ -218,27 +219,12 @@ class DeltaApp:
             return out
 
         # finance-agent (autonomous quant research & evidence)
+        # Truth rule: no scripted regime/confidence. Real backend or UNAVAILABLE.
         if raw_cmd == "finance-agent" or (action is not None and action.name == "finance-agent"):
-            topic = " ".join(parts[1:]) if len(parts) > 1 else f"{self.store.symbol} regime and factor sensitivity"
-            steps = [
-                f"Analyzing {topic}...",
-                "",
-                "  ✓ Market context",
-                "  ✓ Macro context",
-                "  ✓ Portfolio exposure",
-                "  ✓ Existing research",
-                "  → Running regime analysis",
-                "  → Checking historical analogues",
-                "",
-                "Current regime: Risk-On (Confidence: 0.76)",
-                "Momentum has strengthened while volatility remains elevated.",
-                "Portfolio exposure is within configured limits.",
-                "",
-                "I found 3 relevant historical regimes.",
-                "",
-                "[Open analysis ↗] [Run research] [Simulate]",
-            ]
-            out = "\n".join(steps)
+            out = self._route_nl_to_backend(t)
+            if not out or out.startswith(("unknown", "I can route", "ERROR")):
+                out = ("finance-agent UNAVAILABLE — no live research backend. "
+                       "No regime/confidence to report (provenance: UNAVAILABLE).")
             self.store.append_turn("You", t)
             self.store.append_turn("DELTA", out)
             return out
@@ -427,22 +413,33 @@ class DeltaApp:
         return f"Session: {self.store.session_id} — fresh context (history preserved on disk)"
 
     def _cmd_open(self, args: list) -> str:
+        # Truth rule: no web app exists — do not claim one opened.
         label = " ".join(args) if args else f"{self.store.workspace} {self.store.symbol}"
         ref = f"delta://{self.store.workspace}/{self.store.symbol}"
         self.store.browser_ref = ref
-        return (f"Browser workspace → {label}\n"
+        return (f"Browser workspace ref → {label}\n"
                 f"Ref: {ref}\n"
-                f"Full visualization opened in DELTA Web.\n"
-                f"[Open analysis ↗] [Run research] [Simulate]")
+                f"DELTA Web is NOT IMPLEMENTED — ref stored for future viewer.\n"
+                f"(provenance: UNAVAILABLE)")
 
     def _kill_step(self, text: str) -> str:
-        if "CONFIRM" in text.upper():
+        # Exact token only: bare "CONFIRM" word. "unconfirmed" must NOT match.
+        import re as _re
+        if _re.search(r"(?i)(?:^|\s|/|\")CONFIRM(?:\s|$|\"|'|\))", f" {text} "):
             be = self.backend()
-            if be is not None:
-                try:
-                    be.handle("/kill")
-                except Exception:
-                    pass
+            if be is None:
+                return "KILL FAILED — engine unavailable (no halt performed)."
+            try:
+                out, _ = be.handle("/kill")
+            except Exception as exc:
+                return f"KILL FAILED — backend error, no halt performed: {exc}"
+            try:
+                smode = str(getattr(getattr(be, 'safety', None), 'mode', '') or '').upper()
+            except Exception:
+                smode = ""
+            if smode != "HALTED":
+                return (f"KILL FAILED — enforcer did not confirm halt (mode={smode or 'UNKNOWN'}). "
+                        f"Backend said: {out}")
             self.store.kill_armed = True
             self.store.risk_state = "BLOCKED"
             self.pending_kill = False

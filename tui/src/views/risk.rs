@@ -28,15 +28,15 @@ pub fn render_risk_view(frame: &mut Frame, area: Rect, state: &ApplicationState)
     let var_lines = vec![
         Line::from(vec![
             Span::styled("VaR 95% (1-Day):   ", ThemeStyles::muted_text()),
-            Span::styled(format!("{:<10} ($14,500.00)", format_percent(state.risk.var95)), ThemeStyles::warning()),
+            Span::styled(format!("{:<10} ({})", format_percent(state.risk.var95), format_currency(state.risk.var95_dollar)), ThemeStyles::warning()),
         ]),
         Line::from(vec![
             Span::styled("VaR 99% (1-Day):   ", ThemeStyles::muted_text()),
-            Span::styled(format!("{:<10} ($21,400.00)", format_percent(state.risk.var99)), ThemeStyles::warning()),
+            Span::styled(format!("{:<10} ({})", format_percent(state.risk.var99), format_currency(state.risk.var99_dollar)), ThemeStyles::warning()),
         ]),
         Line::from(vec![
             Span::styled("CVaR (Expected):   ", ThemeStyles::muted_text()),
-            Span::styled(format!("{:<10} ($32,800.00)", format_percent(state.risk.cvar)), ThemeStyles::warning()),
+            Span::styled(format!("{:<10} ({})", format_percent(state.risk.cvar), format_currency(state.risk.cvar_dollar)), ThemeStyles::warning()),
         ]),
         Line::from(vec![
             Span::styled("Max Drawdown:      ", ThemeStyles::muted_text()),
@@ -63,11 +63,11 @@ pub fn render_risk_view(frame: &mut Frame, area: Rect, state: &ApplicationState)
         ]),
         Line::from(vec![
             Span::styled("Leverage Ceiling:  ", ThemeStyles::muted_text()),
-            Span::styled("2.00× (Current: 0.00× — SAFE)", ThemeStyles::positive()),
+            Span::styled(format!("2.00× (Current: {:.2}× — {})", state.portfolio.leverage, if state.portfolio.leverage <= 2.0 { "SAFE" } else { "EXCEEDED" }), if state.portfolio.leverage <= 2.0 { ThemeStyles::positive() } else { ThemeStyles::critical() }),
         ]),
         Line::from(vec![
-            Span::styled("Concentration Cap: ", ThemeStyles::muted_text()),
-            Span::styled("Max 20.0% single name equity weight", ThemeStyles::secondary_text()),
+            Span::styled("Concentration:     ", ThemeStyles::muted_text()),
+            Span::styled(format!("Current: {} (Max 20.0% single name cap)", format_percent(state.risk.concentration_pct)), ThemeStyles::secondary_text()),
         ]),
     ];
 
@@ -87,11 +87,11 @@ pub fn render_risk_view(frame: &mut Frame, area: Rect, state: &ApplicationState)
         ]),
         Line::from(vec![
             Span::styled("Market Beta:       ", ThemeStyles::muted_text()),
-            Span::styled("0.98x (Near parity with SPY/QQQ composite)", ThemeStyles::secondary_text()),
+            Span::styled(format!("{:.2}x (SPY benchmark composite)", state.risk.market_beta), ThemeStyles::secondary_text()),
         ]),
         Line::from(vec![
             Span::styled("Stress Shock Test: ", ThemeStyles::muted_text()),
-            Span::styled("-200 bps Treasury Shock: -1.24% Net Liq Impact │ +10% Crude Oil Shock: -0.42% Impact", ThemeStyles::secondary_text()),
+            Span::styled(format!("-200 bps Rate: {} Net Liq │ +10% Crude: {} Impact", format_percent(state.risk.rate_shock_impact), format_percent(state.risk.oil_shock_impact)), ThemeStyles::secondary_text()),
         ]),
         Line::from(vec![
             Span::styled("Kill Switch Mode:  ", ThemeStyles::muted_text()),

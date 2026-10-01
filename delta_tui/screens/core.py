@@ -12,8 +12,9 @@ class MarketScreen(BaseScreen):
     name = "market"
 
     def build_viewmodel(self, store: TerminalStore) -> MarketVM:
-        indices = (("SPX", 0.74), ("NASDAQ", 1.03), ("VIX", 17.4))
-        regime, sectors, events = "NEUTRAL", (("TECH", 1.8), ("ENERGY", 0.4), ("FIN", 0.9)), (("09:30", "OPEN"), ("16:00", "CLOSE"))
+        # P0: no illustrative indices. Live or DEGRADED/UNAVAILABLE only.
+        indices: tuple = ()
+        regime, sectors, events = "UNKNOWN", (), ()
         try:  # live macro when backend reachable; never crash the TUI
             from delta_os.data_router import DataRouter
 
@@ -21,7 +22,7 @@ class MarketScreen(BaseScreen):
             last = float(q.frame["close"].iloc[-1])
             prev = float(q.frame["close"].iloc[-2]) if len(q.frame) > 1 else last
             chg = (last / prev - 1.0) * 100.0 if prev else 0.0
-            indices = (("SPY", round(chg, 2)), ("NASDAQ", 1.03), ("VIX", 17.4))
+            indices = (("SPY", round(chg, 2)),)
             tag = getattr(getattr(q, "provenance", None), "tier", "") or ""
             if "SYNTH" in str(tag).upper() or "STALE" in str(tag).upper():
                 store.data_health = "DEGRADED"
@@ -30,7 +31,8 @@ class MarketScreen(BaseScreen):
                 store.data_health = "HEALTHY"
                 store.data_live = True
         except Exception:
-            pass
+            store.data_health = "DEGRADED"
+            store.data_live = False
         return MarketVM(
             indices=indices,
             regime=regime,
@@ -40,6 +42,8 @@ class MarketScreen(BaseScreen):
         )
 
     def render_text(self, vm: MarketVM) -> str:
+        if not vm.indices:
+            return f"MARKET [{vm.mode}] UNAVAILABLE — backend unreachable (DEGRADED)"
         return "MARKET [" + vm.mode + "] " + " ".join(
             f"{k} {v:+.2f}%" for k, v in vm.indices)
 
@@ -48,7 +52,10 @@ class SecurityScreen(BaseScreen):
     name = "security"
 
     def build_viewmodel(self, store: TerminalStore) -> QuoteVM:
-        px, chg, bid, ask, vwap, src = 177.42, 1.82, 177.41, 177.43, 176.91, "cache"
+        # P0: no illustrative 177.42 quote. Live or explicit UNAVAILABLE.
+        px: float | None = None
+        chg, bid, ask, vwap, src = 0.0, 0.0, 0.0, 0.0, "unavailable"
+        ok = False
         try:
             from delta_os.data_router import DataRouter
 
@@ -64,10 +71,17 @@ class SecurityScreen(BaseScreen):
                 vwap = px
             prov = getattr(q, "provenance", None)
             src = str(getattr(prov, "tier", "live") or "live").lower()
-            store.data_live = "synth" not in src and "stale" not in src
+            store.data_live = "synth" not in src and "stale" not in src and "unavailable" not in src
             store.data_health = "HEALTHY" if store.data_live else "DEGRADED"
+            ok = True
         except Exception:
-            pass
+            store.data_health = "DEGRADED"
+            store.data_live = False
+        if not ok or px is None:
+            return QuoteVM(
+                symbol=store.symbol, last=Number(0.0, source="unavailable"),
+                change_pct=0.0, bid=0.0, ask=0.0,
+                bid_sz=0, ask_sz=0, vwap=0.0, mode=store.mode.value)
         return QuoteVM(
             symbol=store.symbol, last=Number(px, source=src),
             change_pct=chg, bid=bid, ask=ask,
@@ -83,21 +97,26 @@ class BookScreen(BaseScreen):
     name = "book"
 
     def build_viewmodel(self, store: TerminalStore) -> BookVM:
-        px = 177.42
+        # P0: order-book levels only from live quote; else empty + DEGRADED.
         try:
             from delta_os.data_router import DataRouter
 
             q = DataRouter().quote(store.symbol, days=5)
             px = float(q.frame["close"].iloc[-1])
+            bids = tuple({"price": px - 0.01 * i, "size": 0} for i in range(5))
+            asks = tuple({"price": px + 0.01 * (i + 1), "size": 0} for i in range(5))
+            return BookVM(symbol=store.symbol, bids=bids, asks=asks,
+                          imbalance=0.0, microprice=px,
+                          spread_bps=0.0, mode=store.mode.value)
         except Exception:
-            pass
-        bids = tuple({"price": px - 0.01 * i, "size": 1800 + i * 2000} for i in range(5))
-        asks = tuple({"price": px + 0.01 * (i + 1), "size": 1200 + i * 1800} for i in range(5))
-        return BookVM(symbol=store.symbol, bids=bids, asks=asks,
-                      imbalance=0.21, microprice=px + 0.001,
-                      spread_bps=2.0, mode=store.mode.value)
+            store.data_health = "DEGRADED"; store.data_live = False
+            return BookVM(symbol=store.symbol, bids=(), asks=(),
+                          imbalance=0.0, microprice=0.0,
+                          spread_bps=0.0, mode=store.mode.value)
 
     def render_text(self, vm: BookVM) -> str:
+        if not vm.bids:
+            return f"BOOK {vm.symbol} [{vm.mode}] UNAVAILABLE — no live depth"
         rows = [f"BOOK {vm.symbol} [{vm.mode}] imb {vm.imbalance:+.2f} spread {vm.spread_bps:.1f}bps"]
         for b, a in zip(vm.bids, vm.asks):
             rows.append(f"  {b['price']:.2f} x{b['size']:<6} | {a['price']:.2f} x{a['size']:<6}")
@@ -146,8 +165,9 @@ class PortfolioScreen(BaseScreen):
     name = "portfolio"
 
     def build_viewmodel(self, store: TerminalStore) -> PortfolioVM:
-        return PortfolioVM(net_liq=1_024_218.0, cash=320_118.0,
-                           gross_pct=143.2, net_pct=37.6, beta=0.71,
+        # P0: portfolio from store positions only; no illustrative $1M book.
+        return PortfolioVM(net_liq=0.0, cash=0.0,
+                           gross_pct=0.0, net_pct=0.0, beta=0.0,
                            positions=(), mode=store.mode.value,
                            live=(store.mode.value == "LIVE"))
 
@@ -164,9 +184,10 @@ class RiskScreen(BaseScreen):
         status = store.risk_state or "SAFE"
         # Normalize to GREEN/YELLOW/RED display while preserving SAFE/REVIEW/BLOCKED semantics
         display = {"SAFE": "GREEN", "REVIEW": "YELLOW", "BLOCKED": "RED"}.get(status.upper(), "GREEN")
-        return RiskVM(status=display, gross=143.0, net=37.0,
-                      var99=2.14, es99=3.31,
-                      watches=("concentration:OK", "sector:OK", "liquidity:OK"),
+        # P0: risk metrics only from live risk engine; else zeros + watch UNKNOWN.
+        return RiskVM(status=display, gross=0.0, net=0.0,
+                      var99=0.0, es99=0.0,
+                      watches=("concentration:UNKNOWN", "sector:UNKNOWN", "liquidity:UNKNOWN"),
                       mode=store.mode.value)
 
     def render_text(self, vm: RiskVM) -> str:

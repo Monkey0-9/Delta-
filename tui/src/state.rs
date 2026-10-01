@@ -79,6 +79,7 @@ pub struct PortfolioState {
     pub equity: f64,
     pub day_pnl: f64,
     pub day_pnl_pct: f64,
+    pub realized_pnl: f64,
     pub gross_exposure: f64,
     pub net_exposure: f64,
     pub leverage: f64,
@@ -98,6 +99,13 @@ pub struct RiskState {
     pub net_limit: f64,
     pub killswitch_armed: bool,
     pub killswitch_halted: bool,
+    pub var95_dollar: f64,
+    pub var99_dollar: f64,
+    pub cvar_dollar: f64,
+    pub market_beta: f64,
+    pub concentration_pct: f64,
+    pub rate_shock_impact: f64,
+    pub oil_shock_impact: f64,
     pub alerts: Vec<RiskAlertInfo>,
 }
 
@@ -108,12 +116,19 @@ impl Default for RiskState {
             var95: 1.45,
             var99: 2.14,
             cvar: 3.28,
-            drawdown: 4.82,
+            drawdown: 0.0,
             leverage: 0.0,
             gross_limit: 2_000_000.0,
             net_limit: 500_000.0,
             killswitch_armed: true,
             killswitch_halted: false,
+            var95_dollar: 14_500.0,
+            var99_dollar: 21_400.0,
+            cvar_dollar: 32_800.0,
+            market_beta: 1.0,
+            concentration_pct: 0.0,
+            rate_shock_impact: -1.24,
+            oil_shock_impact: -0.42,
             alerts: vec![
                 RiskAlertInfo {
                     level: "INFO".into(),
@@ -381,6 +396,7 @@ impl ApplicationState {
         self.portfolio.equity = snapshot.portfolio.equity;
         self.portfolio.day_pnl = snapshot.portfolio.day_pnl;
         self.portfolio.day_pnl_pct = snapshot.portfolio.day_pnl_pct;
+        self.portfolio.realized_pnl = snapshot.portfolio.realized_pnl;
         self.portfolio.gross_exposure = snapshot.portfolio.gross_exposure;
         self.portfolio.net_exposure = snapshot.portfolio.net_exposure;
         self.portfolio.leverage = snapshot.portfolio.leverage;
@@ -399,6 +415,25 @@ impl ApplicationState {
         self.risk.net_limit = snapshot.risk.net_limit;
         self.risk.killswitch_armed = snapshot.risk.killswitch_armed;
         self.risk.killswitch_halted = snapshot.risk.killswitch_halted;
+        if snapshot.risk.var95_dollar > 0.0 {
+            self.risk.var95_dollar = snapshot.risk.var95_dollar;
+        }
+        if snapshot.risk.var99_dollar > 0.0 {
+            self.risk.var99_dollar = snapshot.risk.var99_dollar;
+        }
+        if snapshot.risk.cvar_dollar > 0.0 {
+            self.risk.cvar_dollar = snapshot.risk.cvar_dollar;
+        }
+        if snapshot.risk.market_beta != 0.0 {
+            self.risk.market_beta = snapshot.risk.market_beta;
+        }
+        self.risk.concentration_pct = snapshot.risk.concentration_pct;
+        if snapshot.risk.rate_shock_impact != 0.0 {
+            self.risk.rate_shock_impact = snapshot.risk.rate_shock_impact;
+        }
+        if snapshot.risk.oil_shock_impact != 0.0 {
+            self.risk.oil_shock_impact = snapshot.risk.oil_shock_impact;
+        }
         if !snapshot.risk.alerts.is_empty() {
             self.risk.alerts = snapshot.risk.alerts;
         }

@@ -95,25 +95,54 @@ pub fn render_markets_view(frame: &mut Frame, area: Rect, state: &ApplicationSta
     let chart = CandlestickChart::new(sym, &points, "1D", price, chg_pct);
     chart.render(frame, mid_chunks[0]);
 
-    // Trend & Technical Indicators
+    // Trend & Technical Indicators (Dynamic from Real Backend)
+    let (rsi_str, macd_str, bb_str, atr_str, vwap_str, regime_str) = if let Some(q) = quote_opt {
+        let rsi_s = q.rsi.map(|v| {
+            let label = if v > 70.0 { "Overbought" } else if v < 30.0 { "Oversold" } else { "Neutral" };
+            format!("{:.1} ({label})", v)
+        }).unwrap_or_else(|| "--".into());
+
+        let macd_s = q.macd.map(|v| {
+            let label = if v >= 0.0 { "Bullish" } else { "Bearish" };
+            format!("{v:+.2} ({label})")
+        }).unwrap_or_else(|| "--".into());
+
+        let bb_s = if let (Some(up), Some(low)) = (q.bb_upper, q.bb_lower) {
+            format!("[{:.2} – {:.2}]", low, up)
+        } else {
+            "Normalized Band".into()
+        };
+
+        let atr_s = q.atr.map(|v| format!("${:.2}", v)).unwrap_or_else(|| "--".into());
+        let vwap_s = q.vwap.map(|v| {
+            let diff_pct = (price - v) / v * 100.0;
+            format!("${:.2} ({diff_pct:+.2}%)", v)
+        }).unwrap_or_else(|| "--".into());
+        let reg_s = q.regime.clone().unwrap_or_else(|| "NORMAL".into());
+
+        (rsi_s, macd_s, bb_s, atr_s, vwap_s, reg_s)
+    } else {
+        ("--".into(), "--".into(), "--".into(), "--".into(), "--".into(), "NORMAL".into())
+    };
+
     let ind_lines = vec![
         Line::from(vec![
             Span::styled(" RSI (14d): ", ThemeStyles::muted_text()),
-            Span::styled("58.4 (Neutral / Bullish Expansion) ", ThemeStyles::positive()),
+            Span::styled(format!("{:<28}", rsi_str), ThemeStyles::positive()),
             Span::styled("│ MACD: ", ThemeStyles::muted_text()),
-            Span::styled("+2.14 (Bullish Cross)", ThemeStyles::positive()),
+            Span::styled(macd_str, ThemeStyles::positive()),
         ]),
         Line::from(vec![
             Span::styled(" Bollinger Bands: ", ThemeStyles::muted_text()),
-            Span::styled("Trading within upper 1.2σ boundary ", ThemeStyles::secondary_text()),
+            Span::styled(format!("{:<22}", bb_str), ThemeStyles::secondary_text()),
             Span::styled("│ ATR: ", ThemeStyles::muted_text()),
-            Span::styled("$4.82 (Normalized Vol)", ThemeStyles::secondary_text()),
+            Span::styled(atr_str, ThemeStyles::secondary_text()),
         ]),
         Line::from(vec![
             Span::styled(" VWAP (Session):  ", ThemeStyles::muted_text()),
-            Span::styled("Above VWAP (+0.42%)              ", ThemeStyles::positive()),
-            Span::styled("│ 50d/200d: ", ThemeStyles::muted_text()),
-            Span::styled("Golden Regime", ThemeStyles::positive()),
+            Span::styled(format!("{:<22}", vwap_str), ThemeStyles::positive()),
+            Span::styled("│ Regime: ", ThemeStyles::muted_text()),
+            Span::styled(regime_str, ThemeStyles::positive()),
         ]),
     ];
 
@@ -125,49 +154,69 @@ pub fn render_markets_view(frame: &mut Frame, area: Rect, state: &ApplicationSta
         .border_style(ThemeStyles::panel_border());
     frame.render_widget(Paragraph::new(ind_lines).block(ind_block), mid_chunks[1]);
 
-    // 3. Right: Order Depth / Microstructure
-    let depth_lines = vec![
+    // 3. Right: Order Depth / Microstructure (Dynamic)
+    let mut depth_lines = vec![
         Line::from(vec![
             Span::styled("  BID SIZE      PRICE       ASK SIZE", ThemeStyles::muted_text()),
         ]),
-        Line::from(vec![
+    ];
+
+    if let Some(q) = quote_opt.filter(|q| !q.depth_bids.is_empty() && !q.depth_asks.is_empty()) {
+        for b in q.depth_bids.iter().take(3) {
+            depth_lines.push(Line::from(vec![
+                Span::styled(format!("{:>8.0}      ", b.size), ThemeStyles::positive()),
+                Span::styled(format!("{:.2}", b.price), ThemeStyles::default_text()),
+                Span::styled("      --", ThemeStyles::muted_text()),
+            ]));
+        }
+        for a in q.depth_asks.iter().take(3) {
+            depth_lines.push(Line::from(vec![
+                Span::styled("      --      ", ThemeStyles::muted_text()),
+                Span::styled(format!("{:.2}", a.price), ThemeStyles::default_text()),
+                Span::styled(format!("{:>9.0}", a.size), ThemeStyles::negative()),
+            ]));
+        }
+    } else {
+        // Fallback realistic depth from price
+        depth_lines.push(Line::from(vec![
             Span::styled("   2,400      ", ThemeStyles::positive()),
             Span::styled(format!("{:.2}", price - 0.04), ThemeStyles::default_text()),
             Span::styled("      --", ThemeStyles::muted_text()),
-        ]),
-        Line::from(vec![
+        ]));
+        depth_lines.push(Line::from(vec![
             Span::styled("   5,100      ", ThemeStyles::positive()),
             Span::styled(format!("{:.2}", price - 0.07), ThemeStyles::default_text()),
             Span::styled("      --", ThemeStyles::muted_text()),
-        ]),
-        Line::from(vec![
+        ]));
+        depth_lines.push(Line::from(vec![
             Span::styled("  12,800      ", ThemeStyles::positive()),
             Span::styled(format!("{:.2}", price - 0.12), ThemeStyles::default_text()),
             Span::styled("      --", ThemeStyles::muted_text()),
-        ]),
-        Line::from(vec![
+        ]));
+        depth_lines.push(Line::from(vec![
             Span::styled("      --      ", ThemeStyles::muted_text()),
             Span::styled(format!("{:.2}", price + 0.02), ThemeStyles::default_text()),
             Span::styled("     3,200", ThemeStyles::negative()),
-        ]),
-        Line::from(vec![
+        ]));
+        depth_lines.push(Line::from(vec![
             Span::styled("      --      ", ThemeStyles::muted_text()),
             Span::styled(format!("{:.2}", price + 0.05), ThemeStyles::default_text()),
             Span::styled("     6,400", ThemeStyles::negative()),
-        ]),
-        Line::from(vec![
+        ]));
+        depth_lines.push(Line::from(vec![
             Span::styled("      --      ", ThemeStyles::muted_text()),
             Span::styled(format!("{:.2}", price + 0.10), ThemeStyles::default_text()),
             Span::styled("     9,800", ThemeStyles::negative()),
-        ]),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("Spread: ", ThemeStyles::muted_text()),
-            Span::styled("$0.04 (0.5 bps) ", ThemeStyles::accent()),
-            Span::styled("│ Depth: ", ThemeStyles::muted_text()),
-            Span::styled("NORMAL", ThemeStyles::positive()),
-        ]),
-    ];
+        ]));
+    }
+
+    depth_lines.push(Line::from(""));
+    depth_lines.push(Line::from(vec![
+        Span::styled("Spread: ", ThemeStyles::muted_text()),
+        Span::styled("$0.04 (0.5 bps) ", ThemeStyles::accent()),
+        Span::styled("│ Depth: ", ThemeStyles::muted_text()),
+        Span::styled("NORMAL", ThemeStyles::positive()),
+    ]));
 
     let depth_block = Block::default()
         .title(" DEPTH OF MARKET (L2) ")

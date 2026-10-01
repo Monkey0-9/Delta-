@@ -26,6 +26,8 @@ class TransactionCostEngine:
     borrow_bps_annual: float = 50.0
     gamma: float = 0.5
     half_spread_bps: float = 1.0
+    calibrated: bool = False  # Stream C: True only after empirical fill calibration
+    calibration_id: str = "proxy-uncalibrated"
 
     def quote(self, *, qty: float, adv: float, sigma: float, spread_bps: float | None = None,
               side: str = "buy", hold_days: float = 0.0, short: bool = False) -> CostBreakdown:
