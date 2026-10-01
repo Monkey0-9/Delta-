@@ -43,7 +43,6 @@ target/
 *.sqlite
 *.sqlite3
 data/pit_store.db
-data/tick_pit/
 
 # Local & secret configs
 *.local.json

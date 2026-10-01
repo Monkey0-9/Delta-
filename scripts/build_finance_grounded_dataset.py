@@ -152,10 +152,10 @@ for cond, inp, out in S3:
 
 def main() -> None:
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    with open(OUT, "w", encoding="utf-8") as f:
+    with open(OUT, "w", encoding="utf-8", newline="\n") as f:
         for r in rows:
             f.write(json.dumps(r) + "\n")
-    h = hashlib.sha256(OUT.read_bytes()).hexdigest()
+    h = hashlib.sha256(OUT.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
     stages: dict[str, int] = {}
     for r in rows:
         stages[r["stage"]] = stages.get(r["stage"], 0) + 1

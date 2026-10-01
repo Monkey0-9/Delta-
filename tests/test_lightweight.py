@@ -10,10 +10,12 @@ Python is thin glue; C/C++/Rust own the hot loops. Rules enforced here:
 """
 from __future__ import annotations
 
+from pathlib import Path
 import subprocess
 import sys
 import time
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
 BUDGET_S = 2.0
 FORBIDDEN_AT_PACKAGE_IMPORT = ("pandas", "numpy", "httpx", "yfinance",
                                "cryptography", "reportlab")
@@ -21,7 +23,7 @@ FORBIDDEN_AT_PACKAGE_IMPORT = ("pandas", "numpy", "httpx", "yfinance",
 
 def _fresh_imports(code: str) -> list[str]:
     r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
-                       cwd="C:\\Delta", timeout=120)
+                       cwd=str(REPO_ROOT), timeout=120)
     assert r.returncode == 0, r.stderr[-500:]
     return r.stdout.strip().split()
 
@@ -57,6 +59,6 @@ def test_core_package_resolves():
 def test_fresh_interpreter_import_budget():
     code = "import time; t0=time.perf_counter(); import delta_os; print(time.perf_counter()-t0)"
     r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
-                       cwd="C:\\Delta", timeout=120)
+                       cwd=str(REPO_ROOT), timeout=120)
     assert r.returncode == 0, r.stderr[-500:]
     assert float(r.stdout.strip()) < BUDGET_S

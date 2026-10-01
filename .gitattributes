@@ -8,3 +8,4 @@
 *.ico binary
 *.png binary
 *.jpg binary
+data/finance_grounded/delta_finance_grounded.jsonl text eol=lf

@@ -29,7 +29,8 @@ def test_grounded_schema_and_labels():
 def test_manifest_matches_file():
     m = json.loads(MAN.read_text(encoding="utf-8"))
     assert m["rows"] == len(_rows())
-    assert m["sha256"] == hashlib.sha256(DATA.read_bytes()).hexdigest()
+    content = DATA.read_bytes().replace(b"\r\n", b"\n")
+    assert m["sha256"] == hashlib.sha256(content).hexdigest()
     assert m["live_numbers"] is False
     assert set(m["stages"]) == {"S1_domain", "S2_numerical", "S3_refusal"}
 
