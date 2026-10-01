@@ -1,5 +1,14 @@
+"""Deterministic financial-analysis policy adapter (NOT an LLM / model).
+
+This module was previously named ``FinanceModel``; that name was
+misleading. It performs no inference — it maps caller-supplied
+(expected_return, uncertainty) inputs onto a candidate action via fixed
+thresholds. Real model inference lives in the model gateway / inference
+stack; forecasts in forecast models; risk in the risk engine.
+"""
 from __future__ import annotations
 
+import warnings
 from decimal import Decimal
 
 from .contracts import (
@@ -8,12 +17,15 @@ from .contracts import (
 )
 
 
-class FinanceModel:
+class FinanceAnalysisPolicy:
     """
-    Finance-native reasoning contract.
+    Deterministic policy adapter: uncertainty -> confidence,
+    confidence/expected-return -> candidate action.
 
     IMPORTANT:
-    This component has no broker access and cannot execute orders.
+    This component performs no model inference, has no broker access,
+    and cannot execute orders. Candidate actions require downstream
+    risk-firewall approval and OMS lifecycle.
     """
 
     def __init__(self, model_version: str) -> None:
@@ -95,3 +107,16 @@ class FinanceModel:
             ),
             model_version=self._model_version,
         )
+
+
+def __getattr__(name: str):
+    # Backward-compat alias: FinanceModel -> FinanceAnalysisPolicy.
+    if name == "FinanceModel":
+        warnings.warn(
+            "FinanceModel is renamed FinanceAnalysisPolicy (deterministic "
+            "policy adapter, not a model). Update imports.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return FinanceAnalysisPolicy
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

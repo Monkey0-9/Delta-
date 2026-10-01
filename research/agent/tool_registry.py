@@ -49,7 +49,7 @@ class ToolRegistry:
         fn: Callable[..., Any],
         description: str = "",
         metadata: Dict[str, Any] | None = None,
-        overwrite: bool = True,
+        overwrite: bool = False,
     ) -> None:
         """
         Register a tool callable.
@@ -59,7 +59,9 @@ class ToolRegistry:
             fn: Callable implementing the tool
             description: Human-readable description
             metadata: Additional metadata
-            overwrite: Allow replacing an existing entry
+            overwrite: Allow replacing an existing entry. Default False:
+                replacement is a governed operation — pass overwrite=True
+                explicitly (audited call sites only).
 
         Raises:
             ValueError: If name invalid, fn not callable, or duplicate

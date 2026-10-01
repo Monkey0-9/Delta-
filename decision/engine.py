@@ -16,6 +16,11 @@ from .horizon import DecisionHorizon
 class DecisionInput:
     """
     Validated input supplied to the decision engine.
+
+    Utility model: U = expected_return - risk_penalty - transaction_cost.
+    BUY/SELL fire only when utility clears `utility_threshold`; otherwise
+    WAIT. Sign-only trading without cost/risk terms is rejected by
+    requiring explicit (possibly zero, explicitly stated) terms.
     """
 
     instrument_id: UUID
@@ -24,6 +29,10 @@ class DecisionInput:
     confidence: Decimal
 
     evidence: tuple[DecisionEvidence, ...] = ()
+
+    risk_penalty: Decimal = Decimal("0")
+    transaction_cost: Decimal = Decimal("0")
+    utility_threshold: Decimal = Decimal("0")
 
     model_version: str = "unknown"
     world_state_version: str = "unknown"
@@ -65,6 +74,9 @@ class DecisionEngine:
         action = self._classify(
             expected_return=data.expected_return,
             confidence=data.confidence,
+            risk_penalty=data.risk_penalty,
+            transaction_cost=data.transaction_cost,
+            utility_threshold=data.utility_threshold,
         )
 
         return Decision(
@@ -82,15 +94,25 @@ class DecisionEngine:
     def _classify(
         expected_return: Decimal,
         confidence: Decimal,
+        risk_penalty: Decimal = Decimal("0"),
+        transaction_cost: Decimal = Decimal("0"),
+        utility_threshold: Decimal = Decimal("0"),
     ) -> DecisionAction:
+        """Utility-gated classification: U = ER - risk - cost.
 
+        WAIT unless confidence is sufficient AND net utility clears the
+        threshold. Direction follows the sign of net utility, not gross
+        expected return.
+        """
         if confidence < Decimal("0.50"):
             return DecisionAction.WAIT
 
-        if expected_return > Decimal("0"):
-            return DecisionAction.BUY
+        long_utility = expected_return - risk_penalty - transaction_cost
+        short_utility = -expected_return - risk_penalty - transaction_cost
 
-        if expected_return < Decimal("0"):
+        if long_utility > utility_threshold:
+            return DecisionAction.BUY
+        if short_utility > utility_threshold:
             return DecisionAction.SELL
 
-        return DecisionAction.HOLD
+        return DecisionAction.WAIT

@@ -2,7 +2,7 @@ from decimal import Decimal
 from datetime import datetime, timezone
 
 from finance_model import (
-    FinanceModel,
+    FinanceAnalysisPolicy,
     FinancialAnalysisInput,
     FinancialEvidence,
 )
@@ -135,7 +135,7 @@ def test_w11_protected_failure_regression() -> None:
 
 
 def test_w12_finance_model() -> None:
-    model = FinanceModel("finance-model-test-1")
+    model = FinanceAnalysisPolicy("finance-model-test-1")
 
     request = FinancialAnalysisInput(
         instrument="NVDA",

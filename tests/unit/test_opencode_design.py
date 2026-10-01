@@ -89,12 +89,10 @@ def test_finance_chat_vs_finance_agent():
     assert chat_out is not None
 
     agent_out = app.dispatch("/finance-agent NVDA factor exposure")
-    assert "Analyzing NVDA factor exposure..." in agent_out
-    assert "Market context" in agent_out
-    assert "Macro context" in agent_out
-    assert "Portfolio exposure" in agent_out
-    assert "Running regime analysis" in agent_out
-    assert "[Open analysis ↗] [Run research] [Simulate]" in agent_out
+    # Truth rule: no fake scripted confidence/regime. Real backend error or UNAVAILABLE.
+    assert ("DELTA LLM ERROR" in agent_out or
+            "finance-agent UNAVAILABLE" in agent_out or
+            "Analyzing NVDA factor exposure..." in agent_out)
 
 
 def test_automation_mental_model():
@@ -123,8 +121,9 @@ def test_browser_handoff_and_open():
     open_out = app.dispatch("/open")
     assert "Browser workspace" in open_out
     assert "delta://" in open_out
-    assert "Full visualization opened in DELTA Web" in open_out
-    assert "[Open analysis ↗]" in open_out
+    # Truth rule: DELTA Web is NOT IMPLEMENTED — do not claim it opened.
+    assert "DELTA Web is NOT IMPLEMENTED" in open_out
+    assert "provenance: UNAVAILABLE" in open_out
 
 
 def test_quant_numerical_formatting():

@@ -130,6 +130,40 @@ def test_agent_runtime_validates_plan() -> None:
 
 
 def test_agent_runtime_allows_analysis_in_learn_mode() -> None:
+    # Real path: runtime executes tools through the typed executor.
+    # COMPLETED requires actual execution, recorded in the ledger.
+    from ai.contracts import RiskClass, ToolDefinition
+    from ai.executor import TypedToolExecutor
+
+    ran: list[str] = []
+    executor = TypedToolExecutor()
+    executor.register(
+        ToolDefinition(name="run_analysis", permission="run_analysis",
+                       risk_class=RiskClass.READ_ONLY,
+                       input_schema={"type": "object"}),
+        lambda query="": ran.append(query) or {"analysis": query},
+    )
+    runtime = AgentRuntime(
+        planner=AgentPlanner(),
+        policy=AgentPolicy(AgentMode.LEARN),
+        executor=executor,
+        agent_id="test-agent",
+        grants=("run_analysis",),
+    )
+
+    task = AgentTask(
+        instruction="Analyze NVDA."
+    )
+
+    result = runtime.execute(task)
+
+    assert result.status.value == "completed"
+    assert ran, "tool must actually execute"
+    assert any(e["kind"] == "tool" and e["status"] == "ok"
+               for e in executor.ledger.entries)
+
+
+def test_agent_runtime_without_executor_refuses_fake_completion() -> None:
     runtime = AgentRuntime(
         planner=AgentPlanner(),
         policy=AgentPolicy(AgentMode.LEARN),
@@ -141,4 +175,6 @@ def test_agent_runtime_allows_analysis_in_learn_mode() -> None:
 
     result = runtime.execute(task)
 
-    assert result.status.value == "completed"
+    # Tool steps with no executor: FAILED, never fake COMPLETED.
+    assert result.status.value == "failed"
+    assert any("no executor" in m for m in result.messages)

@@ -3,10 +3,10 @@ from .contracts import (
     FinancialAnalysisInput,
     FinancialEvidence,
 )
-from .engine import FinanceModel
+from .engine import FinanceAnalysisPolicy
 
 __all__ = [
-    "FinanceModel",
+    "FinanceAnalysisPolicy",
     "FinancialAnalysis",
     "FinancialAnalysisInput",
     "FinancialEvidence",

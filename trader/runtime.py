@@ -44,6 +44,10 @@ def build_llm_provider() -> ModelProvider:
     )
 
 
+class MandateUnavailable(Exception):
+    """Raised when no real mandate is configured. Never fabricate one."""
+
+
 class TraderRuntime:
     """Runtime bridge: deterministic quant state + real local LLM synthesis.
 
@@ -65,13 +69,24 @@ class TraderRuntime:
         )
 
     def _mandate(self, request: FinanceIntent) -> TradingMandate:
+        # No fabricated defaults: capital/risk/universe come from the
+        # request or explicit env; otherwise the mandate is UNAVAILABLE
+        # and downstream must say so instead of trading a default book.
         horizon = _HORIZON_TEXT.get(request.horizon, "week")
+        account = os.getenv("DELTA_ACCOUNT_ID", "").strip()
+        capital = os.getenv("DELTA_CAPITAL", "").strip()
+        risk = os.getenv("DELTA_RISK_PROFILE", "").strip()
+        universe = os.getenv("DELTA_UNIVERSE", "").strip()
+        if not account or not capital or not risk:
+            raise MandateUnavailable(
+                "no mandate configured: set DELTA_ACCOUNT_ID, DELTA_CAPITAL, "
+                "DELTA_RISK_PROFILE (and DELTA_UNIVERSE) — refusing defaults")
         base = build_mandate(
-            account_id="CLI-PAPER",
-            capital_text="1000000",
+            account_id=account,
+            capital_text=capital,
             horizon_text=horizon,
-            risk_text="moderate",
-            universe_text="multi-asset",
+            risk_text=risk,
+            universe_text=universe or "multi-asset",
             execution_mode="RECOMMENDATION",
         )
 

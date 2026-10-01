@@ -1,5 +1,10 @@
 """DELTA OS model gateway: role-based routing across local + cloud models.
 
+LEGACY ADAPTER STATUS: this module remains for existing callers, but the
+canonical path is ai.registry.ModelRegistry + ai.gateway.CanonicalGateway
+(capability-verified, benchmark-driven routing, per-role pinning, no
+global model switch). New code must use ai/.
+
 Roles: commentary (local Qwen, fast/private) | quant (Claude/DeepSeek Balkans
 depth) | filings (Gemini long context) | tools (OpenAI function calling).
 Hot-swap via use(). Cloud providers call OpenAI-compatible endpoints over

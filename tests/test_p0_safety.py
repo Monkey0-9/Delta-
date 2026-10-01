@@ -160,4 +160,11 @@ def test_research_loop_strict_and_labeling():
         pass
     loose = ResearchLoop(Exploding(), strict=False)
     out = loose.run({"params": {}}, max_iter=1)
-    assert out["synthetic_used"] is True
+    assert out["status"] == "DATA_UNAVAILABLE"
+    assert out["synthetic_used"] is False
+    assert out["cert_eligible"] is False
+    demo = ResearchLoop(Exploding(), strict=False, allow_synthetic=True)
+    dout = demo.run({"params": {}}, max_iter=1)
+    assert dout["status"] == "SYNTHETIC_DEMO"
+    assert dout["synthetic_used"] is True
+    assert dout["cert_eligible"] is False

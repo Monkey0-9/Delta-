@@ -9,19 +9,46 @@ from __future__ import annotations
 import numpy as np
 
 
-def _windows(series: np.ndarray, lookback: int):
+def _windows(series: np.ndarray, lookback: int, mu: float, sd: float):
+    """Build windows from PRE-FIT scaler stats (mu/sd from train only).
+
+    Callers must fit mu/sd on the training segment and reuse them for
+    validation/test. Whole-series normalization before splitting is
+    look-ahead contamination and is forbidden here by construction:
+    this function takes caller-supplied stats and never computes them.
+    """
     import torch
 
     s = np.asarray(series, dtype=np.float64)
     if s.ndim != 1 or len(s) <= lookback or lookback < 2:
         raise ValueError("need 1D series longer than lookback >= 2.")
-    mu, sd = float(s.mean()), float(s.std())
     if sd == 0:
         raise ValueError("constant series carries no signal.")
     z = (s - mu) / sd
     X = np.stack([z[i : i + lookback] for i in range(len(z) - lookback)])
     y = z[lookback:]
-    return torch.tensor(X, dtype=torch.float32), torch.tensor(y, dtype=torch.float32), mu, sd
+    return torch.tensor(X, dtype=torch.float32), torch.tensor(y, dtype=torch.float32)
+
+
+def _fit_stats(train: np.ndarray) -> tuple[float, float]:
+    s = np.asarray(train, dtype=np.float64)
+    if s.ndim != 1 or len(s) == 0:
+        raise ValueError("need non-empty 1D train segment.")
+    mu, sd = float(s.mean()), float(s.std())
+    if sd == 0:
+        raise ValueError("constant train segment carries no signal.")
+    return mu, sd
+
+
+def train_val_split(series: np.ndarray, val_frac: float = 0.2) -> tuple[np.ndarray, np.ndarray]:
+    """Chronological split: first (1-val_frac) train, remainder validation."""
+    s = np.asarray(series, dtype=np.float64)
+    if s.ndim != 1:
+        raise ValueError("need 1D series.")
+    if not 0.0 < val_frac < 0.5:
+        raise ValueError("val_frac must be in (0, 0.5).")
+    cut = int(len(s) * (1.0 - val_frac))
+    return s[:cut], s[cut:]
 
 
 def _seeded(seed: int = 0) -> None:
@@ -50,10 +77,13 @@ class LSTMForecaster:
         self._mu = 0.0
         self._sd = 1.0
 
-    def fit(self, series: np.ndarray) -> LSTMForecaster:
+    def fit(self, series: np.ndarray, val_frac: float = 0.2) -> LSTMForecaster:
         import torch.nn as nn
 
-        X, y, self._mu, self._sd = _windows(series, self._lookback)
+        # Scaler fit on TRAIN segment only — never whole-series stats.
+        train, _ = train_val_split(series, val_frac)
+        self._mu, self._sd = _fit_stats(train)
+        X, y = _windows(train, self._lookback, self._mu, self._sd)
         opt = self._opt_cls(list(self._lstm.parameters()) + list(self._head.parameters()), lr=self._lr)
         loss_fn = nn.MSELoss()
         self._lstm.train()
@@ -102,11 +132,14 @@ class TransformerForecaster:
         self._mu = 0.0
         self._sd = 1.0
 
-    def fit(self, series: np.ndarray) -> TransformerForecaster:
+    def fit(self, series: np.ndarray, val_frac: float = 0.2) -> TransformerForecaster:
         import torch
         import torch.nn as nn
 
-        X, y, self._mu, self._sd = _windows(series, self._lookback)
+        # Scaler fit on TRAIN segment only — never whole-series stats.
+        train, _ = train_val_split(series, val_frac)
+        self._mu, self._sd = _fit_stats(train)
+        X, y = _windows(train, self._lookback, self._mu, self._sd)
         params = list(self._enc.parameters()) + list(self._in.parameters()) + list(self._head.parameters())
         opt = torch.optim.Adam(params, lr=self._lr)
         loss_fn = nn.MSELoss()

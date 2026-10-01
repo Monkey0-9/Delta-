@@ -13,7 +13,9 @@ class AgentTaskStatus(StrEnum):
     EXECUTING = "executing"
     WAITING = "waiting"
     COMPLETED = "completed"
+    PARTIAL = "partial"
     FAILED = "failed"
+    ABORTED = "aborted"
     CANCELLED = "cancelled"
 
 

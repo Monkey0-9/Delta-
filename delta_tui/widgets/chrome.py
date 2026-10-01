@@ -123,12 +123,12 @@ def input_box() -> str:
 def render_frontpart(store_or_dict: Any, width: int = 100, use_rich: bool = False) -> str:
     """Renders the exact frontpart layout from the user specification."""
     if hasattr(store_or_dict, "model"):
-        model = getattr(store_or_dict, "model", "delta")
-        agent = getattr(store_or_dict, "agent", "delta")
+        model = getattr(store_or_dict, "model", "delta-fm-research")
+        agent = getattr(store_or_dict, "agent", "quant-researcher")
         session = getattr(store_or_dict, "session_id", "default")
     else:
-        model = store_or_dict.get("model", "delta")
-        agent = store_or_dict.get("agent", "delta")
+        model = store_or_dict.get("model", "delta-fm-research")
+        agent = store_or_dict.get("agent", "quant-researcher")
         session = store_or_dict.get("session", "default")
 
     logo_lines = [

@@ -12,7 +12,7 @@ from validation.release import ReleaseEvidence, certify_release
 
 def test_full_paper_pipeline_e2e() -> None:
     from data.point_in_time.store import PointInTimeStore, StoredEvent
-    from finance_model.engine import FinanceModel
+    from finance_model.engine import FinanceAnalysisPolicy
     from finance_model.contracts import FinancialAnalysisInput
     from portfolio.state import PortfolioState
     from risk.firewall.firewall import RiskFirewall
@@ -23,7 +23,7 @@ def test_full_paper_pipeline_e2e() -> None:
     assert store.append(StoredEvent("e1", t0, t0, t0, "feed", '{"close":100}'))
     assert len(store.as_of(t0)) == 1
 
-    model = FinanceModel("test-v1")
+    model = FinanceAnalysisPolicy("test-v1")
     analysis = model.analyze(
         FinancialAnalysisInput(
             instrument="AAA", world_state_version="w1", quant_state_version="q1",

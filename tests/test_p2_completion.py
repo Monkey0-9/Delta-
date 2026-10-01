@@ -74,8 +74,9 @@ def test_gates_all_run_no_silent_skip():
     from finance_model.evaluation.delta_gates import run_rule_probes, evaluate_gates, GateId
     probes = run_rule_probes()
     assert set(probes.keys()) == set(GateId)
-    for g, (passed, ev) in probes.items():
+    for g, (status, ev) in probes.items():
         assert isinstance(ev, str) and ev, g
         assert "probe_not_implemented" not in ev, g
     rep = evaluate_gates("smoke", probes)
     assert rep.results and isinstance(rep.passed, bool)
+    assert not rep.passed  # UNPROVEN/FAIL present: honestly not promotable

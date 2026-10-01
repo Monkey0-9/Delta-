@@ -26,6 +26,10 @@ class FakeLLM(ModelProvider):
 
 def test_runtime_uses_real_llm_provider_for_trade_decision(monkeypatch) -> None:
     monkeypatch.setenv("DATA_MODE", "SIMULATION")  # offline-deterministic; live Yahoo unavailable in CI
+    monkeypatch.setenv("DELTA_ACCOUNT_ID", "TEST-PAPER")
+    monkeypatch.setenv("DELTA_CAPITAL", "1000000")
+    monkeypatch.setenv("DELTA_RISK_PROFILE", "moderate")
+    monkeypatch.setenv("DELTA_UNIVERSE", "multi-asset")
     llm = FakeLLM()
     request = FinanceCommandRouter().route("what should I trade this week?")
 
@@ -39,6 +43,23 @@ def test_runtime_uses_real_llm_provider_for_trade_decision(monkeypatch) -> None:
     assert llm.requests[0].model == "test-finance-model"
     assert "COMPUTED DELTA STATE" in llm.requests[0].messages[1]["content"]
     assert "what should I trade this week?" in llm.requests[0].messages[1]["content"]
+
+
+def test_runtime_refuses_fabricated_mandate(monkeypatch) -> None:
+    from trader.runtime import MandateUnavailable
+    monkeypatch.delenv("DELTA_ACCOUNT_ID", raising=False)
+    monkeypatch.delenv("DELTA_CAPITAL", raising=False)
+    monkeypatch.delenv("DELTA_RISK_PROFILE", raising=False)
+    llm = FakeLLM()
+    request = FinanceCommandRouter().route("what should I trade this week?")
+    try:
+        TraderRuntime(llm_provider=llm)._mandate(request)
+        assert False, "must refuse fabricated mandate"
+    except MandateUnavailable:
+        pass
+    response = TraderRuntime(llm_provider=llm).dispatch(request)
+    assert "DELTA LLM ERROR" in response and "no mandate configured" in response
+    assert not llm.requests
 
 
 def test_runtime_never_fabricates_portfolio_state() -> None:

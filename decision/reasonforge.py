@@ -20,6 +20,12 @@ from dataclasses import dataclass, field
 
 REASONFORGE_VERSION = "reasonforge-v1"
 
+# Classification: deterministic technical-rule BASELINE (RSI/MACD/Bollinger/
+# VWAP/ADX score). Retained as a transparent sanity-check feature family —
+# NEVER the primary intelligence or final reasoning authority. Actual
+# decisions require forecast models + utility engine + risk firewall.
+INTELLIGENCE_CLASS = "deterministic_rule_baseline"
+
 
 @dataclass
 class Verdict:

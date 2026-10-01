@@ -26,8 +26,8 @@ class TerminalStore:
     data_health: str = "HEALTHY"
     market_live: bool = False
     risk_state: str = "SAFE"
-    model: str = "delta"
-    agent: str = "delta"
+    model: str = "delta-fm-research"
+    agent: str = "quant-researcher"
     broker: str = "paper"
     kill_armed: bool = True
     viewmodels: dict[str, Any] = field(default_factory=dict)
