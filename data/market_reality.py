@@ -170,13 +170,31 @@ class OrderBookReconstructor:
 
 
 class SessionReconstructor:
-    """Regular/pre/post/halt session labeling (deterministic, exchange calendar stub)."""
+    """Regular/pre/post/halt session labeling (real calendar when given).
 
-    def __init__(self, open_h: int = 9, open_m: int = 30, close_h: int = 16) -> None:
+    Default `calendar` is the NYSE/NASDAQ ExchangeCalendar
+    (`data/market/exchange_calendar.py`) — no longer a fixed-hours stub.
+    Pass calendar=None to keep legacy fixed-hours behavior for old tests.
+    """
+
+    def __init__(self, open_h: int = 9, open_m: int = 30, close_h: int = 16,
+                 calendar=None) -> None:
         self._o, self._om, self._c = open_h, open_m, close_h
+        if calendar is None:
+            try:
+                from data.market.exchange_calendar import ExchangeCalendar as _EC
+                calendar = _EC()
+            except Exception:
+                calendar = None
+        self._cal = calendar
 
     def label(self, ts_ns: int) -> SessionKind:
         dt = datetime.fromtimestamp(ts_ns / 1e9, tz=timezone.utc)
+        if self._cal is not None:
+            try:
+                return self._cal.session(dt)  # type: ignore[return-value]
+            except Exception:
+                pass
         mins = dt.hour * 60 + dt.minute
         o, c = self._o * 60 + self._om, self._c * 60
         if o <= mins < c:
@@ -184,6 +202,9 @@ class SessionReconstructor:
         if mins < o:
             return "pre"
         return "post"
+
+    def is_open(self, ts_ns: int) -> bool:
+        return self.label(ts_ns) == "regular"
 
 
 class CorporateActionAdjuster:

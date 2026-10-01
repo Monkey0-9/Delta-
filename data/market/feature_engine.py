@@ -17,6 +17,10 @@ from abc import ABC, abstractmethod
 import hashlib
 
 
+class FundamentalsUnavailablePlaceholder(RuntimeError):
+    """Raised when a fundamental feature has no PIT source (STUB_AUDIT #3)."""
+
+
 class FeatureType(Enum):
     """Types of features"""
     PRICE = "price"
@@ -220,15 +224,21 @@ class ValueFeature(Feature):
         self.ratio = ratio
     
     def compute(self, data: pd.DataFrame) -> pd.Series:
-        """Compute value feature"""
+        """Compute value feature (PIT fundamentals, fail-closed).
+
+        STUB_AUDIT #3: no silent NaN placeholder. If the ratio column is absent
+        the caller must supply PIT fundamentals via `fundamentals_as_of`, else
+        we raise so no strategy can train on fabricated fundamentals.
+        """
         if not self.validate(data):
             raise ValueError("Invalid data for value calculation")
-        
+
         if self.ratio in data.columns:
             return data[self.ratio]
-        else:
-            # Placeholder - in real implementation, would fetch fundamental data
-            return pd.Series(np.nan, index=data.index)
+        raise FundamentalsUnavailablePlaceholder(
+            f"value feature '{self.ratio}': no PIT fundamentals column; "
+            "backfill data/fundamentals_cache via data/market/fundamentals.py "
+            "or drop the feature from claims (STUB_AUDIT #3)")
     
     def validate(self, data: pd.DataFrame) -> bool:
         """Validate data has the ratio column or fallback"""

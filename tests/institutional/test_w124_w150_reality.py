@@ -74,12 +74,15 @@ def test_w124_book_reconstruction_l1_l2():
 def test_w124_session_reconstruction():
     sr = SessionReconstructor()
     import datetime
-    base = int(datetime.datetime(2024, 1, 2, 14, 0, tzinfo=datetime.timezone.utc).timestamp() * 1e9)
+    # 2024-01-02 is a Tuesday; 15:00 UTC = 10:00 ET -> regular (real NYSE calendar).
+    base = int(datetime.datetime(2024, 1, 2, 15, 0, tzinfo=datetime.timezone.utc).timestamp() * 1e9)
     assert sr.label(base) == "regular"
-    pre = int(datetime.datetime(2024, 1, 2, 5, 0, tzinfo=datetime.timezone.utc).timestamp() * 1e9)
+    pre = int(datetime.datetime(2024, 1, 2, 11, 0, tzinfo=datetime.timezone.utc).timestamp() * 1e9)
     assert sr.label(pre) == "pre"
     post = int(datetime.datetime(2024, 1, 2, 22, 0, tzinfo=datetime.timezone.utc).timestamp() * 1e9)
     assert sr.label(post) == "post"
+    xmas = int(datetime.datetime(2024, 12, 25, 15, 0, tzinfo=datetime.timezone.utc).timestamp() * 1e9)
+    assert sr.label(xmas) == "closed"
 
 
 def test_w125_immutable_dataset_publish_verify():

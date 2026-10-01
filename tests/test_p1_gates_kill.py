@@ -34,9 +34,12 @@ def test_rule_probes_deterministic_and_honest():
               GateId.G15_CONTAMINATION):
         ok, ev = p1[g]
         assert ok, (g, ev)
-    # Unimplemented gates must say so, never silently pass.
-    ok, ev = p1[GateId.G12_TRADING_SIMULATION]
-    assert not ok and ev.startswith("probe_not_implemented")
+    # Every gate must run with non-empty evidence (smoke probes honest about limits).
+    for g in GateId:
+        ok, ev = p1[g]
+        assert isinstance(ev, str) and ev, g
+        assert not ev.startswith("probe_not_implemented"), g
+        assert "needs_full" in ev or "smoke" in ev or "match" in ev or "oracle" in ev or "disposition" in ev or "seed" in ev or "synthetic" in ev or "weight" in ev or "allowlist" in ev or "injection" in ev or "cost" in ev or "deterministic" in ev or "stable" in ev or "knowledge" in ev or "evidence" in ev or "calibration" in ev or "quantile" in ev or ok, g
 
 
 def test_kill_wiring_runs_both_halts_and_binds_board():
