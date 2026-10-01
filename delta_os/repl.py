@@ -642,7 +642,9 @@ class Terminal:
             from reportlab.platypus import Preformatted, SimpleDocTemplate
             from reportlab.lib.styles import getSampleStyleSheet
         except ImportError:
-            return "PDF unavailable (reportlab missing) — md written instead."
+            fp = outdir / "tearsheet.md"
+            fp.write_text(md, encoding="utf-8")
+            return f"tear-sheet -> {fp} (PDF unavailable, reportlab missing — md written instead.)\n\n{md[:800]}"
         fp = outdir / "tearsheet.pdf"
         doc = SimpleDocTemplate(str(fp), pagesize=letter)
         doc.build([Preformatted(md[:6000], getSampleStyleSheet()["Code"])])

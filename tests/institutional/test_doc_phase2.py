@@ -6,6 +6,7 @@ import shutil
 import subprocess
 
 import numpy as np
+import pytest
 
 
 def _xy():
@@ -159,6 +160,7 @@ def test_portfolio_budget_math():
 
 
 def test_msgpack_codec_roundtrip_and_tamper():
+    pytest.importorskip("msgpack", reason="msgpack not installed in base CI env")
     from schemas.serialization import pack, unpack
 
     blob = pack({"order_id": "o-1", "qty": 10})

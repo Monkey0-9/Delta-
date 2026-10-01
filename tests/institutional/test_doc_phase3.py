@@ -8,6 +8,7 @@ from datetime import date
 from decimal import Decimal
 
 import numpy as np
+import pytest
 
 
 def _trend(n=120, seed=0):
@@ -16,6 +17,7 @@ def _trend(n=120, seed=0):
 
 
 def test_arima_holt_seasonal():
+    pytest.importorskip("statsmodels", reason="statsmodels not installed in base CI env")
     from quant.forecasting.timeseries import ARIMAModel, HoltTrend, SeasonalNaive
 
     s = _trend()
@@ -27,6 +29,7 @@ def test_arima_holt_seasonal():
 
 
 def test_torch_forecasters_learn_trend():
+    pytest.importorskip("torch", reason="torch not installed in base CI env (ML-runtime gated)")
     from quant.forecasting.deep import LSTMForecaster, TransformerForecaster
 
     s = _trend()
@@ -37,6 +40,8 @@ def test_torch_forecasters_learn_trend():
 
 
 def test_garch_and_hmm():
+    pytest.importorskip("arch", reason="arch not installed in base CI env")
+    pytest.importorskip("hmmlearn", reason="hmmlearn not installed in base CI env")
     from quant.forecasting.volatility import garch_forecast_variance, hmm_regime_states
     from quant.regime.regime import Regime
 
@@ -50,6 +55,7 @@ def test_garch_and_hmm():
 
 
 def test_gpu_workloads_device_agnostic():
+    pytest.importorskip("torch", reason="torch not installed in base CI env (ML-runtime gated)")
     from benchmark.gpu_workloads import (
         active_device,
         batch_monte_carlo,

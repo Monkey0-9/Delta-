@@ -1,3 +1,6 @@
+import pytest
+
+pytest.importorskip("torch", reason="torch not installed in base CI env (ML-runtime gated)")
 from finance_model.training.runtime import TrainingRuntime
 
 

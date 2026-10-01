@@ -43,4 +43,4 @@ jobs:
 
       - name: Build wheels
         run: |
-          maturin build --release
+          maturin build --release --manifest-path rust/Cargo.toml --features python -i python3.11
