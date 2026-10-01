@@ -148,7 +148,8 @@ pub struct ModelInfo {
     #[serde(default)]
     pub available_models: Vec<String>,
     pub health: String,
-    pub confidence: f64,
+    #[serde(default)]
+    pub confidence: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

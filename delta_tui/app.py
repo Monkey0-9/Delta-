@@ -112,12 +112,17 @@ class DeltaApp:
                 return
             d = json.loads(p.read_text(encoding="utf-8"))
             # New TUI keys take precedence; legacy backend model_name is NOT
-            # adopted as the display model (display default: delta-fm-research).
+            # adopted as the display model (display default: delta).
+            # Legacy display names migrate to delta.
             v = d.get("model")
             if isinstance(v, str) and v:
+                if v == "delta-fm-research":
+                    v = "delta"
                 self.store.set_model(v)
             v = d.get("agent")
             if isinstance(v, str) and v:
+                if v == "quant-researcher":
+                    v = "delta"
                 self.store.set_agent(v)
             v = d.get("session") or d.get("session_id")
             if isinstance(v, str) and v:
@@ -164,7 +169,7 @@ class DeltaApp:
             try:
                 self.store.broker = getattr(be, "broker_name", s.broker) or s.broker
                 # NOTE: backend engine name (qwen-3.6/groq-free/...) is distinct
-                # from the TUI display model (delta-fm-research). Never overwrite
+                # from the TUI display model (delta). Never overwrite
                 # the display selector from the engine; /model switch syncs both.
                 safety = getattr(be, "safety", None)
                 smode = str(getattr(safety, "mode", "") or "").upper()

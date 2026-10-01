@@ -42,7 +42,7 @@ pub fn render_portfolio_view(frame: &mut Frame, area: Rect, state: &ApplicationS
         ]),
         Line::from(vec![
             Span::styled("Realized P&L:     ", ThemeStyles::muted_text()),
-            Span::styled("+$0.00 (Zero fills closed today)", ThemeStyles::secondary_text()),
+            Span::styled(format_pnl(state.portfolio.realized_pnl), if state.portfolio.realized_pnl >= 0.0 { ThemeStyles::positive() } else { ThemeStyles::negative() }),
         ]),
     ];
 
@@ -71,7 +71,7 @@ pub fn render_portfolio_view(frame: &mut Frame, area: Rect, state: &ApplicationS
             Span::styled(format!("{} active", state.portfolio.positions.len()), ThemeStyles::accent()),
             Span::raw("   "),
             Span::styled("Concentration: ", ThemeStyles::muted_text()),
-            Span::styled("DIVERSIFIED (Max 18%)", ThemeStyles::positive()),
+            Span::styled(format!("{:.1}% max", state.risk.concentration_pct), ThemeStyles::positive()),
         ]),
     ];
 
@@ -170,11 +170,11 @@ pub fn render_portfolio_view(frame: &mut Frame, area: Rect, state: &ApplicationS
                 Span::styled("POSITION DETAIL: ", ThemeStyles::header_brand()),
                 Span::styled(&pos.symbol, ThemeStyles::header_brand()),
                 Span::raw("   │   "),
-                Span::styled("Mandate: ", ThemeStyles::muted_text()),
-                Span::styled("EQUITIES-ALPHA (Momentum Expansion)", ThemeStyles::secondary_text()),
+                Span::styled("Market Value: ", ThemeStyles::muted_text()),
+                Span::styled(format_currency(pos.market_value), ThemeStyles::default_text()),
                 Span::raw("   │   "),
-                Span::styled("Max Risk Cap: ", ThemeStyles::muted_text()),
-                Span::styled("$150,000.00 (Safe)", ThemeStyles::positive()),
+                Span::styled("Single Name Limit: ", ThemeStyles::muted_text()),
+                Span::styled(format_currency(state.risk.gross_limit * 0.20), ThemeStyles::positive()),
             ]),
             Line::from(vec![
                 Span::styled("Stop Loss:       ", ThemeStyles::muted_text()),
@@ -183,8 +183,8 @@ pub fn render_portfolio_view(frame: &mut Frame, area: Rect, state: &ApplicationS
                 Span::styled("Target Bound: ", ThemeStyles::muted_text()),
                 Span::styled(format_currency(pos.avg_price * 1.15), ThemeStyles::positive()),
                 Span::raw(" (+15.0%)  │   "),
-                Span::styled("Risk Contribution: ", ThemeStyles::muted_text()),
-                Span::styled("0.34σ VaR Share", ThemeStyles::secondary_text()),
+                Span::styled("Portfolio Weight: ", ThemeStyles::muted_text()),
+                Span::styled(format_percent(if state.portfolio.net_liq > 0.0 { (pos.market_value / state.portfolio.net_liq) * 100.0 } else { 0.0 }), ThemeStyles::secondary_text()),
             ]),
         ]
     } else {

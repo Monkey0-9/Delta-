@@ -176,13 +176,13 @@ pub struct ModelState {
     pub active_model: String,
     pub available_models: Vec<String>,
     pub health: String,
-    pub confidence: f64,
+    pub confidence: Option<f64>,
 }
 
 impl Default for ModelState {
     fn default() -> Self {
         Self {
-            active_model: "delta-fm-research".into(),
+            active_model: "delta".into(),
             available_models: vec![
                 "delta-fm-research".into(),
                 "qwen-3.6".into(),
@@ -192,7 +192,7 @@ impl Default for ModelState {
                 "deepseek-r1".into(),
             ],
             health: "OPERATIONAL".into(),
-            confidence: 0.88,
+            confidence: None,
         }
     }
 }
@@ -208,11 +208,11 @@ impl Default for AgentsState {
         Self {
             agents: vec![
                 AgentInfo {
-                    name: "quant-researcher".into(),
+                    name: "delta".into(),
                     status: "ACTIVE".into(),
-                    task: "Cross-asset momentum factor analysis".into(),
+                    task: "Awaiting mandate".into(),
                     permissions: "RESEARCH_READONLY".into(),
-                    recent_action: "Evaluated 252d momentum spread across NIFTY50 & SP500".into(),
+                    recent_action: "No actions recorded".into(),
                 },
                 AgentInfo {
                     name: "delta-market-analyst".into(),

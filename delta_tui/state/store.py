@@ -26,8 +26,8 @@ class TerminalStore:
     data_health: str = "HEALTHY"
     market_live: bool = False
     risk_state: str = "SAFE"
-    model: str = "delta-fm-research"
-    agent: str = "quant-researcher"
+    model: str = "delta"
+    agent: str = "delta"
     broker: str = "paper"
     kill_armed: bool = True
     viewmodels: dict[str, Any] = field(default_factory=dict)
@@ -62,11 +62,11 @@ class TerminalStore:
         self.touch()
 
     def set_agent(self, agent: str) -> None:
-        self.agent = (agent or "quant-researcher").strip() or "quant-researcher"
+        self.agent = (agent or "delta").strip() or "delta"
         self.touch()
 
     def set_model(self, model: str) -> None:
-        self.model = (model or "delta-fm-research").strip() or "delta-fm-research"
+        self.model = (model or "delta").strip() or "delta"
         self.touch()
 
     def append_turn(self, role: str, text: str) -> None:

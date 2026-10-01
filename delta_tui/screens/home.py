@@ -22,7 +22,7 @@ class HomeScreen(BaseScreen):
 
     def render_text(self, vm: HomeVM) -> str:
         width = shutil.get_terminal_size((100, 30)).columns
-        return render_frontpart({"model": "delta-fm-research", "agent": "quant-researcher", "session": "default"}, width=width)
+        return render_frontpart({"model": "delta", "agent": "delta", "session": "default"}, width=width)
 
     def render_for(self, store: TerminalStore) -> str:
         """Splash with live model/agent/session/context chips matching exact user frontpart."""

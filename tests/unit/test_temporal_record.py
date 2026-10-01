@@ -1,5 +1,4 @@
 from datetime import datetime, timezone
-
 import pytest
 
 from market_data.temporal.timestamps import (
@@ -20,7 +19,6 @@ def test_temporal_record_normalizes_to_utc():
         available_at=AvailabilityTime(ts("2026-01-01T10:01:00")),
         ingested_at=IngestionTime(ts("2026-01-01T10:02:00")),
     )
-
     assert record.event_time.value.tzinfo == timezone.utc
 
 
@@ -40,4 +38,3 @@ def test_ingestion_time_cannot_precede_availability_time():
             available_at=AvailabilityTime(ts("2026-01-01T10:02:00")),
             ingested_at=IngestionTime(ts("2026-01-01T10:01:00")),
         )
-        

@@ -128,7 +128,7 @@ fn test_mode_visibility_and_snapshot_consumption() {
             active_model: "delta-fm-research".into(),
             available_models: vec!["delta-fm-research".into(), "groq-free".into()],
             health: "OPERATIONAL".into(),
-            confidence: 0.94,
+            confidence: Some(0.94),
         },
         agents: vec![],
         system: SystemInfo {

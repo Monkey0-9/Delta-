@@ -564,13 +564,18 @@ impl App {
             }
             Action::ConfirmKillSwitch => {
                 self.state.ui.kill_prompt_open = false;
+                // Rust-native in-memory circuit: instantly disable execution in Rust
                 self.state.risk.killswitch_halted = true;
-                self.state.risk.status = "HALTED".into();
+                self.state.risk.status = "HALTING...".into();
                 self.state.add_log(
                     "CRITICAL",
                     "KILLSWITCH",
                     "EMERGENCY HALT TRIGGERED BY USER: Cancelling all working orders and halting execution engine.",
                 );
+
+                // Write out-of-band priority halt flag file
+                let halt_flag = std::env::temp_dir().join("delta_emergency_halt.flag");
+                let _ = std::fs::write(&halt_flag, b"HALT");
 
                 if let Some(bridge) = &self.bridge {
                     let b = bridge.clone();
@@ -583,6 +588,17 @@ impl App {
             // Order ticket execution & dismissal
             Action::ConfirmOrderTicket => {
                 if self.state.ui.order_ticket.is_open {
+                    // Rust-native fail-closed check: orders cannot route if halted
+                    if self.state.risk.killswitch_halted {
+                        self.state.add_log("CRITICAL", "EXEC", "ORDER ROUTING BLOCKED: KILLSWITCH IS ACTIVE");
+                        self.state.research.turns.push((
+                            "Order Submission".to_string(),
+                            "✗ ORDER REJECTED BY RUST-NATIVE RISK CIRCUIT: Execution engine is HALTED.".to_string(),
+                        ));
+                        self.state.ui.order_ticket.is_open = false;
+                        return;
+                    }
+
                     let t = self.state.ui.order_ticket.clone();
                     let notional = t.qty * t.limit_price;
                     let order_log = format!("ORDER ROUTED: {} {} {} @ ${:.2} [Notional: ${:.2}]", t.side, t.qty, t.symbol, t.limit_price, notional);
@@ -779,9 +795,13 @@ impl App {
                 self.state.market.quote = Some(*quote);
             }
             Action::KillSwitchCompleted { status, message } => {
-                self.state.risk.status = status;
-                self.state.risk.killswitch_halted = true;
-                self.state.add_log("WARN", "KILLSWITCH", &message);
+                if status == "HALTED" {
+                    self.state.risk.status = "HALTED".into();
+                    self.state.risk.killswitch_halted = true;
+                    self.state.add_log("CRITICAL", "KILLSWITCH", &format!("ENFORCER CONFIRMED HALT: {message}"));
+                } else {
+                    self.state.add_log("ERROR", "KILLSWITCH", &format!("KILLSWITCH REFUSED/FAILED: {message}"));
+                }
             }
             Action::AddLog { level, subsystem, message } => {
                 self.state.add_log(&level, &subsystem, &message);

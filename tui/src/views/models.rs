@@ -54,7 +54,10 @@ fn render_active_model_header(frame: &mut Frame, area: Rect, state: &Application
             Span::raw("   │   STATE: "),
             health_badge,
             Span::raw("   │   CALIBRATION CONFIDENCE: "),
-            Span::styled(format_percent(state.model.confidence * 100.0), InstitutionalTheme::text_mono_bold()),
+            Span::styled(
+                state.model.confidence.map(|c| format_percent(c * 100.0)).unwrap_or_else(|| "— (UNPROVEN)".into()),
+                InstitutionalTheme::text_mono_bold()
+            ),
             Span::raw("   │   INFERENCE LATENCY: "),
             Span::styled(format!("{} ms", state.system.latency_ms), InstitutionalTheme::text_mono()),
             Span::raw("   │   GATEWAY: "),

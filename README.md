@@ -1,103 +1,112 @@
 # DELTA OS - Institutional Quantitative Trading Operating System
 
-A professional-grade trading terminal and quantitative research platform designed for institutional traders, quantitative researchers, and sophisticated investors.
+A professional-grade quantitative trading operating system designed for institutional traders, quantitative researchers, and risk managers.
 
-## Features
+## Key Capabilities
 
-- **OpenCode-Style CLI**: Lightning-fast slash commands with fuzzy autocomplete
-- **Multi-Model AI Gateway**: Hot-swap between Qwen, Claude, Gemini, GPT-4o, DeepSeek, and custom models
-- **Tri-Tier Fail-Soft Data**: Yahoo Finance, FRED macro, Google News with zero-crash guarantee
-- **Universal Broker Support**: Paper engine, Alpaca, IBKR, and extensible custom adapters
-- **Quantitative Analytics**: VWAP bands, Kelly sizing, VaR/CVaR, volume profile
-- **AES-256 Credential Vault**: Zero-knowledge encrypted storage for API keys
-- **Triple-Layer Kill Switch**: Emergency order cancellation and position liquidation
-- **Plugin Architecture**: Extensible system for custom models, brokers, and data providers
-- **Institutional Release (2026-09-29)**: Point-in-Time (PIT) pipeline, Smart Order Router (SOR), Model Zoo, Paper Trading Orchestrator, Stress Engine, and Regime Forecaster
+- **Native Rust Ratatui TUI**: 11-screen terminal (Home, Research, Markets, Portfolio, Risk, Orders, Execution, Models, Agents, System, Logs) powered by Tokio async IPC.
+- **12-Stage Canonical Pipeline**: Real data → PIT verification → Technical Indicators → Factor Alpha → Return Forecasting → Market Regime → Constrained Portfolio → Risk Firewall → OMS → Paper Broker → Three-Way Reconciliation → Chained SHA-256 Audit.
+- **Fail-Closed Risk & Safety**: Multi-layer pre-trade risk firewall, anti-tilt behavioral controls, and a Rust-native emergency kill-switch circuit.
+- **Microsecond Execution & Matching**: C++ / Rust limit order book, Almgren-Chriss market impact modeling, and automated three-way fill reconciliation.
+- **Multi-Model Research Gateway**: Hot-swappable LLM router for natural-language quantitative queries, research synthesis, and macroeconomic reasoning.
 
-## Installation
+---
 
+## Installation & Launch
+
+### 1. Python Environment Setup
 ```bash
 # Clone repository
 git clone https://github.com/Monkey0-9/Delta-.git
 cd Delta-
 
-# Install dependencies
+# Install Python quantitative dependencies
 pip install -r requirements.txt
-
-# Initialize configuration
-python -m delta.core.config init
-
-# Launch DELTA OS
-python -m delta.cli.app
 ```
 
-## Quick Start
+### 2. Launching DELTA
 
+#### Native Rust Ratatui TUI (Recommended)
 ```bash
-# Launch the terminal
-python -m delta.cli.app
-
-# Configure credentials
-DELTA > /auth wizard
-
-# Get a quote
-DELTA > /quote NVDA
-
-# View macro regime
-DELTA > /macro yields
-
-# Switch AI model
-DELTA > /model switch qwen-3.6
-
-# Track a stock
-DELTA > /track add NVDA
+# Build and run the native terminal interface
+cargo run --manifest-path tui/Cargo.toml
 ```
 
-## Architecture
+#### Interactive Python Quantitative REPL
+```bash
+# Launch the Python quantitative shell
+python -m delta_os
+```
+
+#### Headless JSON-RPC Bridge (For Automation & Scripting)
+```bash
+# Launch the headless protocol bridge over stdin/stdout
+python -m delta_os.bridge
+```
+
+---
+
+## Repository Architecture
 
 ```
 Delta/
-├── cli/           # OpenCode-style interactive TUI
-├── core/          # Foundation & security subsystem
-├── data/          # Tri-tier resilient market data engine
-├── models/        # Multi-model AI gateway
-├── quant/         # Institutional analytics & signals
-└── trading/       # Broker abstraction & execution
+├── core/                  # Canonical pipeline, domain contracts, and risk engine
+│   ├── canonical_pipeline.py  # 12-stage institutional quantitative loop
+│   └── domain/                # Canonical domain models (Asset, Quote, Order, Risk)
+├── tui/                   # High-performance Rust Ratatui 11-screen trading terminal
+│   ├── src/bridge/            # Async JSON-RPC 2.0 client & typed protocol
+│   ├── src/views/             # Real-time screens (Markets, Risk, Portfolio, Execution)
+│   └── src/app.rs             # Application event loop & Rust-native kill circuit
+├── delta_os/              # Quantitative runtime and headless IPC bridge
+│   ├── bridge.py              # JSON-RPC 2.0 bridge with priority out-of-band lane
+│   ├── repl.py                # Command dispatch and session persistence
+│   └── safety.py              # Pre-trade safety governor and authenticated unlock
+├── data/                  # Market data engine and temporal integrity
+│   ├── market/                # Exchange trading calendar (NYSE / NASDAQ)
+│   └── tick_pit/              # Point-in-Time (PIT) multi-timestamp validation
+├── execution/             # Order management and transaction cost modeling
+│   ├── cost_engine.py         # Calibrated transaction cost analysis
+│   └── reconciliation/        # Three-way reconciliation (OMS vs Broker vs Ledger)
+├── research/              # Quantitative alpha and factor lab
+│   ├── alpha_contract.py      # Unified alpha contract and validation pipeline
+│   └── real_loop/             # Walk-forward analysis and feature extraction
+├── governance/            # Regulatory compliance and audit ledger
+│   ├── kill_switch.py         # Enforced emergency circuit breakers
+│   └── compliance.py          # SHA-256 tamper-evident event logging
+├── native/                # Accelerated numerical kernels and LOB
+│   ├── lob.py                 # Integer-tick order book
+│   └── rust/                  # Native Rust modules
+└── tests/                 # Comprehensive test suite (unit, integration, property, chaos)
+    └── test_canonical_end_to_end.py  # 12-stage canonical acceptance tests
 ```
 
-## Free Tier Options
+---
 
-DELTA OS supports zero-cost trading and research:
+## Testing & Verification
 
-- **Models**: Ollama (local), vLLM, HuggingFace Free, Groq Free
-- **Brokers**: Paper engine (built-in), Alpaca Paper
-- **Data**: Yahoo Finance, FRED, Google Finance News
+Run the comprehensive test matrix:
 
-## Plugin System
+```bash
+# 1. Run 12-stage canonical end-to-end acceptance suite
+python -m pytest tests/test_canonical_end_to_end.py -v
 
-Add custom providers via plugin architecture:
+# 2. Run core quantitative test suite
+python -m pytest tests/test_real_loop.py tests/test_trading_calendar.py -v
 
-```python
-# ~/.delta/plugins/models/custom_provider.py
-from delta.models.base_provider import BaseModelProvider
-
-class CustomProvider(BaseModelProvider):
-    def generate(self, prompt: str) -> str:
-        # Your implementation
-        pass
+# 3. Run Rust TUI and native workspace test suites
+cargo test --workspace
 ```
 
-## Security
+---
 
-- AES-256-GCM encryption for all credentials
-- PBKDF2 key derivation (600,000 rounds)
-- Zero plaintext storage of API keys
-- SHA-256 audit ledger for compliance
+## Security & Governance Rules
+
+1. **Truth Over Polish**: No hardcoded mock values. Metrics display provenance (`LIVE`, `PAPER`, `SIM`, `SYNTHETIC`, `UNAVAILABLE`) and as-of timestamps.
+2. **Fail Closed**: In any ambiguous state, order routing is blocked. The kill switch blocks execution in-memory on the native Rust frontend and verifies backend confirmation before displaying `HALTED`.
+3. **Authenticated State Transitions**: Emergency unlock requires authentication via `DELTA_UNLOCK_TOKEN` and is permanently recorded in the cryptographic audit ledger.
+
+---
 
 ## License
 
-Proprietary - Institutional Use Only
-
-## Support
-
-For institutional support: delta-support@institution.com
+Proprietary — Institutional Use Only.

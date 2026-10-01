@@ -179,7 +179,7 @@ fn render_landing_state_a(frame: &mut Frame, area: Rect, state: &ApplicationStat
     let active_model = &state.model.active_model;
     let active_agent = state.agents.agents.get(state.agents.selected_agent_idx)
         .map(|a| a.name.as_str())
-        .unwrap_or("quant-researcher");
+        .unwrap_or("delta");
     let active_session = if state.workspace.is_empty() {
         "default"
     } else {
@@ -189,15 +189,15 @@ fn render_landing_state_a(frame: &mut Frame, area: Rect, state: &ApplicationStat
     let chip_spans = vec![
         Span::styled("❖ ", Style::default().fg(ThemeColors::ACCENT)),
         Span::styled("Model: ", Style::default().fg(ThemeColors::TEXT_MUTED)),
-        Span::styled(format!("{active_model} ∨"), Style::default().fg(ThemeColors::ACCENT).add_modifier(Modifier::BOLD)),
+        Span::styled(format!("{active_model}"), Style::default().fg(ThemeColors::ACCENT).add_modifier(Modifier::BOLD)),
         Span::styled("    │    ", Style::default().fg(ThemeColors::BORDER_MUTED)),
         Span::styled("👤 ", Style::default().fg(ThemeColors::ACCENT)),
         Span::styled("Agent: ", Style::default().fg(ThemeColors::TEXT_MUTED)),
-        Span::styled(format!("{active_agent} ∨"), Style::default().fg(ThemeColors::ACCENT).add_modifier(Modifier::BOLD)),
+        Span::styled(format!("{active_agent}"), Style::default().fg(ThemeColors::ACCENT).add_modifier(Modifier::BOLD)),
         Span::styled("    │    ", Style::default().fg(ThemeColors::BORDER_MUTED)),
         Span::styled("≡ ", Style::default().fg(ThemeColors::ACCENT)),
         Span::styled("Session: ", Style::default().fg(ThemeColors::TEXT_MUTED)),
-        Span::styled(format!("{active_session} ∨"), Style::default().fg(ThemeColors::ACCENT).add_modifier(Modifier::BOLD)),
+        Span::styled(format!("{active_session}"), Style::default().fg(ThemeColors::ACCENT).add_modifier(Modifier::BOLD)),
     ];
     frame.render_widget(Paragraph::new(Line::from(chip_spans)).alignment(Alignment::Center), v_chunks[10]);
 
@@ -399,15 +399,15 @@ fn render_conversation_state_b(frame: &mut Frame, area: Rect, state: &Applicatio
     let chip_spans = vec![
         Span::styled("❖ ", Style::default().fg(ThemeColors::ACCENT)),
         Span::styled("Model: ", Style::default().fg(ThemeColors::TEXT_MUTED)),
-        Span::styled(format!("{active_model} ∨"), Style::default().fg(ThemeColors::ACCENT).add_modifier(Modifier::BOLD)),
+        Span::styled(format!("{active_model}"), Style::default().fg(ThemeColors::ACCENT).add_modifier(Modifier::BOLD)),
         Span::styled("    │    ", Style::default().fg(ThemeColors::BORDER_MUTED)),
         Span::styled("👤 ", Style::default().fg(ThemeColors::ACCENT)),
         Span::styled("Agent: ", Style::default().fg(ThemeColors::TEXT_MUTED)),
-        Span::styled(format!("{active_agent} ∨"), Style::default().fg(ThemeColors::ACCENT).add_modifier(Modifier::BOLD)),
+        Span::styled(format!("{active_agent}"), Style::default().fg(ThemeColors::ACCENT).add_modifier(Modifier::BOLD)),
         Span::styled("    │    ", Style::default().fg(ThemeColors::BORDER_MUTED)),
         Span::styled("≡ ", Style::default().fg(ThemeColors::ACCENT)),
         Span::styled("Session: ", Style::default().fg(ThemeColors::TEXT_MUTED)),
-        Span::styled(format!("{active_session} ∨"), Style::default().fg(ThemeColors::ACCENT).add_modifier(Modifier::BOLD)),
+        Span::styled(format!("{active_session}"), Style::default().fg(ThemeColors::ACCENT).add_modifier(Modifier::BOLD)),
     ];
     frame.render_widget(Paragraph::new(Line::from(chip_spans)).alignment(Alignment::Center), v_chunks[3]);
 

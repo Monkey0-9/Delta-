@@ -123,12 +123,12 @@ def input_box() -> str:
 def render_frontpart(store_or_dict: Any, width: int = 100, use_rich: bool = False) -> str:
     """Renders the exact frontpart layout from the user specification."""
     if hasattr(store_or_dict, "model"):
-        model = getattr(store_or_dict, "model", "delta-fm-research")
-        agent = getattr(store_or_dict, "agent", "quant-researcher")
+        model = getattr(store_or_dict, "model", "delta")
+        agent = getattr(store_or_dict, "agent", "delta")
         session = getattr(store_or_dict, "session_id", "default")
     else:
-        model = store_or_dict.get("model", "delta-fm-research")
-        agent = store_or_dict.get("agent", "quant-researcher")
+        model = store_or_dict.get("model", "delta")
+        agent = store_or_dict.get("agent", "delta")
         session = store_or_dict.get("session", "default")
 
     logo_lines = [
@@ -160,7 +160,7 @@ def render_frontpart(store_or_dict: Any, width: int = 100, use_rich: bool = Fals
         avail = max(10, inner_w - len(shortcut) - 8)
         clean_inner = f"> │ {prompt_txt[:avail]}... " + shortcut
 
-    selectors = f"❖ Model: {model} ∨    |    👤 Agent: {agent} ∨    |    ≡ Session: {session} ∨"
+    selectors = f"❖ Model: {model}    |    👤 Agent: {agent}    |    ≡ Session: {session}"
     sel_pad = max(0, (width - len(selectors)) // 2)
 
     if use_rich:
@@ -176,11 +176,11 @@ def render_frontpart(store_or_dict: Any, width: int = 100, use_rich: bool = Fals
         nav_pad = max(0, (width - 49) // 2)
 
         rich_sel = (
-            f"[bold #20C9A6]❖[/] [dim #94A3B8]Model:[/] [bold #20C9A6]{model} ∨[/]    "
+            f"[bold #20C9A6]❖[/] [dim #94A3B8]Model:[/] [bold #20C9A6]{model}[/]    "
             f"[dim #475569]|[/]    "
-            f"[bold #20C9A6]👤[/] [dim #94A3B8]Agent:[/] [bold #20C9A6]{agent} ∨[/]    "
+            f"[bold #20C9A6]👤[/] [dim #94A3B8]Agent:[/] [bold #20C9A6]{agent}[/]    "
             f"[dim #475569]|[/]    "
-            f"[bold #20C9A6]≡[/] [dim #94A3B8]Session:[/] [bold #20C9A6]{session} ∨[/]"
+            f"[bold #20C9A6]≡[/] [dim #94A3B8]Session:[/] [bold #20C9A6]{session}[/]"
         )
 
         lines = ["", ""]
@@ -227,8 +227,8 @@ def footer_text(f: dict, state: str = "A") -> str:
     """Institutional micro-footer for State A and State B."""
     mode = str(f.get("mode", "PAPER")).upper()
     risk = str(f.get("risk", "SAFE")).upper()
-    model = str(f.get("model", "delta-fm-research"))
-    agent = str(f.get("agent", "quant-researcher"))
+    model = str(f.get("model", "delta"))
+    agent = str(f.get("agent", "delta"))
     context = str(f.get("context", "none"))
 
     if state.upper() == "A":
