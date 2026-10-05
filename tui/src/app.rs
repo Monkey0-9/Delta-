@@ -1,6 +1,13 @@
 use std::sync::Arc;
 use chrono::Utc;
-use ratatui::Frame;
+use ratatui::{
+    style::Style,
+    text::{Line, Span},
+    widgets::Paragraph,
+    Frame,
+};
+
+use crate::theme::ThemeColors;
 
 use crate::{
     actions::{Action, ViewId},
@@ -100,6 +107,13 @@ impl App {
                 } else if c == ' ' {
                     self.state.ui.context_dropdown_open = false;
                 }
+
+                if let Some(_) = crate::input::SlashCompleter::get_active_query(&self.state.ui.input_buffer, self.state.ui.cursor_pos) {
+                    self.state.ui.slash_dropdown_open = true;
+                    self.state.ui.slash_selected_idx = 0;
+                } else if c == ' ' {
+                    self.state.ui.slash_dropdown_open = false;
+                }
             }
             Action::Backspace => {
                 if self.state.ui.cursor_pos > 0 && !self.state.ui.input_buffer.is_empty() {
@@ -113,6 +127,12 @@ impl App {
                     self.state.ui.context_dropdown_open = true;
                 } else {
                     self.state.ui.context_dropdown_open = false;
+                }
+
+                if let Some(_) = crate::input::SlashCompleter::get_active_query(&self.state.ui.input_buffer, self.state.ui.cursor_pos) {
+                    self.state.ui.slash_dropdown_open = true;
+                } else {
+                    self.state.ui.slash_dropdown_open = false;
                 }
             }
             Action::Delete => {
@@ -140,6 +160,8 @@ impl App {
             Action::ClearInput => {
                 self.state.ui.input_buffer.clear();
                 self.state.ui.cursor_pos = 0;
+                self.state.ui.slash_dropdown_open = false;
+                self.state.ui.context_dropdown_open = false;
             }
 
             // Command / Conversation submission
@@ -156,8 +178,15 @@ impl App {
                 if text.starts_with("/kill") {
                     self.state.ui.kill_prompt_open = true;
                     return;
-                } else if text == "/home" {
+                } else if text == "/desk" || text == "/home" {
                     self.state.nav.current_view = ViewId::Home;
+                    return;
+                } else if text.starts_with("/market") {
+                    let parts: Vec<&str> = text.split_whitespace().collect();
+                    if parts.len() > 1 && !parts[1].starts_with('/') {
+                        self.state.market.active_symbol = parts[1].to_uppercase();
+                    }
+                    self.state.nav.current_view = ViewId::Markets;
                     return;
                 } else if text.starts_with("/port") {
                     self.state.nav.current_view = ViewId::Portfolio;
@@ -176,11 +205,73 @@ impl App {
                     return;
                 } else if text.starts_with("/model") {
                     let parts: Vec<&str> = text.split_whitespace().collect();
-                    if parts.len() > 1 {
-                        self.state.model.active_model = parts[1].to_string();
-                        self.state.add_log("INFO", "MODEL", &format!("Switched model to {}", parts[1]));
-                    } else {
+                    if parts.len() > 1 && parts[1] != "list" && parts[1] != "info" && parts[1] != "switch" {
+                        let want = parts[1].to_string();
+                        if self.state.model.available_models.iter().any(|m| m == &want) {
+                            self.state.add_log("INFO", "MODEL", &format!("Model switch requested: {} (PENDING bridge confirm; status via /model list)", want));
+                            self.state.research.turns.push((text.clone(), format!("MODEL SWITCH PENDING: {} — awaiting runtime confirm (UNAVAILABLE until bridge responds; never assumed).", want)));
+                        } else {
+                            self.state.add_log("WARN", "MODEL", &format!("Unknown model requested: {}", want));
+                            self.state.research.turns.push((text.clone(), format!("UNKNOWN MODEL '{}' — use /model list (bridge catalogue). Active model unchanged ({}).", want, self.state.model.active_model)));
+                        }
+                    } else if parts.len() == 1 {
                         self.state.ui.model_selector_open = true;
+                    }
+                    if let Some(bridge) = &self.bridge {
+                        let b = bridge.clone();
+                        let cmd = text.clone();
+                        tokio::spawn(async move {
+                            b.dispatch_command(&cmd).await;
+                        });
+                    }
+                    return;
+                } else if text.starts_with("/effort") {
+                    let parts: Vec<&str> = text.split_whitespace().collect();
+                    if parts.len() > 1 {
+                        let lvl = match parts[1].to_lowercase().as_str() {
+                            "low" => crate::state::EffortLevel::Low,
+                            "medium" => crate::state::EffortLevel::Medium,
+                            "high" => crate::state::EffortLevel::High,
+                            "xhigh" => crate::state::EffortLevel::XHigh,
+                            _ => crate::state::EffortLevel::Auto,
+                        };
+                        self.state.runtime_context.effort_level = lvl;
+                        self.state.add_log("INFO", "MODEL", &format!("Set reasoning effort to {}", lvl.label()));
+                    }
+                    if let Some(bridge) = &self.bridge {
+                        let b = bridge.clone();
+                        let cmd = text.clone();
+                        tokio::spawn(async move {
+                            b.dispatch_command(&cmd).await;
+                        });
+                    }
+                    return;
+                } else if text.starts_with("/thinking") {
+                    let parts: Vec<&str> = text.split_whitespace().collect();
+                    if parts.len() > 1 {
+                        let mode = match parts[1].to_lowercase().as_str() {
+                            "off" => crate::state::ThinkingDisplay::Off,
+                            "activity" => crate::state::ThinkingDisplay::Activity,
+                            _ => crate::state::ThinkingDisplay::Summary,
+                        };
+                        self.state.runtime_context.thinking_display = mode;
+                    }
+                    if let Some(bridge) = &self.bridge {
+                        let b = bridge.clone();
+                        let cmd = text.clone();
+                        tokio::spawn(async move {
+                            b.dispatch_command(&cmd).await;
+                        });
+                    }
+                    return;
+                } else if text.starts_with("/plan") {
+                    self.state.nav.current_view = ViewId::Home;
+                    if let Some(bridge) = &self.bridge {
+                        let b = bridge.clone();
+                        let cmd = text.clone();
+                        tokio::spawn(async move {
+                            b.dispatch_command(&cmd).await;
+                        });
                     }
                     return;
                 } else if text == "/agents" {
@@ -211,22 +302,14 @@ impl App {
                 } else if text.starts_with("/mcp") || text.starts_with("/tools") {
                     self.state.research.turns.push((
                         text.clone(),
-                        "CORE MODEL CONTEXT PROTOCOL (MCP) INTEGRATIONS:\n\n\
-● financial-data  : Tier-1/Tier-2 live market quotes with health telemetry\n\
-● indicators      : VWAP, RSI, MACD, Bollinger Bands, ATR, ADX calculation\n\
-● statistics      : Sharpe, Sortino, Calmar, MaxDD, Factor Skew & Covariance\n\
-● reasonforge     : Quantitative stance, Confidence score & Tradable interlock\n\
-● india-market    : NSE/BSE microstructure & IST trading session awareness\n\
-● sec-edgar       : Institutional 10-K/10-Q filing analysis & financial extraction\n\
-● ccxt            : Multi-exchange crypto spot/perpetuals liquidity & order routing\n\
-● yfinance        : Historical multi-asset price action & fundamental aggregates\n\n\
-[STATUS: 8 CORE MCP SERVERS LOADED & CERTIFIED FOR DELTA RUNTIME]".into(),
+                        "MCP INTEGRATIONS — requesting runtime registry (servers/tools/health from bridge; nothing assumed CONNECTED until reported).".into(),
                     ));
                     self.state.nav.current_view = ViewId::Home;
                     if let Some(bridge) = &self.bridge {
                         let b = bridge.clone();
+                        let cmd = text.clone();
                         tokio::spawn(async move {
-                            b.dispatch_command("/mcp").await;
+                            b.dispatch_command(&cmd).await;
                         });
                     }
                     return;
@@ -239,7 +322,7 @@ impl App {
 ● Master Salt   : ~/.delta/vault.salt (cryptographically random 32 bytes)\n\
 ● Plaintext Disk: ZERO plaintext credentials stored anywhere\n\
 ● Memory Safety : Secrets cleared and zeroized on session termination\n\
-● Active Keys   : Groq (free tier), FRED Macro, Alpaca Paper DMA".into(),
+● Key Status    : UNAVAILABLE locally — run /auth via bridge for per-provider [configured]/[missing] (never assumed; no secrets echoed)".into(),
                     ));
                     self.state.nav.current_view = ViewId::Home;
                     return;
@@ -279,11 +362,31 @@ impl App {
                         self.state.market.active_symbol.clone()
                     };
                     let qty = if parts.len() > 2 {
-                        parts[2].parse::<f64>().unwrap_or(100.0)
+                        match parts[2].parse::<f64>() {
+                            Ok(q) if q > 0.0 => q,
+                            _ => {
+                                self.state.research.turns.push((
+                                    text.clone(),
+                                    "ORDER REQUIRES QUANTITY — usage: /order SYM SIDE QTY (no defaults; quote required).".into(),
+                                ));
+                                return;
+                            }
+                        }
                     } else {
-                        100.0
+                        self.state.research.turns.push((
+                            text.clone(),
+                            "ORDER REQUIRES QUANTITY — usage: /order SYM SIDE QTY (no defaults; quote required).".into(),
+                        ));
+                        return;
                     };
-                    let px = self.state.market.quote.as_ref().map(|q| q.price).unwrap_or(184.20);
+                    let Some(q) = self.state.market.quote.as_ref().filter(|q| q.symbol == sym).map(|q| q.price) else {
+                        self.state.research.turns.push((
+                            text.clone(),
+                            format!("NO LIVE QUOTE for {sym} — order ticket blocked (UNAVAILABLE, not defaulted). Use /quote {sym} first."),
+                        ));
+                        return;
+                    };
+                    let px = q;
                     self.state.ui.order_ticket = crate::state::OrderTicketState {
                         is_open: true,
                         symbol: sym,
@@ -317,13 +420,7 @@ impl App {
                     let sym = if parts.len() > 1 { parts[1].to_uppercase() } else { self.state.market.active_symbol.clone() };
                     self.state.research.turns.push((
                         text.clone(),
-                        format!("TECHNICAL INDICATORS · {sym} (Lookback: 252d)\n\n\
-● VWAP            : $482.15 (Current Deviation: +0.42σ)\n\
-● RSI (14)        : 58.4 (Neutral / Momentum Positive)\n\
-● MACD (12,26,9)  : +2.18 (Histogram expanding above signal)\n\
-● Bollinger Bands : Upper $494.30 / Mid $480.10 / Lower $465.90\n\
-● ATR (14)        : $6.40 (Normalized Volatility: 1.33%)\n\
-● ADX (14)        : 26.8 (Trending Regime Confirmed)"),
+                        format!("TECHNICAL INDICATORS · {sym} — requesting runtime computation (no cached values shown; UNAVAILABLE until bridge responds)."),
                     ));
                     self.state.nav.current_view = ViewId::Home;
                     if let Some(bridge) = &self.bridge {
@@ -339,13 +436,7 @@ impl App {
                     let sym = if parts.len() > 1 { parts[1].to_uppercase() } else { self.state.market.active_symbol.clone() };
                     self.state.research.turns.push((
                         text.clone(),
-                        format!("FACTOR STATISTICS & RISK DECOMPOSITION · {sym}\n\n\
-● Sharpe Ratio    : 1.84 (Annualized 252d)\n\
-● Sortino Ratio   : 2.62 (Downside deviation: 9.8%)\n\
-● Max Drawdown    : -11.4% (Peak-to-trough)\n\
-● Beta (vs SPY)   : 1.18\n\
-● VaR (99% 1d)    : 2.34% ($1,840 exposure basis)\n\
-● Expected Shortfall: 3.12% (CVaR tail conditional)"),
+                        format!("FACTOR STATISTICS & RISK · {sym} — requesting runtime computation (UNAVAILABLE until bridge responds; never fabricated)."),
                     ));
                     self.state.nav.current_view = ViewId::Home;
                     if let Some(bridge) = &self.bridge {
@@ -361,11 +452,7 @@ impl App {
                     let sym = if parts.len() > 1 { parts[1].to_uppercase() } else { self.state.market.active_symbol.clone() };
                     self.state.research.turns.push((
                         text.clone(),
-                        format!("REASONFORGE SYNTACTIC & LOGICAL INFERENCE · {sym}\n\n\
-● Quantitative Stance : BULLISH (Factor expansion & positive earnings drift)\n\
-● Formal Confidence   : 84% (Multi-modal agreement: Momentum + Quality)\n\
-● Liquidity Haircut   : 0.0% (Average daily dollar volume > $500M)\n\
-● Tradable Interlock  : PERMITTED (Risk Governor checks clear)"),
+                        format!("REASONING · {sym} — requesting runtime inference (UNAVAILABLE until bridge responds; model explains facts, never invents them)."),
                     ));
                     self.state.nav.current_view = ViewId::Home;
                     if let Some(bridge) = &self.bridge {
@@ -471,6 +558,7 @@ impl App {
                 self.state.ui.session_selector_open = false;
                 self.state.ui.order_ticket.is_open = false;
                 self.state.ui.context_dropdown_open = false;
+                self.state.ui.slash_dropdown_open = false;
             }
             Action::OpenModelSelector => {
                 self.state.ui.model_selector_open = true;
@@ -492,7 +580,7 @@ impl App {
             }
             Action::SelectorNext => {
                 if self.state.ui.model_selector_open {
-                    let count = 5;
+                    let count = 9;
                     self.state.ui.model_selected_idx = (self.state.ui.model_selected_idx + 1) % count;
                 } else if self.state.ui.agent_selector_open {
                     let count = 5;
@@ -504,7 +592,7 @@ impl App {
             }
             Action::SelectorPrev => {
                 if self.state.ui.model_selector_open {
-                    let count = 5;
+                    let count = 9;
                     self.state.ui.model_selected_idx = (self.state.ui.model_selected_idx + count - 1) % count;
                 } else if self.state.ui.agent_selector_open {
                     let count = 5;
@@ -519,13 +607,21 @@ impl App {
                     let models = [
                         "delta-fm-research",
                         "claude-3-7-sonnet",
+                        "claude-3-5-sonnet",
+                        "claude-5-5-preview",
+                        "astro-6-0-quantum",
+                        "gpt-4o",
                         "deepseek-r1-quant",
                         "qwen-2.5-72b-instruct",
                         "groq-llama3-70b-fast",
                     ];
                     if let Some(m) = models.get(self.state.ui.model_selected_idx) {
                         self.state.model.active_model = m.to_string();
-                        self.state.add_log("INFO", "MODEL", &format!("Switched active quant model to {m}"));
+                        if m.contains("delta") {
+                            self.state.add_log("INFO", "MODEL", "Switched active quant model to delta-fm-research (Local Quant FM · 100% Offline · No API Key Needed)");
+                        } else {
+                            self.state.add_log("INFO", "MODEL", &format!("Switched active quant model to {m} [Frontier Cloud: Requires API Key via /key]"));
+                        }
                     }
                     self.state.ui.model_selector_open = false;
                 } else if self.state.ui.agent_selector_open {
@@ -566,7 +662,11 @@ impl App {
                 self.state.ui.kill_prompt_open = false;
                 // Rust-native in-memory circuit: instantly disable execution in Rust
                 self.state.risk.killswitch_halted = true;
-                self.state.risk.status = "HALTING...".into();
+                if self.bridge.is_none() {
+                    self.state.risk.status = "HALTED".into();
+                } else {
+                    self.state.risk.status = "HALTING...".into();
+                }
                 self.state.add_log(
                     "CRITICAL",
                     "KILLSWITCH",
@@ -663,6 +763,33 @@ impl App {
                     }
                 }
                 self.state.ui.context_dropdown_open = false;
+            }
+
+            // Slash Autocomplete Actions (matching Image 1)
+            Action::SlashNext => {
+                let query = crate::input::SlashCompleter::get_active_query(&self.state.ui.input_buffer, self.state.ui.cursor_pos).unwrap_or_default();
+                let matches = crate::input::SlashCompleter::resolve_matches(&query);
+                if !matches.is_empty() {
+                    self.state.ui.slash_selected_idx = (self.state.ui.slash_selected_idx + 1) % matches.len();
+                }
+            }
+            Action::SlashPrev => {
+                let query = crate::input::SlashCompleter::get_active_query(&self.state.ui.input_buffer, self.state.ui.cursor_pos).unwrap_or_default();
+                let matches = crate::input::SlashCompleter::resolve_matches(&query);
+                if !matches.is_empty() {
+                    let len = matches.len();
+                    self.state.ui.slash_selected_idx = (self.state.ui.slash_selected_idx + len - 1) % len;
+                }
+            }
+            Action::SlashSelect => {
+                let query = crate::input::SlashCompleter::get_active_query(&self.state.ui.input_buffer, self.state.ui.cursor_pos).unwrap_or_default();
+                let matches = crate::input::SlashCompleter::resolve_matches(&query);
+                if let Some(m) = matches.get(self.state.ui.slash_selected_idx) {
+                    let new_text = format!("{} ", m.command);
+                    self.state.ui.cursor_pos = new_text.len();
+                    self.state.ui.input_buffer = new_text;
+                }
+                self.state.ui.slash_dropdown_open = false;
             }
 
             // Table selection navigation
@@ -822,6 +949,16 @@ impl App {
     /// Renders the persistent shell and modal layers to the terminal frame
     pub fn draw(&self, frame: &mut Frame) {
         let area = frame.area();
+        if area.height < 4 || area.width < 20 {
+            // Render safe minimal indicator when terminal dimensions are extremely constrained
+            let text = Line::from(Span::styled(
+                "DELTA (Resize window for full desk)",
+                Style::default().fg(ThemeColors::ACCENT),
+            ));
+            frame.render_widget(Paragraph::new(text), area);
+            return;
+        }
+
         let is_home = self.state.nav.current_view == ViewId::Home;
         let layout = ShellLayout::compute_for_view(area, is_home);
 
@@ -835,6 +972,14 @@ impl App {
         if !is_home {
             render_status_bar(frame, layout.status_bar, &self.state);
             render_command_bar(frame, layout.command_bar, &self.state);
+
+            if self.state.ui.slash_dropdown_open {
+                let pos = self.state.ui.cursor_pos.min(self.state.ui.input_buffer.len());
+                if let Some(q) = crate::input::SlashCompleter::get_active_query(&self.state.ui.input_buffer, pos) {
+                    let matches = crate::input::SlashCompleter::resolve_matches(&q);
+                    crate::input::SlashCompleter::render_dropdown(frame, layout.command_bar, &matches, self.state.ui.slash_selected_idx);
+                }
+            }
         }
 
         // Modal Overlays (highest z-index)
@@ -927,13 +1072,13 @@ mod tests {
         app.update(Action::SubmitInput);
         assert_eq!(app.state.nav.current_view, ViewId::System);
 
-        // Test /mcp tool suite registration
+        // Test /mcp defers to runtime registry (never hardcoded CONNECTED)
         app.state.ui.input_buffer = "/mcp".to_string();
         app.update(Action::SubmitInput);
         assert_eq!(app.state.nav.current_view, ViewId::Home);
         assert!(!app.state.research.turns.is_empty());
         let last_turn = app.state.research.turns.last().unwrap();
-        assert!(last_turn.1.contains("CORE MODEL CONTEXT PROTOCOL (MCP) INTEGRATIONS"));
+        assert!(last_turn.1.contains("runtime registry"));
 
         // Test /auth vault check
         app.state.ui.input_buffer = "/auth".to_string();

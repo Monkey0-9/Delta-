@@ -294,4 +294,145 @@ __all__ = ["QUANTKIT_VERSION", "vwap_bands", "vwap_location", "volume_profile",
            "dcf_value", "twap_schedule", "post_only_allowed",
            "obi", "bs_price_greeks", "fractional_shares",
            "kelly_position_size", "spread_drag_bps", "market_impact_bps",
-           "sortino_maxdd", "risk_reward"]
+           "sortino_maxdd", "risk_reward",
+           # Array-based scalar indicators (P-brain contract): Wilder RSI,
+           # SMA Bollinger, EMA MACD, Wilder ATR, cumulative VWAP, historical
+           # VaR/CVaR (positive loss fractions), Sharpe/Sortino, max drawdown
+           # (negative fraction, peak-to-trough). Pure numpy; NaN-safe.
+           "calc_rsi", "calc_bollinger_bands", "calc_macd", "calc_atr",
+           "calc_vwap", "historical_var", "cvar", "sharpe_ratio",
+           "sortino_ratio", "max_drawdown"]
+
+
+def _arr(x) -> "np.ndarray":
+    a = np.asarray(x, dtype=np.float64).ravel()
+    return a[np.isfinite(a)]
+
+
+def calc_rsi(closes, period: int = 14) -> float:
+    """Wilder RSI, last value. Neutral 50.0 on insufficient data."""
+    a = _arr(closes)
+    if a.size < period + 1:
+        return 50.0
+    d = np.diff(a)
+    gain = np.where(d > 0, d, 0.0)
+    loss = np.where(d < 0, -d, 0.0)
+    ag = gain[:period].mean()
+    al = loss[:period].mean()
+    for g, l in zip(gain[period:], loss[period:]):
+        ag = (ag * (period - 1) + g) / period
+        al = (al * (period - 1) + l) / period
+    if al <= 0:
+        return 100.0 if ag > 0 else 50.0
+    return float(100.0 - 100.0 / (1.0 + ag / al))
+
+
+def calc_bollinger_bands(closes, period: int = 20,
+                         num_std: float = 2.0) -> tuple[float, float, float]:
+    """SMA Bollinger (upper, mid, lower), last values."""
+    a = _arr(closes)
+    if a.size < 2:
+        return (0.0, 0.0, 0.0)
+    w = a[-period:] if a.size >= period else a
+    mid = float(w.mean())
+    sd = float(w.std(ddof=0))
+    return (mid + num_std * sd, mid, mid - num_std * sd)
+
+
+def calc_macd(closes, fast: int = 12, slow: int = 26,
+              signal: int = 9) -> tuple[float, float, float]:
+    """EMA MACD (line, signal, histogram), last values."""
+    a = _arr(closes)
+    if a.size < slow + 1:
+        return (0.0, 0.0, 0.0)
+    s = pd.Series(a)
+    line = s.ewm(span=fast, adjust=False).mean() - s.ewm(span=slow, adjust=False).mean()
+    sig = line.ewm(span=signal, adjust=False).mean()
+    return (float(line.iloc[-1]), float(sig.iloc[-1]),
+            float(line.iloc[-1] - sig.iloc[-1]))
+
+
+def calc_atr(highs, lows, closes, period: int = 14) -> float:
+    """Wilder ATR, last value."""
+    h, l, c = _arr(highs), _arr(lows), _arr(closes)
+    n = min(h.size, l.size, c.size)
+    if n < 2:
+        return 0.0
+    h, l, c = h[-n:], l[-n:], c[-n:]
+    prev_c = np.concatenate(([c[0]], c[:-1]))
+    tr = np.maximum(h - l, np.maximum(np.abs(h - prev_c), np.abs(l - prev_c)))
+    if tr.size < period:
+        return float(tr.mean())
+    atr = tr[:period].mean()
+    for v in tr[period:]:
+        atr = (atr * (period - 1) + v) / period
+    return float(atr)
+
+
+def calc_vwap(highs, lows, closes, volumes) -> float:
+    """Cumulative typical-price VWAP, last value."""
+    h, l, c, v = _arr(highs), _arr(lows), _arr(closes), _arr(volumes)
+    n = min(h.size, l.size, c.size, v.size)
+    if n < 1:
+        return 0.0
+    tp = (h[-n:] + l[-n:] + c[-n:]) / 3.0
+    vv = np.clip(v[-n:], 0.0, None)
+    denom = vv.sum()
+    if denom <= 0:
+        return float(c[-1])
+    return float((tp * vv).sum() / denom)
+
+
+def historical_var(returns, confidence: float = 0.95) -> float:
+    """Historical VaR as positive loss fraction. 0.0 on insufficient data."""
+    a = _arr(returns)
+    if a.size < 5:
+        return 0.0
+    q = float(np.quantile(a, 1.0 - confidence))
+    return max(0.0, -q)
+
+
+def cvar(returns, confidence: float = 0.95) -> float:
+    """Historical CVaR (expected shortfall) as positive loss fraction."""
+    a = _arr(returns)
+    if a.size < 5:
+        return 0.0
+    q = float(np.quantile(a, 1.0 - confidence))
+    tail = a[a <= q]
+    if tail.size == 0:
+        return max(0.0, -q)
+    return max(0.0, float(-tail.mean()))
+
+
+def sharpe_ratio(returns, risk_free: float = 0.0, periods: int = 252) -> float:
+    """Annualized Sharpe of simple returns. 0.0 when undefined."""
+    a = _arr(returns)
+    if a.size < 2:
+        return 0.0
+    sd = float(a.std(ddof=1))
+    if sd <= 0:
+        return 0.0
+    return float((a.mean() - risk_free / periods) / sd * np.sqrt(periods))
+
+
+def sortino_ratio(returns, risk_free: float = 0.0, periods: int = 252) -> float:
+    """Annualized Sortino (downside deviation). 0.0 when undefined."""
+    a = _arr(returns)
+    if a.size < 2:
+        return 0.0
+    down = a[a < risk_free / periods]
+    dd = float(down.std(ddof=1)) if down.size >= 2 else 0.0
+    if dd <= 0:
+        return 0.0
+    return float((a.mean() - risk_free / periods) / dd * np.sqrt(periods))
+
+
+def max_drawdown(closes) -> float:
+    """Peak-to-trough max drawdown as negative fraction (0.0 = none)."""
+    a = _arr(closes)
+    if a.size < 2 or np.all(a <= 0):
+        return 0.0
+    peak = np.maximum.accumulate(a)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        dd = np.where(peak > 0, (a - peak) / peak, 0.0)
+    return float(dd.min())

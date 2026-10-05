@@ -53,8 +53,10 @@ class AlphaFactory:
         train: int,
         test: int,
         step: int,
-        purge: int = 0,
-        embargo: int = 0,
+        purge: int = 1,
+        embargo: int = 1,
+        # P-1.4: defaults match the canonical splitter. Zero values must be
+        # passed explicitly with a documented non-temporal justification.
         backtest_fn: Callable[[int, int, int, int], float],
         oos_fn: Callable[[], float] | None = None,
         min_mean_score: float = 0.0,

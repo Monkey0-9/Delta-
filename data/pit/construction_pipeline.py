@@ -42,8 +42,23 @@ class PITConstructionPipeline:
     (event time + publish lag) is ``<= asof``.
     """
 
+    # P-1.3: domains where publication is NEVER instantaneous. A zero lag
+    # for these without an explicit caller-supplied lag is a lookahead hole.
+    FUNDAMENTAL_DOMAINS = frozenset({"fundamentals", "earnings", "financials"})
+
     def __init__(self, default_lag: str = "0D") -> None:
         self._default_lag = pd.Timedelta(default_lag)
+
+    def _resolve_lag(self, lag, domain: str):
+        if lag is not None:
+            return pd.Timedelta(lag), True
+        if (domain or "market").lower() in self.FUNDAMENTAL_DOMAINS:
+            raise ValueError(
+                f"domain {domain!r} requires an explicit publish lag "
+                "(fundamentals/earnings are never instantly available; "
+                "zero-lag default would leak the future)"
+            )
+        return self._default_lag, False
 
     @property
     def default_lag(self) -> pd.Timedelta:
@@ -56,6 +71,7 @@ class PITConstructionPipeline:
         asof_col: str = "asof",
         publish_col: str = "publication_ts",
         lag: str | pd.Timedelta | None = None,
+        domain: str = "market",
     ) -> pd.DataFrame:
         """Stamp ``asof`` (= event time) and ``publication_ts`` columns.
 
@@ -65,17 +81,22 @@ class PITConstructionPipeline:
             asof_col: Output column for the as-of timestamp.
             publish_col: Output column for event time + publish lag.
             lag: Publish lag; defaults to the pipeline ``default_lag``.
+            domain: Data domain. Fundamental domains (fundamentals, earnings,
+                financials) REQUIRE an explicit lag; the zero default is only
+                valid for market/tick data.
 
         Returns:
             Copy of ``df`` with ``asof_col`` and ``publish_col`` added.
         """
         if event_time_col not in df.columns:
             raise KeyError(f"missing event_time_col: {event_time_col!r}")
-        delta = pd.Timedelta(lag) if lag is not None else self._default_lag
+        delta, explicit = self._resolve_lag(lag, domain)
         out = df.copy()
         event_ts = pd.to_datetime(out[event_time_col], utc=True)
         out[asof_col] = event_ts
         out[publish_col] = event_ts + delta
+        out.attrs["lag_applied"] = str(delta)
+        out.attrs["lag_explicit"] = explicit
         return out
 
     def build_snapshot(
@@ -85,6 +106,7 @@ class PITConstructionPipeline:
         publish_lag: str | pd.Timedelta | None = None,
         event_time_col: str = "event_time",
         publish_col: str | None = None,
+        domain: str = "market",
     ) -> PITFrameSnapshot:
         """Build the PIT-eligible snapshot visible at ``asof``.
 
@@ -95,6 +117,7 @@ class PITConstructionPipeline:
             publish_lag: Lag applied when ``publish_col`` is absent.
             event_time_col: Event-time column used for lag derivation.
             publish_col: Pre-computed publication column (optional).
+            domain: Data domain (see :meth:`assign_asof`).
 
         Returns:
             PITFrameSnapshot with ``asof``/``publication_ts`` timestamps.
@@ -104,11 +127,7 @@ class PITConstructionPipeline:
             pub = pd.to_datetime(df[publish_col], utc=True)
             base = df
         else:
-            delta = (
-                pd.Timedelta(publish_lag)
-                if publish_lag is not None
-                else self._default_lag
-            )
+            delta, _ = self._resolve_lag(publish_lag, domain)
             if event_time_col not in df.columns:
                 raise KeyError(f"missing event_time_col: {event_time_col!r}")
             base = df.copy()

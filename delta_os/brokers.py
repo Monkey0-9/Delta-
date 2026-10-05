@@ -130,32 +130,44 @@ class AlpacaAdapter:
 @dataclass
 class IBKRAdapter:
     host: str = ""  # e.g. "https://localhost:5000"
+    account_id: str = ""
     name: str = "ibkr"
     timeout_s: float = 10.0
+
+    def _client(self):
+        from execution.adapters.ibkr import IBKRClientPortalAdapter
+        return IBKRClientPortalAdapter(
+            host=self.host, account_id=self.account_id, timeout_s=self.timeout_s
+        )
 
     def status(self) -> dict:
         if not self.host:
             return {"broker": "ibkr", "connected": False,
                     "error": "no gateway host configured (/broker connect ibkr)."}
-        import httpx
-
         try:
-            r = httpx.get(f"{self.host.rstrip('/')}/v1/api/iserver/auth/status",
-                          timeout=self.timeout_s, verify=False)
-            if r.status_code != 200:
-                return {"broker": "ibkr", "connected": False,
-                        "error": f"HTTP {r.status_code}"}
-            return {"broker": "ibkr", "connected": bool(r.json().get("authenticated")),
-                    "detail": r.json()}
+            return self._client().status()
         except Exception as exc:
             return {"broker": "ibkr", "connected": False, "error": str(exc)[:200]}
 
-    def submit(self, *a, **k) -> dict:
-        raise BrokerError("IBKR order routing not enabled in this build; "
-                          "paper/Alpaca paths only.")
+    def submit(self, symbol: str, side: str, quantity: float, price: float | None = None,
+               idempotency_key: str = "") -> dict:
+        if not self.host:
+            raise BrokerError("IBKR gateway host not configured.")
+        try:
+            return self._client().submit(
+                symbol=symbol, side=side, quantity=quantity, price=price,
+                idempotency_key=idempotency_key
+            )
+        except Exception as exc:
+            raise BrokerError(f"IBKR order submission failed: {exc}") from exc
 
     def cancel_all(self) -> dict:
-        raise BrokerError("IBKR cancel-all not enabled in this build.")
+        if not self.host:
+            raise BrokerError("IBKR gateway host not configured.")
+        try:
+            return self._client().cancel_all()
+        except Exception as exc:
+            raise BrokerError(f"IBKR cancel_all failed: {exc}") from exc
 
 
 @dataclass

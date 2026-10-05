@@ -9,7 +9,9 @@ Parallel workstreams launched. Status per S55 labels (Implemented / Partially va
   `_utc` helper. Covers §8 `is_open/next_open/next_close/session/is_holiday/is_early_close/is_auction/is_halted`.
 - `delta_tui/screens/core.py` + `ops.py`: purged illustrative SPX/NASDAQ/VIX, 177.42 quote, 1800/1200 sizes,
   $1M portfolio, VaR99 2.14, 812k eps, VWAP 12400/25000, scenario/model lists. Now live-or-UNAVAILABLE/DEGRADED
-  with zero fallbacks. Rust `tui/src/app.rs:321` canned values remain — tracked gap, Python TUI is primary.
+  with zero fallbacks. Rust `tui/src/app.rs` canned values removed 2026-10-02
+  (indicators/stats/reasoning now request runtime; order ticket requires live
+  quote; PENDING/UNAVAILABLE until bridge sync) — see ADR-0006 + tests.
 - Cost engine labeled `calibrated=False, calibration_id=proxy-uncalibrated` — cannot pass R5 until fill-calibrated.
 
 ## Stream B — Quant: Implemented (not yet certified)

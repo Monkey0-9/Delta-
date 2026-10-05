@@ -1,0 +1,13 @@
+repos:
+  - repo: local
+    hooks:
+      - id: no-tracked-cache
+        name: Reject tracked __pycache__/.pyc
+        entry: python -c "import subprocess,sys;out=subprocess.run(['git','ls-files'],capture_output=True,text=True).stdout;bad=[l for l in out.splitlines() if '__pycache__' in l or l.endswith('.pyc')];sys.exit(1 if bad else 0)"
+        language: system
+        pass_filenames: false
+      - id: arch-lint
+        name: Architecture dependency rules
+        entry: python scripts/arch_lint.py
+        language: system
+        pass_filenames: false

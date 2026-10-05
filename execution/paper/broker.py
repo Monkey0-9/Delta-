@@ -48,6 +48,8 @@ class PaperBroker:
         ] = {}
         # per-asset microstructure simulators (lazy; W171-W180 wiring)
         self._sims: dict[str, object] = {}
+        # P-1.6: simulator failures are recorded per asset, never swallowed.
+        self._sim_degraded: dict[str, str] = {}
         self.exec_model_version = EXECUTION_MODEL_VERSION
 
     def _simulator_for(self, asset: str, price: float):
@@ -70,24 +72,33 @@ class PaperBroker:
             if fill.order_id == order_id:
                 price = self.prices.get(fill.asset, fill.price)
                 spread_bps = self.spreads_bps.get(fill.asset, 5.0)
-                adv = self.adv.get(fill.asset, 1_000_000.0)
+                # P-1.6: unknown ADV is reported as unknown (None), never as a
+                # fake 1M that would understate participation and impact.
+                adv_known = fill.asset in self.adv and self.adv[fill.asset] > 0
                 qty = abs(fill.quantity)
-                part = qty / adv if adv > 0 else 0.0
-                from execution.impact.model import (
-                    AlmgrenChrissModel,
-                    ImpactParameters,
-                )
+                if adv_known:
+                    adv: float = self.adv[fill.asset]
+                    part: float | None = qty / adv
+                    from execution.impact.model import (
+                        AlmgrenChrissModel,
+                        ImpactParameters,
+                    )
 
-                model = AlmgrenChrissModel(ImpactParameters(adv=adv))
-                impact = model.calculate_impact(qty, price)
+                    model = AlmgrenChrissModel(ImpactParameters(adv=adv))
+                    impact = model.calculate_impact(qty, price)
+                else:
+                    part = None
+                    impact = None
                 return {
                     "order_id": order_id,
                     "fill_price": fill.price,
                     "mid_price": price,
                     "spread_bps": spread_bps,
                     "participation_rate": part,
+                    "adv_known": adv_known,
                     "impact_bps": impact,
                     "exec_model_version": self.exec_model_version,
+                    "sim_status": self._sim_degraded.get(fill.asset, "ok"),
                 }
         return {"order_id": order_id, "status": "no-fill"}
 
@@ -130,8 +141,11 @@ class PaperBroker:
                 res = sim.submit_market_order(side, abs(request.quantity))
                 if res.execution_result.fills:
                     fill_price = res.execution_result.average_price
-            except Exception:
+            except Exception as exc:
+                # P-1.6: fill at quoted price but mark the degradation so no
+                # downstream consumer mistakes this for a microstructure fill.
                 fill_price = price
+                self._sim_degraded[request.asset] = f"simulator failed: {exc}"
 
         timestamp_ns = time.time_ns()
 

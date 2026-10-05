@@ -71,7 +71,7 @@ def _synthetic(symbol: str, days: int = 180, seed: int = 7) -> pd.DataFrame:
     h = int(hashlib.sha256(f"{symbol}:{seed}".encode()).hexdigest()[:8], 16)
     rng = np.random.default_rng(h)
     n = max(days, 60)
-    idx = pd.date_range(end=pd.Timestamp.utcnow(), periods=n, freq="B", tz="UTC")
+    idx = pd.date_range(end=pd.Timestamp.now("UTC"), periods=n, freq="B", tz="UTC")
     rets = rng.normal(0.0005, 0.015, n)
     closes = 100 * np.exp(np.cumsum(rets))
     vols = (500_000 + rng.lognormal(13, 0.7, n)).astype(int)

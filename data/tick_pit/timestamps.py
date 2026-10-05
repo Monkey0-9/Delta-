@@ -247,19 +247,31 @@ class TimestampManager:
                         event_time: datetime,
                         source: str = "DEFAULT",
                         publication_delay_ms: float = 0.0,
-                        availability_delay_ms: float = 0.0) -> DataTimestamps:
+                        availability_delay_ms: float = 0.0,
+                        delay_basis: str = "tick") -> DataTimestamps:
         """
         Create complete timestamp set.
-        
+
         Args:
             event_time: Event time
             source: Data source identifier
             publication_delay_ms: Delay from event to publication
             availability_delay_ms: Delay from publication to availability
-            
+            delay_basis: What the delays describe: "tick" (market data may
+                legitimately publish immediately) or anything else, e.g.
+                "fundamentals"/"earnings". P-1.3: non-tick bases with zero
+                delays raise — instant availability must be explicit, and it
+                never is for fundamentals.
+
         Returns:
             Complete DataTimestamps
         """
+        if (delay_basis or "tick").lower() != "tick" and (
+                publication_delay_ms <= 0 and availability_delay_ms <= 0):
+            raise ValueError(
+                f"delay_basis {delay_basis!r} with zero delays: fundamentals/ "
+                "earnings are never instantly available — pass explicit delays"
+            )
         # Normalize event time
         normalized_event = self.normalize_timestamp(event_time, source)
         

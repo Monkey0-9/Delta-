@@ -95,7 +95,9 @@ class AntiTiltGovernor:
 @dataclass
 class SafetyState:
     mode: str = "MANUAL"  # MANUAL|AUTO|HALTED
-    day_start_equity: float = 1_000_000.0
+    # day_start_equity: set by the portfolio layer on first authoritative equity
+    # read. NEVER hardcoded here — 0.0 signals "not yet initialised".
+    day_start_equity: float = 0.0
     tilt: AntiTiltGovernor = field(default_factory=AntiTiltGovernor)
     kill = None
     compliance = None
@@ -108,10 +110,13 @@ class SafetyState:
             self.kill = KillSwitch()
         # Terminal boots disarmed (orders possible after explicit confirm);
         # /kill arms. The kernel KillSwitch defaults active, so release it once.
+        # P-1.1: failure here must NEVER pass silently — verify post-condition.
         try:
             self.kill.deactivate()
-        except Exception:
-            pass
+        except Exception as exc:
+            raise SafetyError(f"boot FAILED: cannot release kill switch ({exc})") from exc
+        if self.kill.active:
+            raise SafetyError("boot FAILED: kill switch still active after release")
         if self.compliance is None:
             from governance.compliance import ComplianceLog
 
@@ -176,31 +181,48 @@ class SafetyState:
                 errors.append(f"{getattr(ad, 'name', '?')}: {exc}")
         try:
             self.kill.activate()
-        except Exception:
-            pass
+        except Exception as exc:
+            # P-1.1: record, don't swallow. Mode still freezes below (fail-safe),
+            # but the receipt must say the kill activation itself failed.
+            errors.append(f"kill.activate FAILED: {exc}")
         self.mode = "HALTED"
+        if not self.kill.active:
+            errors.append("kill verification FAILED: switch not active after freeze")
         ms = (time.perf_counter() - t0) * 1000
         receipt = {"layer1_cancelled": cancelled, "layer1_ms": round(ms, 1),
                    "layer2_flatten": "manual /flatten required (market orders need confirm)",
                    "layer3_freeze": "HALTED", "errors": errors, "actor": actor}
         try:
             self.compliance.append("kill", receipt)
-        except Exception:
-            pass
+        except Exception as exc:
+            # P-1.1: audit loss is part of the receipt, never silent.
+            receipt["errors"] = [*errors, f"compliance.append FAILED: {exc}"]
+            receipt["audit"] = "COMPLIANCE-WRITE-FAILED"
         return receipt
 
     def unlock(self, actor: str, reason: str) -> str:
         if not actor.strip() or not reason.strip():
             raise SafetyError("unlock requires actor + reason.")
+        # P-1.1: unlock is the sensitive path — verify the release actually
+        # happened BEFORE leaving HALTED. A failed release keeps HALTED loud.
         try:
             self.kill.deactivate()
-        except Exception:
-            pass
-        self.mode = "MANUAL"
+        except Exception as exc:
+            raise SafetyError(f"unlock FAILED: kill release raised ({exc}) — still HALTED") from exc
+        if self.kill.active:
+            raise SafetyError("unlock FAILED: kill still active after release — still HALTED")
         try:
             self.compliance.append("reset", {"actor": actor, "reason": reason})
-        except Exception:
-            pass
+        except Exception as exc:
+            # State is already released, but an unaudited unlock is not
+            # acceptable: re-freeze loud rather than proceed silently.
+            self.mode = "HALTED"
+            try:
+                self.kill.activate()
+            except Exception:
+                pass
+            raise SafetyError(f"unlock FAILED: audit write failed ({exc}) — re-frozen HALTED") from exc
+        self.mode = "MANUAL"
         return "MANUAL"
 
 

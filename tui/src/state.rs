@@ -19,6 +19,177 @@ use std::collections::HashMap;
 use crate::actions::ViewId;
 use crate::bridge::protocol::*;
 
+/// Execution mode with strict capability matrix and transition safety guards
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ExecutionMode {
+    Research,
+    Sim,
+    Paper,
+    Copilot,
+    Supervised,
+    Autonomous,
+}
+
+impl ExecutionMode {
+    pub fn badge(&self) -> &'static str {
+        match self {
+            Self::Research => "RESEARCH",
+            Self::Sim => "SIM",
+            Self::Paper => "PAPER",
+            Self::Copilot => "COPILOT",
+            Self::Supervised => "SUPERVISED",
+            Self::Autonomous => "AUTONOMOUS",
+        }
+    }
+
+    pub fn is_live(&self) -> bool {
+        matches!(self, Self::Copilot | Self::Supervised | Self::Autonomous)
+    }
+}
+
+impl Default for ExecutionMode {
+    fn default() -> Self {
+        Self::Paper
+    }
+}
+
+/// Reasoning effort level controlling inference compute & model depth
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum EffortLevel {
+    Low,
+    Medium,
+    High,
+    XHigh,
+    Auto,
+}
+
+impl EffortLevel {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Low => "LOW",
+            Self::Medium => "MEDIUM",
+            Self::High => "HIGH",
+            Self::XHigh => "XHIGH",
+            Self::Auto => "AUTO",
+        }
+    }
+}
+
+impl Default for EffortLevel {
+    fn default() -> Self {
+        Self::Medium
+    }
+}
+
+/// Thinking transparency display mode
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ThinkingDisplay {
+    Off,
+    Summary,
+    Activity,
+}
+
+impl Default for ThinkingDisplay {
+    fn default() -> Self {
+        Self::Summary
+    }
+}
+
+/// Provenance and data quality status tag for every market/financial metric
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum DataQuality {
+    Live,
+    Realtime,
+    Delayed,
+    Historical,
+    Paper,
+    Sim,
+    Synthetic,
+    Stale,
+    Degraded,
+    Unavailable,
+}
+
+impl DataQuality {
+    pub fn badge(&self) -> &'static str {
+        match self {
+            Self::Live => "LIVE",
+            Self::Realtime => "REALTIME",
+            Self::Delayed => "DELAYED",
+            Self::Historical => "HISTORICAL",
+            Self::Paper => "PAPER",
+            Self::Sim => "SIM",
+            Self::Synthetic => "SYNTHETIC",
+            Self::Stale => "STALE",
+            Self::Degraded => "DEGRADED",
+            Self::Unavailable => "UNAVAILABLE",
+        }
+    }
+}
+
+/// Global security master representation separating symbol from legal instrument identity
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SecurityInstrument {
+    pub instrument_id: String,
+    pub ticker: String,
+    pub legal_name: String,
+    pub asset_class: String,
+    pub exchange: String,
+    pub mic: String,
+    pub country: String,
+    pub currency: String,
+    pub isin: Option<String>,
+    pub figi: Option<String>,
+    pub timezone: String,
+    pub trading_calendar: String,
+}
+
+/// Security master resolver supporting global instrument lookup and disambiguation
+#[derive(Debug, Clone, Default)]
+pub struct SecurityMaster {
+    pub instruments: Vec<SecurityInstrument>,
+}
+
+impl SecurityMaster {
+    pub fn resolve(&self, query: &str) -> Vec<&SecurityInstrument> {
+        let q = query.trim().to_uppercase();
+        self.instruments
+            .iter()
+            .filter(|inst| {
+                inst.ticker.eq_ignore_ascii_case(&q)
+                    || inst.instrument_id.eq_ignore_ascii_case(&q)
+                    || inst.legal_name.to_uppercase().contains(&q)
+            })
+            .collect()
+    }
+}
+
+/// Broker descriptor supporting multi-broker and multi-account connections
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct BrokerDescriptor {
+    pub broker_id: String,
+    pub provider: String,
+    pub environment: String,
+    pub account_id: String,
+    pub status: String,
+    pub latency_ms: u64,
+    pub capabilities: Vec<String>,
+    pub rate_limit_remaining: u32,
+}
+
+/// Dynamic MCP server descriptor
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MCPServerInfo {
+    pub name: String,
+    pub status: String,
+    pub version: String,
+    pub latency_ms: u64,
+    pub tool_count: usize,
+    pub tools: Vec<String>,
+    pub permissions: Vec<String>,
+    pub last_error: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct LogEntry {
     pub time: String,
@@ -112,30 +283,26 @@ pub struct RiskState {
 impl Default for RiskState {
     fn default() -> Self {
         Self {
-            status: "SAFE".into(),
-            var95: 1.45,
-            var99: 2.14,
-            cvar: 3.28,
+            // All financial fields initialize to 0 / false.
+            // PENDING until first bridge sync via apply_snapshot().
+            status: "PENDING".into(),
+            var95: 0.0,
+            var99: 0.0,
+            cvar: 0.0,
             drawdown: 0.0,
             leverage: 0.0,
-            gross_limit: 2_000_000.0,
-            net_limit: 500_000.0,
-            killswitch_armed: true,
+            gross_limit: 0.0,
+            net_limit: 0.0,
+            killswitch_armed: false,
             killswitch_halted: false,
-            var95_dollar: 14_500.0,
-            var99_dollar: 21_400.0,
-            cvar_dollar: 32_800.0,
-            market_beta: 1.0,
+            var95_dollar: 0.0,
+            var99_dollar: 0.0,
+            cvar_dollar: 0.0,
+            market_beta: 0.0,
             concentration_pct: 0.0,
-            rate_shock_impact: -1.24,
-            oil_shock_impact: -0.42,
-            alerts: vec![
-                RiskAlertInfo {
-                    level: "INFO".into(),
-                    message: "Pre-trade risk governor operational".into(),
-                    time: "14:32:00".into(),
-                }
-            ],
+            rate_shock_impact: 0.0,
+            oil_shock_impact: 0.0,
+            alerts: vec![],
         }
     }
 }
@@ -163,8 +330,8 @@ pub struct ResearchState {
 impl Default for ResearchState {
     fn default() -> Self {
         Self {
-            selected_symbol: "SPY".into(),
-            active_hypothesis: "Cross-asset momentum regime sensitivity".into(),
+            selected_symbol: String::new(),
+            active_hypothesis: String::new(),
             experiment_status: "IDLE".into(),
             turns: Vec::new(),
         }
@@ -191,7 +358,7 @@ impl Default for ModelState {
                 "gpt-4o".into(),
                 "deepseek-r1".into(),
             ],
-            health: "OPERATIONAL".into(),
+            health: "UNKNOWN (no bridge snapshot yet)".into(),
             confidence: None,
         }
     }
@@ -205,44 +372,10 @@ pub struct AgentsState {
 
 impl Default for AgentsState {
     fn default() -> Self {
+        // Agent list is populated by the Python bridge via apply_snapshot().
+        // Starting empty ensures no fake agent status is ever displayed.
         Self {
-            agents: vec![
-                AgentInfo {
-                    name: "delta".into(),
-                    status: "ACTIVE".into(),
-                    task: "Awaiting mandate".into(),
-                    permissions: "RESEARCH_READONLY".into(),
-                    recent_action: "No actions recorded".into(),
-                },
-                AgentInfo {
-                    name: "delta-market-analyst".into(),
-                    status: "STANDBY".into(),
-                    task: "Order book depth & VWAP tracking".into(),
-                    permissions: "MARKET_READONLY".into(),
-                    recent_action: "Processed L1/L2 top of book quotes and micro-spreads".into(),
-                },
-                AgentInfo {
-                    name: "risk-governor".into(),
-                    status: "ACTIVE".into(),
-                    task: "Real-time limit & kill switch surveillance".into(),
-                    permissions: "RISK_AUTHORITATIVE".into(),
-                    recent_action: "Pre-trade VaR check: Passed. Drawdown limit: 2.1% / 5.0%".into(),
-                },
-                AgentInfo {
-                    name: "execution-algo-router".into(),
-                    status: "IDLE".into(),
-                    task: "Microstructure slippage minimization".into(),
-                    permissions: "EXECUTION_RESTRICTED".into(),
-                    recent_action: "Calibrated POV 12% participation curve on paper engine".into(),
-                },
-                AgentInfo {
-                    name: "macro-regime-analyst".into(),
-                    status: "STANDBY".into(),
-                    task: "Treasury yield curve & VIX term structure".into(),
-                    permissions: "MACRO_READONLY".into(),
-                    recent_action: "Yield spread 10Y-2Y positive. Regime: Growth Expansion".into(),
-                },
-            ],
+            agents: vec![],
             selected_agent_idx: 0,
         }
     }
@@ -281,13 +414,14 @@ impl Default for OrderTicketState {
     fn default() -> Self {
         Self {
             is_open: false,
-            symbol: "NVDA".into(),
+            // No demo symbol/price defaults — user must type a real symbol.
+            symbol: String::new(),
             side: "BUY".into(),
-            qty: 100.0,
+            qty: 0.0,
             order_type: "LIMIT".into(),
-            limit_price: 184.20,
+            limit_price: 0.0,
             tif: "DAY".into(),
-            venue: "AUTO (Paper DMA)".into(),
+            venue: "PAPER".into(),
             is_live: false,
             confirmed: false,
         }
@@ -312,6 +446,8 @@ pub struct UIState {
     pub available_sessions: Vec<String>,
     pub context_dropdown_open: bool,
     pub context_selected_idx: usize,
+    pub slash_dropdown_open: bool,
+    pub slash_selected_idx: usize,
     pub order_ticket: OrderTicketState,
     pub tick_count: u64,
     pub terminal_width: u16,
@@ -336,28 +472,40 @@ impl Default for UIState {
             agent_selected_idx: 0,
             session_selector_open: false,
             session_selected_idx: 0,
-            available_sessions: vec![
-                "default".into(),
-                "alpha-hft".into(),
-                "macro-vol".into(),
-                "equities-l/s".into(),
-                "crypto-stat-arb".into(),
-            ],
+            // Sessions populated by the Python runtime after first bridge sync.
+            available_sessions: vec![],
             context_dropdown_open: false,
             context_selected_idx: 0,
+            slash_dropdown_open: false,
+            slash_selected_idx: 0,
             order_ticket: OrderTicketState::default(),
             tick_count: 0,
             terminal_width: 120,
             terminal_height: 35,
-            mode: "PAPER".into(),
-            clock_utc: "14:32:00 UTC".into(),
+            // Mode set by bridge; clock set to live UTC in App::new().
+            mode: "PENDING".into(),
+            clock_utc: String::new(),
         }
     }
+}
+
+/// Canonical Delta Runtime Context owning master registries, execution modes, and security master
+#[derive(Debug, Clone, Default)]
+pub struct DeltaRuntimeContext {
+    pub security_master: SecurityMaster,
+    pub execution_mode: ExecutionMode,
+    pub effort_level: EffortLevel,
+    pub thinking_display: ThinkingDisplay,
+    pub brokers: Vec<BrokerDescriptor>,
+    pub mcp_servers: Vec<MCPServerInfo>,
+    pub audit_chain_ok: bool,
+    pub last_correlation_id: String,
 }
 
 /// Central application state tree
 #[derive(Debug, Clone, Default)]
 pub struct ApplicationState {
+    pub runtime_context: DeltaRuntimeContext,
     pub nav: NavigationState,
     pub market: MarketState,
     pub portfolio: PortfolioState,
@@ -377,10 +525,9 @@ pub struct ApplicationState {
 impl ApplicationState {
     pub fn new() -> Self {
         let mut s = Self::default();
-        s.portfolio.net_liq = 1_000_000.0;
-        s.portfolio.cash = 1_000_000.0;
-        s.portfolio.equity = 1_000_000.0;
-        s.add_log("INFO", "SYSTEM", "DELTA Institutional Terminal initializing...");
+        // No demo financial values. Portfolio starts at 0 / PENDING.
+        // All financial state is authoritative only after the first bridge sync.
+        s.add_log("INFO", "SYSTEM", "DELTA Terminal initializing — awaiting bridge sync...");
         s
     }
 

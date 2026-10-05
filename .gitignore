@@ -87,10 +87,20 @@ DELTA_TREE.txt
 delta_source_snapshot.txt
 delta_project_files.txt
 DELTA_*.md
+# Authoritative program docs stay tracked (Group02 hygiene exception)
+!DELTA_VNEXT_PLAN.md
+!DELTA_P0_CERTIFICATION_SPRINT_PLAN.md
+# Archived legacy plans stay tracked via archive exception below
+!archive/legacy_plans/*.md
 parity_check_gate.exe
 *.pyd
 *.whl
-archive/
+# Legacy plan archive is tracked; other archive/ scratch stays ignored
+archive/*
+!archive/legacy_plans/
+archive/legacy_plans/*
+!archive/legacy_plans/*.md
+!archive/legacy_plans/README.md
 artifacts/
 exports/
 pytest

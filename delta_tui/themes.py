@@ -59,7 +59,7 @@ DESIGN_SYSTEM = {
         "--line": "#1C2120", "--panel": "#0C0E0D",
     },
     "spacing": "4px base; header 1 row; hero 1 row; input box 3 rows; footer 1 row; panels 16px gap",
-    "motion": "none in TUI (instant); web mirror: single 180ms fade on workspace switch only",
+    "motion": "none in TUI (instant); no web mirror per ADR-0006",
     "density": "full>=160 (5-col workspace), normal>=120 (3-col), collapsed>=80 (stacked), compact (single)",
     "layout": "header / ACTIVE WORKSPACE / positions|alerts / command-conversation",
     "a11y": "contrast fg/bg 13.2:1, accent/bg 9.1:1; keyboard-first (/ + Ctrl+K palette + Ctrl+O open); focus stays in input",

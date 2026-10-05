@@ -230,19 +230,20 @@ class ValueFeature(Feature):
         the caller must supply PIT fundamentals via `fundamentals_as_of`, else
         we raise so no strategy can train on fabricated fundamentals.
         """
+        if self.ratio not in data.columns:
+            raise FundamentalsUnavailablePlaceholder(
+                f"value feature '{self.ratio}': no PIT fundamentals column; "
+                "backfill data/fundamentals_cache via data/market/fundamentals.py "
+                "or drop the feature from claims (STUB_AUDIT #3)")
         if not self.validate(data):
             raise ValueError("Invalid data for value calculation")
 
-        if self.ratio in data.columns:
-            return data[self.ratio]
-        raise FundamentalsUnavailablePlaceholder(
-            f"value feature '{self.ratio}': no PIT fundamentals column; "
-            "backfill data/fundamentals_cache via data/market/fundamentals.py "
-            "or drop the feature from claims (STUB_AUDIT #3)")
+        return data[self.ratio]
     
     def validate(self, data: pd.DataFrame) -> bool:
-        """Validate data has the ratio column or fallback"""
-        return True  # Fundamental data may be added later
+        # P-1.5: previously returned a constant True (vacuous gate). The
+        # required column for this feature IS the ratio column.
+        return self.ratio in data.columns and len(data) > 0
 
 
 class TechnicalFeature(Feature):

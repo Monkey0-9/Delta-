@@ -98,6 +98,9 @@ pub enum Action {
     ContextNext,
     ContextPrev,
     ContextSelect,
+    SlashNext,
+    SlashPrev,
+    SlashSelect,
     ConfirmOrderTicket,
     CloseOrderTicket,
 

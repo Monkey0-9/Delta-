@@ -2,7 +2,7 @@
 //!
 //! Section 3:
 //! Renders:
-//! NET LIQ: $1,000,000.00 │ DAY P&L: +$0.00 (0.00%) │ GROSS: $0.00 │ VaR99: 2.14% │ BROKER: PAPER │ MODEL: delta-fm-research
+//! NET LIQ: <backend snapshot> (UNAVAILABLE until bridge snapshot; never hardcoded) │ DAY P&L: +$0.00 (0.00%) │ GROSS: $0.00 │ VaR99: 2.14% │ BROKER: PAPER │ MODEL: delta-fm-research
 
 use ratatui::layout::{Alignment, Rect};
 use ratatui::text::{Line, Span};

@@ -26,8 +26,8 @@ pub fn render_selector_modal(
     state: &ApplicationState,
     selector_type: SelectorType,
 ) {
-    let popup_width = 80.min(area.width.saturating_sub(4));
-    let popup_height = 16.min(area.height.saturating_sub(4));
+    let popup_width = 88.min(area.width.saturating_sub(2));
+    let popup_height = 20.min(area.height.saturating_sub(2));
 
     let x = (area.width.saturating_sub(popup_width)) / 2;
     let y = (area.height.saturating_sub(popup_height)) / 2;
@@ -54,7 +54,7 @@ pub fn render_selector_modal(
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(2), Constraint::Min(4)])
+        .constraints([Constraint::Length(2), Constraint::Min(9), Constraint::Length(2)])
         .split(inner);
 
     // Help banner
@@ -72,13 +72,12 @@ pub fn render_selector_modal(
     // Build items
     let (items, selected_idx, active_item) = match selector_type {
         SelectorType::Model => {
-            let list = vec![
-                ("delta-fm-research", "Institutional Quant FM · Real-time market grounding"),
-                ("claude-3-7-sonnet", "Deep Chain-of-Thought · Multi-factor cross analysis"),
-                ("deepseek-r1-quant", "Mathematical CoT · Quantitative strategy formulation"),
-                ("qwen-2.5-72b-instruct", "Statistical Arbitrage & Risk factor decomposition"),
-                ("groq-llama3-70b-fast", "Sub-50ms Ultra-Low-Latency Inference Gateway"),
-            ];
+            // Backend-authoritative: render bridge-supplied catalogue; never imply READY locally.
+            let list: Vec<(&str, &str)> = if state.model.available_models.is_empty() {
+                vec![("delta-fm-research", "Local Quant FM (status via /model list)")]
+            } else {
+                state.model.available_models.iter().map(|m| (m.as_str(), "status via /model list (bridge catalogue)")).collect()
+            };
             (list, state.ui.model_selected_idx, state.model.active_model.as_str())
         }
         SelectorType::Agent => {
@@ -134,12 +133,37 @@ pub fn render_selector_modal(
 
         lines.push(Line::from(vec![
             Span::styled(prefix, ThemeStyles::accent()),
-            Span::styled(format!("{:<24}", name), name_style),
+            Span::styled(format!("{:<22}", name), name_style),
             Span::styled(format!("{:>9}", active_badge), badge_style),
             Span::raw("  "),
-            Span::styled(format!("{:<38}", desc), ThemeStyles::secondary_text()),
+            Span::styled(format!("{:<48}", desc), ThemeStyles::secondary_text()),
         ]));
     }
 
     frame.render_widget(Paragraph::new(lines), chunks[1]);
+
+    // Footnote guidance
+    let footnote = match selector_type {
+        SelectorType::Model => {
+            let sel_name = items.get(clamped_idx).map(|(n, _)| *n).unwrap_or("");
+            if sel_name.contains("delta") {
+                Line::from(vec![
+                    Span::styled("● LOCAL MODEL: ", ThemeStyles::positive()),
+                    Span::styled("100% offline, zero cloud keys needed. Automated trading & risk enabled.", ThemeStyles::default_text()),
+                ])
+            } else {
+                Line::from(vec![
+                    Span::styled("⚠ CLOUD FRONTIER MODEL: ", ThemeStyles::warning()),
+                    Span::styled("Requires API key. Add key in terminal using: ", ThemeStyles::muted_text()),
+                    Span::styled("/key <provider> <token>", ThemeStyles::accent()),
+                ])
+            }
+        }
+        _ => Line::from(vec![
+            Span::styled("Press ", ThemeStyles::muted_text()),
+            Span::styled("Enter ", ThemeStyles::accent()),
+            Span::styled("to activate selection", ThemeStyles::muted_text()),
+        ]),
+    };
+    frame.render_widget(Paragraph::new(footnote), chunks[2]);
 }

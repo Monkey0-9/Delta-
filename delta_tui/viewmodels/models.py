@@ -51,14 +51,16 @@ class BookVM:
 
 @dataclass(frozen=True)
 class HomeVM:
-    regime: str = "NEUTRAL"
-    liquidity: str = "NORMAL"
-    net_liq: float = 0.0
-    gross_pct: float = 0.0
-    net_pct: float = 0.0
-    var99: float = 0.0
-    es99: float = 0.0
-    drawdown: float = 0.0
+    # P-1.2: financials are None (UNAVAILABLE) until a runtime snapshot
+    # provides them. Never fabricate splash numbers.
+    regime: str = "UNKNOWN"
+    liquidity: str = "UNKNOWN"
+    net_liq: float | None = None
+    gross_pct: float | None = None
+    net_pct: float | None = None
+    var99: float | None = None
+    es99: float | None = None
+    drawdown: float | None = None
     opportunities: tuple = ()
     mode: str = "PAPER"
 

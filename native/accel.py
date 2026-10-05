@@ -19,7 +19,9 @@ import numpy as np
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _C_DLL = os.path.join(ROOT, "native", "build", "delta_fast.dll")
 _CPP_DLL = os.path.join(ROOT, "native", "build", "fast_book.dll")
-_RS_DLL = os.path.join(ROOT, "rust", "target", "release", "delta_native.dll")
+_RS_DLL = os.path.join(ROOT, "target", "release", "delta_native.dll")
+if not os.path.exists(_RS_DLL):
+    _RS_DLL = os.path.join(ROOT, "rust", "target", "release", "delta_native.dll")
 
 def _try_load(path: str):
     """Load a native DLL, returning None when missing OR unloadable.

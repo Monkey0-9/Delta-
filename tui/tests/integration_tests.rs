@@ -45,7 +45,8 @@ fn test_all_eleven_views_navigation_cycle() {
 #[test]
 fn test_mode_visibility_and_snapshot_consumption() {
     let mut app = App::new(None);
-    assert_eq!(app.state.ui.mode, "PAPER");
+    // NO_DEMO_STATE: mode is PENDING until the runtime snapshot arrives.
+    assert_eq!(app.state.ui.mode, "PENDING");
 
     // Ingest simulated real runtime snapshot
     let snapshot = StateSnapshot {
@@ -243,7 +244,14 @@ fn test_context_autocomplete_engine() {
 
 #[test]
 fn test_order_ticket_lifecycle_and_safety() {
+    use delta_tui::bridge::protocol::QuoteResponse;
     let mut app = App::new(None);
+    // Seed a LIVE runtime quote first — ticket requires it (no default price).
+    app.state.market.quote = Some(QuoteResponse {
+        symbol: "NVDA".into(),
+        price: 135.5,
+        ..Default::default()
+    });
     app.state.ui.input_buffer = "/order NVDA 200".into();
     app.update(Action::SubmitInput);
 
@@ -251,6 +259,7 @@ fn test_order_ticket_lifecycle_and_safety() {
     assert_eq!(app.state.ui.order_ticket.symbol, "NVDA");
     assert_eq!(app.state.ui.order_ticket.qty, 200.0);
     assert_eq!(app.state.ui.order_ticket.side, "BUY");
+    assert_eq!(app.state.ui.order_ticket.limit_price, 135.5);
 
     // Confirm order
     app.update(Action::ConfirmOrderTicket);
@@ -261,6 +270,18 @@ fn test_order_ticket_lifecycle_and_safety() {
     let last_turn = app.state.research.turns.last().unwrap();
     assert!(last_turn.1.contains("INSTITUTIONAL ORDER ROUTED & CONFIRMED"));
     assert!(last_turn.1.contains("NVDA"));
+}
+
+#[test]
+fn test_order_ticket_blocked_without_quote() {
+    // NO_DEMO_STATE: no quote -> no ticket, no defaulted price.
+    let mut app = App::new(None);
+    assert!(app.state.market.quote.is_none());
+    app.state.ui.input_buffer = "/order NVDA 200".into();
+    app.update(Action::SubmitInput);
+    assert!(!app.state.ui.order_ticket.is_open);
+    let last = app.state.research.turns.last().unwrap();
+    assert!(last.1.contains("NO LIVE QUOTE"));
 }
 
 #[test]

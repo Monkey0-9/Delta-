@@ -2,6 +2,8 @@
 
 A professional-grade quantitative trading operating system designed for institutional traders, quantitative researchers, and risk managers.
 
+**Terminal-only by design (ADR-0006):** CLI + TUI are the only human interfaces — no web dashboard. Headless/API surfaces exist for machines on the same runtime services.
+
 ## Key Capabilities
 
 - **Native Rust Ratatui TUI**: 11-screen terminal (Home, Research, Markets, Portfolio, Risk, Orders, Execution, Models, Agents, System, Logs) powered by Tokio async IPC.

@@ -111,69 +111,79 @@ fn render_landing_state_a(frame: &mut Frame, area: Rect, state: &ApplicationStat
         WidthTier::Wide160 | WidthTier::Ultrawide200 => 102.min(area.width.saturating_sub(8)),
     };
     let box_x = (area.width.saturating_sub(box_width)) / 2;
-    let box_area = Rect::new(area.x + box_x, v_chunks[8].y, box_width, 3);
-
-    let prompt_block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(ThemeColors::ACCENT));
-
-    let inner_area = prompt_block.inner(box_area);
-    frame.render_widget(prompt_block, box_area);
-
-    let prompt_chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Min(20),
-            Constraint::Length(14),
-        ])
-        .split(inner_area);
-
     let input_text = &state.ui.input_buffer;
     let pos = state.ui.cursor_pos.min(input_text.len());
-    let blink_on = (state.ui.tick_count / 3).is_multiple_of(2);
-    let cursor_glyph = if blink_on { "█" } else { " " };
 
-    let mut left_spans = vec![
-        Span::styled(" > ", Style::default().fg(ThemeColors::ACCENT).add_modifier(Modifier::BOLD)),
-        Span::styled("│ ", Style::default().fg(ThemeColors::BORDER_NORMAL)),
-    ];
-
-    if input_text.is_empty() {
-        let placeholder = "Ask DELTA anything, run a strategy, analyze a market, or type / for commands...";
-        let max_len = (prompt_chunks[0].width as usize).saturating_sub(8);
-        let truncated = if placeholder.len() > max_len {
-            &placeholder[..max_len.saturating_sub(3)]
-        } else {
-            placeholder
-        };
-        left_spans.push(Span::styled(cursor_glyph, Style::default().fg(ThemeColors::ACCENT)));
-        left_spans.push(Span::styled(truncated, Style::default().fg(ThemeColors::TEXT_SECONDARY)));
+    let target_y = v_chunks.get(8).map(|c| c.y).unwrap_or(area.y);
+    let available_h = area.bottom().saturating_sub(target_y);
+    let box_height = 3.min(available_h);
+    let box_area = if box_height >= 1 && box_width >= 10 {
+        Rect::new(area.x + box_x, target_y, box_width, box_height)
     } else {
-        left_spans.push(Span::styled(
-            &input_text[..pos],
-            Style::default().fg(Color::Rgb(255, 255, 255)).add_modifier(Modifier::BOLD),
-        ));
-        left_spans.push(Span::styled(cursor_glyph, Style::default().fg(ThemeColors::ACCENT)));
-        left_spans.push(Span::styled(
-            &input_text[pos..],
-            Style::default().fg(Color::Rgb(255, 255, 255)).add_modifier(Modifier::BOLD),
-        ));
+        Rect::default()
+    };
+
+    if box_area.height >= 1 && box_area.width >= 10 {
+        let prompt_block = Block::default()
+            .borders(if box_height >= 3 { Borders::ALL } else { Borders::NONE })
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(ThemeColors::ACCENT));
+
+        let inner_area = if box_height >= 3 {
+            prompt_block.inner(box_area)
+        } else {
+            box_area
+        };
+        frame.render_widget(prompt_block, box_area);
+
+        let prompt_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Min(10),
+                Constraint::Length(14.min(inner_area.width.saturating_sub(10))),
+            ])
+            .split(inner_area);
+
+        let mut left_spans = vec![
+            Span::styled(" > ", Style::default().fg(ThemeColors::ACCENT).add_modifier(Modifier::BOLD)),
+            Span::styled("│ ", Style::default().fg(ThemeColors::BORDER_NORMAL)),
+        ];
+
+        if input_text.is_empty() {
+            let placeholder = "Ask DELTA anything, run a strategy, analyze a market, or type / for commands...";
+            let max_len = (prompt_chunks[0].width as usize).saturating_sub(6);
+            let truncated = if placeholder.len() > max_len {
+                &placeholder[..max_len.saturating_sub(3)]
+            } else {
+                placeholder
+            };
+            left_spans.push(Span::styled(truncated, Style::default().fg(ThemeColors::TEXT_SECONDARY)));
+        } else {
+            left_spans.push(Span::styled(
+                input_text,
+                Style::default().fg(Color::Rgb(255, 255, 255)).add_modifier(Modifier::BOLD),
+            ));
+        }
+
+        let right_spans = vec![
+            Span::styled("Ctrl + K  ✧", Style::default().fg(ThemeColors::ACCENT).add_modifier(Modifier::BOLD)),
+            Span::raw(" "),
+        ];
+
+        if prompt_chunks[0].width > 0 && prompt_chunks[0].height > 0 {
+            frame.render_widget(Paragraph::new(Line::from(left_spans)), prompt_chunks[0]);
+        }
+        if prompt_chunks.len() > 1 && prompt_chunks[1].width > 0 && prompt_chunks[1].height > 0 {
+            frame.render_widget(Paragraph::new(Line::from(right_spans)).alignment(Alignment::Right), prompt_chunks[1]);
+        }
+
+        // Position native OS terminal cursor smoothly at active typing location
+        let cursor_offset = pos as u16;
+        let max_offset = prompt_chunks[0].width.saturating_sub(6);
+        let cur_x = (prompt_chunks[0].x + 5 + cursor_offset.min(max_offset)).min(frame.area().right().saturating_sub(1));
+        let cur_y = prompt_chunks[0].y.min(frame.area().bottom().saturating_sub(1));
+        frame.set_cursor_position((cur_x, cur_y));
     }
-
-    let right_spans = vec![
-        Span::styled("Ctrl + K  ✧", Style::default().fg(ThemeColors::ACCENT).add_modifier(Modifier::BOLD)),
-        Span::raw(" "),
-    ];
-
-    frame.render_widget(Paragraph::new(Line::from(left_spans)), prompt_chunks[0]);
-    frame.render_widget(Paragraph::new(Line::from(right_spans)).alignment(Alignment::Right), prompt_chunks[1]);
-
-    // Set hardware terminal cursor so it blinks in the console at the exact typing location!
-    let cursor_offset = if input_text.is_empty() { 0 } else { pos as u16 };
-    let cur_x = prompt_chunks[0].x + 3 + 2 + cursor_offset.min(prompt_chunks[0].width.saturating_sub(1));
-    let cur_y = prompt_chunks[0].y;
-    frame.set_cursor_position((cur_x, cur_y));
 
     // 6. Selector Chips: Model, Agent, Session
     let active_model = &state.model.active_model;
@@ -199,13 +209,25 @@ fn render_landing_state_a(frame: &mut Frame, area: Rect, state: &ApplicationStat
         Span::styled("Session: ", Style::default().fg(ThemeColors::TEXT_MUTED)),
         Span::styled(format!("{active_session}"), Style::default().fg(ThemeColors::ACCENT).add_modifier(Modifier::BOLD)),
     ];
-    frame.render_widget(Paragraph::new(Line::from(chip_spans)).alignment(Alignment::Center), v_chunks[10]);
+    if let Some(chunk) = v_chunks.get(10) {
+        if chunk.height > 0 {
+            frame.render_widget(Paragraph::new(Line::from(chip_spans)).alignment(Alignment::Center), *chunk);
+        }
+    }
 
     // Context autocomplete dropdown (anchored above prompt card)
-    if state.ui.context_dropdown_open {
+    if state.ui.context_dropdown_open && box_area.height > 0 {
         if let Some((_, q)) = crate::input::ContextCompleter::get_active_query(input_text, pos) {
             let matches = crate::input::ContextCompleter::resolve_matches(&q, state);
             crate::input::ContextCompleter::render_dropdown(frame, box_area, &matches, state.ui.context_selected_idx);
+        }
+    }
+
+    // Slash command autocomplete dropdown (anchored above prompt card, matching Image 1)
+    if state.ui.slash_dropdown_open && box_area.height > 0 {
+        if let Some(q) = crate::input::SlashCompleter::get_active_query(input_text, pos) {
+            let matches = crate::input::SlashCompleter::resolve_matches(&q);
+            crate::input::SlashCompleter::render_dropdown(frame, box_area, &matches, state.ui.slash_selected_idx);
         }
     }
 }
@@ -268,14 +290,14 @@ fn render_conversation_state_b(frame: &mut Frame, area: Rect, state: &Applicatio
         // User turn
         stream_lines.push(Line::from(vec![
             Span::styled(" > You ", Style::default().fg(Color::Rgb(255, 255, 255)).add_modifier(Modifier::BOLD)),
-            Span::styled(format!("  {}", prompt), Style::default().fg(Color::Rgb(255, 255, 255)).add_modifier(Modifier::BOLD)),
+            Span::styled(format!(" {}", prompt), Style::default().fg(Color::Rgb(255, 255, 255)).add_modifier(Modifier::BOLD)),
         ]));
         stream_lines.push(Line::from(""));
 
         // Assistant turn header
         stream_lines.push(Line::from(vec![
             Span::styled(" ▲ DELTA ", Style::default().fg(ThemeColors::ACCENT).add_modifier(Modifier::BOLD)),
-            Span::styled(format!("  Model {} · Agent {}", active_model, active_agent), Style::default().fg(ThemeColors::TEXT_MUTED)),
+            Span::styled(format!(" Model {} · Agent {}", active_model, active_agent), Style::default().fg(ThemeColors::TEXT_MUTED)),
         ]));
         stream_lines.push(Line::from(""));
 
@@ -283,16 +305,29 @@ fn render_conversation_state_b(frame: &mut Frame, area: Rect, state: &Applicatio
         for r_line in response.split('\n') {
             let trimmed = r_line.trim_start();
             if trimmed.starts_with('●') {
-                let char_offset = trimmed.char_indices().nth(1).map(|(i, _)| i).unwrap_or(trimmed.len());
+                let text_after = trimmed.strip_prefix('●').unwrap_or("").trim_start();
                 stream_lines.push(Line::from(vec![
                     Span::raw("   "),
                     Span::styled("● ", Style::default().fg(ThemeColors::ACCENT)),
-                    Span::styled(&trimmed[char_offset..], Style::default().fg(ThemeColors::TEXT_PRIMARY)),
+                    Span::styled(text_after, Style::default().fg(ThemeColors::TEXT_PRIMARY)),
+                ]));
+            } else if trimmed.starts_with("- ") || trimmed.starts_with("* ") {
+                let text_after = &trimmed[2..];
+                stream_lines.push(Line::from(vec![
+                    Span::raw("   "),
+                    Span::styled("• ", Style::default().fg(ThemeColors::ACCENT)),
+                    Span::styled(text_after, Style::default().fg(ThemeColors::TEXT_PRIMARY)),
                 ]));
             } else if trimmed.starts_with('[') && trimmed.ends_with(']') {
                 stream_lines.push(Line::from(vec![
                     Span::raw("   "),
                     Span::styled(trimmed, Style::default().fg(ThemeColors::ACCENT).add_modifier(Modifier::BOLD)),
+                ]));
+            } else if trimmed.starts_with('#') {
+                let header_text = trimmed.trim_start_matches('#').trim_start();
+                stream_lines.push(Line::from(vec![
+                    Span::raw("   "),
+                    Span::styled(header_text, Style::default().fg(Color::Rgb(255, 255, 255)).add_modifier(Modifier::BOLD)),
                 ]));
             } else if trimmed.ends_with(':') || trimmed.contains(" · ") || trimmed.starts_with("CORE MODEL") || trimmed.starts_with("DELTA CREDENTIAL") {
                 stream_lines.push(Line::from(vec![
@@ -345,8 +380,6 @@ fn render_conversation_state_b(frame: &mut Frame, area: Rect, state: &Applicatio
 
     let input_text = &state.ui.input_buffer;
     let pos = state.ui.cursor_pos.min(input_text.len());
-    let blink_on = (state.ui.tick_count / 3).is_multiple_of(2);
-    let cursor_glyph = if blink_on { "█" } else { " " };
 
     let mut left_spans = vec![
         Span::styled(" > ", Style::default().fg(ThemeColors::ACCENT).add_modifier(Modifier::BOLD)),
@@ -355,22 +388,16 @@ fn render_conversation_state_b(frame: &mut Frame, area: Rect, state: &Applicatio
 
     if input_text.is_empty() {
         let placeholder = "Ask DELTA anything, run a strategy, analyze a market, or type / for commands...";
-        let max_len = (prompt_chunks[0].width as usize).saturating_sub(8);
+        let max_len = (prompt_chunks[0].width as usize).saturating_sub(6);
         let truncated = if placeholder.len() > max_len {
             &placeholder[..max_len.saturating_sub(3)]
         } else {
             placeholder
         };
-        left_spans.push(Span::styled(cursor_glyph, Style::default().fg(ThemeColors::ACCENT)));
         left_spans.push(Span::styled(truncated, Style::default().fg(ThemeColors::TEXT_SECONDARY)));
     } else {
         left_spans.push(Span::styled(
-            &input_text[..pos],
-            Style::default().fg(Color::Rgb(255, 255, 255)).add_modifier(Modifier::BOLD),
-        ));
-        left_spans.push(Span::styled(cursor_glyph, Style::default().fg(ThemeColors::ACCENT)));
-        left_spans.push(Span::styled(
-            &input_text[pos..],
+            input_text,
             Style::default().fg(Color::Rgb(255, 255, 255)).add_modifier(Modifier::BOLD),
         ));
     }
@@ -383,10 +410,11 @@ fn render_conversation_state_b(frame: &mut Frame, area: Rect, state: &Applicatio
     frame.render_widget(Paragraph::new(Line::from(left_spans)), prompt_chunks[0]);
     frame.render_widget(Paragraph::new(Line::from(right_spans)).alignment(Alignment::Right), prompt_chunks[1]);
 
-    // Set hardware terminal cursor so it blinks in the console at the exact typing location!
-    let cursor_offset = if input_text.is_empty() { 0 } else { pos as u16 };
-    let cur_x = prompt_chunks[0].x + 3 + 2 + cursor_offset.min(prompt_chunks[0].width.saturating_sub(1));
-    let cur_y = prompt_chunks[0].y;
+    // Position native OS terminal cursor smoothly at active typing location
+    let cursor_offset = pos as u16;
+    let max_offset = prompt_chunks[0].width.saturating_sub(6);
+    let cur_x = (prompt_chunks[0].x + 5 + cursor_offset.min(max_offset)).min(frame.area().right().saturating_sub(1));
+    let cur_y = prompt_chunks[0].y.min(frame.area().bottom().saturating_sub(1));
     frame.set_cursor_position((cur_x, cur_y));
 
     // Selector chips in v_chunks[3]
@@ -416,6 +444,14 @@ fn render_conversation_state_b(frame: &mut Frame, area: Rect, state: &Applicatio
         if let Some((_, q)) = crate::input::ContextCompleter::get_active_query(input_text, pos) {
             let matches = crate::input::ContextCompleter::resolve_matches(&q, state);
             crate::input::ContextCompleter::render_dropdown(frame, box_area, &matches, state.ui.context_selected_idx);
+        }
+    }
+
+    // Slash command autocomplete dropdown (anchored above prompt card, matching Image 1)
+    if state.ui.slash_dropdown_open {
+        if let Some(q) = crate::input::SlashCompleter::get_active_query(input_text, pos) {
+            let matches = crate::input::SlashCompleter::resolve_matches(&q);
+            crate::input::SlashCompleter::render_dropdown(frame, box_area, &matches, state.ui.slash_selected_idx);
         }
     }
 }

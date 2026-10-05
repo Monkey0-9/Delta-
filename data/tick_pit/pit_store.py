@@ -265,7 +265,8 @@ class PITStore:
             
             # Build query
             sql = """
-                SELECT tick_id, data_json, event_time, available_timestamp, 
+                SELECT tick_id, data_json, event_time, publication_timestamp,
+                       available_timestamp,
                        quality_score, timestamp_hash, data_hash
                 FROM ticks
                 WHERE symbol = ?
@@ -302,7 +303,8 @@ class PITStore:
             timestamps_list = []
             
             for row in rows:
-                tick_id, data_json, event_time, available_time, quality_score, ts_hash, data_hash = row
+                (tick_id, data_json, event_time, publication_time,
+                 available_time, quality_score, ts_hash, data_hash) = row
                 
                 # Parse tick data
                 tick_dict = json.loads(data_json)
@@ -319,11 +321,13 @@ class PITStore:
                 
                 ticks.append(tick)
                 
-                # Create timestamps (simplified)
+                # Create timestamps from STORED values.
+                # P-1.3: publication comes from the persisted record, never
+                # reconstructed as event_time (which faked instant availability).
                 timestamps = DataTimestamps(
                     event_time=datetime.fromisoformat(event_time),
                     source_timestamp=datetime.fromisoformat(event_time),
-                    publication_timestamp=datetime.fromisoformat(event_time),
+                    publication_timestamp=datetime.fromisoformat(publication_time),
                     available_timestamp=datetime.fromisoformat(available_time),
                     ingestion_timestamp=datetime.now(timezone.utc)
                 )
@@ -349,9 +353,9 @@ class PITStore:
                 ticks=ticks,
                 timestamps=latest_timestamps,
                 metadata={
-                    "quality_scores": [row[4] for row in rows],
-                    "timestamp_hashes": [row[5] for row in rows],
-                    "data_hashes": [row[6] for row in rows]
+                    "quality_scores": [row[5] for row in rows],
+                    "timestamp_hashes": [row[6] for row in rows],
+                    "data_hashes": [row[7] for row in rows]
                 }
             )
             
@@ -432,10 +436,34 @@ class PITStore:
             )
             
             # Reconstruct snapshot
+            # P-1.3: previously returned ticks=[] (a snapshot that hashes and
+            # passes while containing nothing). Rebuild from stored tick_ids.
+            tick_ids = json.loads(tick_ids) if isinstance(tick_ids, str) else (tick_ids or [])
+            snap_ticks = []
+            for tid in tick_ids:
+                cursor.execute(
+                    "SELECT tick_id, data_json, event_time, available_timestamp,"
+                    " tick_type, exchange, symbol, sequence_number"
+                    " FROM ticks WHERE tick_id = ?",
+                    (tid,),
+                )
+                trow = cursor.fetchone()
+                if not trow:
+                    continue
+                _, tdata, tevt, _tavail, ttype, texch, tsym, tseq = trow
+                tdict = json.loads(tdata)
+                snap_ticks.append(TickData(
+                    tick_id=tdict.get("tick_id", tid),
+                    tick_type=TickType(tdict.get("tick_type", ttype or "QUOTE")),
+                    timestamp=datetime.fromisoformat(tdict.get("timestamp", tevt)),
+                    exchange=tdict.get("exchange", texch or ""),
+                    symbol=tdict.get("symbol", tsym or ""),
+                    sequence_number=int(tdict.get("sequence_number", tseq or 0)),
+                ))
             return PITSnapshot(
                 snapshot_id=snapshot_id,
                 query=query,
-                ticks=[],  # Would need to reconstruct from tick_ids
+                ticks=snap_ticks,
                 timestamps=DataTimestamps(
                     event_time=query.as_of,
                     source_timestamp=query.as_of,

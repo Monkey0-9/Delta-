@@ -29,7 +29,10 @@ from core.canonical_pipeline import CanonicalInstitutionalPipeline, OrderSide
 class DeltaBridge:
     def __init__(self) -> None:
         self.term = Terminal()
-        self.pipeline = CanonicalInstitutionalPipeline(initial_cash=1_000_000.0, venue="XNYS")
+        # initial_cash=0.0 explicitly overrides the pipeline's 1_000_000 default.
+        # That default is preserved for test-suite compatibility only.
+        # In the production bridge, cash is populated by the live broker/session ledger.
+        self.pipeline = CanonicalInstitutionalPipeline(initial_cash=0.0, venue="XNYS")
         try:
             _load_session(self.term)
         except Exception:
@@ -285,8 +288,11 @@ class DeltaBridge:
                 "atr": round(features.atr, 2),
                 "vwap": round(features.vwap, 2),
                 "regime": regime.value,
+                # Depth is synthetically modelled from mid-price — not real L2.
+                # Display must badge this as SYNTHETIC provenance.
                 "depth_bids": bids,
                 "depth_asks": asks,
+                "depth_provenance": "SYNTHETIC",
             }
         except Exception as exc:
             return {

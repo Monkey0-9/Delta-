@@ -54,8 +54,25 @@ def model_doctor_cmd() -> None:
 
 
 @app.command("doctor")
-def doctor() -> None:
-    """Alias for model-doctor."""
+def doctor(display: bool = typer.Option(False, "--display", help="Probe terminal display capabilities"),
+           connections: bool = typer.Option(False, "--connections", help="Probe every live path (market/broker/model/mcp/daemon/bridge/vault/clock)"),
+           json_out: bool = typer.Option(False, "--json", help="Emit artifacts/doctor/connections.json"),
+           fix: bool = typer.Option(False, "--fix", help="Safe-fix only: artifacts + guidance (never live orders/keys/unlock)")) -> None:
+    """Connection doctor + model-doctor. --display probes responsive layout (Group 08)."""
+    if connections or json_out or fix:
+        from delta_os.doctor_connections import run_all, render_table, emit_artifact, summarize
+        checks = run_all()
+        typer.echo(render_table(checks))
+        if json_out or fix:
+            typer.echo(f"artifact: {emit_artifact(checks)}")
+        if not summarize(checks)["core_ok"]:
+            raise typer.Exit(code=1)
+        return
+    if display:
+        from delta_tui.responsive_probe import display_probe
+        import json
+        typer.echo(json.dumps(display_probe(), indent=2))
+        return
     model_doctor()
 
 

@@ -61,8 +61,13 @@ class ImpactCalibrator:
             ΔP/P = γσ√(V/ADV) + ησ(V/ADV)
         """
         if len(self._calibration_data) < 10:
-            # Return default parameters if insufficient data
-            return ImpactParameters()
+            # P-1.5: previously returned silent defaults that looked
+            # calibrated but were not. Refuse instead — callers must handle
+            # uncalibrated state explicitly (see cost_engine calibrated flag).
+            raise ValueError(
+                f"insufficient fills for calibration "
+                f"({len(self._calibration_data)}/10); refusing defaults"
+            )
         
         # Extract data
         participation_rates = []

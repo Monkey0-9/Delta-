@@ -1,0 +1,25 @@
+{
+  "component": "java_loopback_STATUS",
+  "n": 20000,
+  "throughput_per_s": 17711.8,
+  "latency_us": {
+    "p50": 48.0,
+    "p95": 101.2,
+    "p99": 148.4,
+    "max": 994.8
+  },
+  "provenance": "BENCH_MEASURED",
+  "hardware": {
+    "machine": "AMD64",
+    "processor": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+    "system": "Windows",
+    "release": "11"
+  },
+  "jdk": "java version \"25.0.1\" 2025-10-21 LTS",
+  "jvm_flags": [
+    "-Xms512m",
+    "-Xmx2g",
+    "-XX:+UseParallelGC"
+  ],
+  "jvm_note": "min-heap lowered for 1GB-free bench box; max heap + GC identical to production; certified 2g/2g numbers in benchmarks/java_spike/GO_NO_GO_MEMO.md"
+}

@@ -57,11 +57,16 @@ for _name, _desc, _screen, _sym, _cat in [
     ("system", "System operational health", "system", False, "System/AI"),
     ("home", "Return to home view", "home", False, "System/AI"),
     ("kill", "EMERGENCY kill switch (halt execution)", "system", False, "Primary"),
+    ("brain", "24/7 sentinel start/stop/status", "system", False, "Primary"),
+    ("alerts", "Alert channels (terminal always on; TG/WA vault-gated)", "system", False, "Primary"),
+    ("protect", "Protective-put hedge sizing", "portfolio", True, "Primary"),
+    ("dipbuy", "Oversold dip-buy ladder", "portfolio", True, "Primary"),
     # Convergence verbs previously only in trader/opencode_terminal fallback.
     ("mode", "Switch agent execution mode", "session", False, "System/AI"),
     ("theme", "Switch terminal theme", "home", False, "System/AI"),
     ("workspace", "Switch active workspace", "home", False, "System/AI"),
     ("status", "Workspace + execution status", "system", False, "System/AI"),
+    ("doctor", "Connection doctor (probes + safe-fix)", "system", False, "System/AI"),
     ("clear", "Clear conversation view", "home", False, "System/AI"),
     ("help", "Command help", "home", False, "System/AI"),
 ]:

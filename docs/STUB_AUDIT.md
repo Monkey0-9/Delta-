@@ -1,8 +1,22 @@
-# Stub / Synthetic / Simulation Audit — 2026-09-30 (P0-9)
+# Stub / Synthetic / Simulation Audit — 2026-09-30 (P0-9), refreshed 2026-10-02 (Phase −1)
 
 Rule (§31): every match is classified SAFE-TEST, RESEARCH-SIM (labeled, never
 enters order path), or PRODUCTION-GAP (must be fixed before the capability it
 implies may be claimed). Guards verified, not assumed.
+
+## Refresh 2026-10-02 — PRODUCTION-GAP resolutions (verified, with tests)
+
+| # | Prior gap | Status now | Evidence |
+|---|---|---|---|
+| 1 | FIX stub (`sor_venue.py:51`) | ✅ CLOSED (Python lane) | `execution/fix/initiator.py` full lifecycle + `tests/test_fix_initiator_certification.py`; Java lane paper-only per program |
+| 2 | Calendar stub (`market_reality.py:173`) | ✅ CLOSED (NYSE/NASDAQ) | `exchange_calendar.py` wired into `SessionReconstructor`; fallback now counted/visible (`calendar_status`, `fallback_count`) — `tests/test_phase_minus1.py::test_calendar_fallback_is_visible`; CME extension still open |
+| 3 | Fundamentals placeholder (`feature_engine.py:230`) | 🟡 OPEN, correctly refused | `ValueFeature.validate` no longer vacuous (P-1.5); missing fundamentals raise with remediation, never NaN |
+| 4 | IBKR disabled path (`brokers.py:153-158`) | ✅ CLOSED (adapter, fail-closed) | `delta_os/brokers.py:137-170` delegates to `IBKRClientPortalAdapter`; no-host raises; `tests/test_ibkr_certification.py` 6/6 |
+| 5 | Telemetry format-only | 🟡 OPEN as stated | Unchanged; ops telemetry only per ADR-0006 |
+
+Phase −1 additions (2026-10-02): kill-path silent passes fixed (`safety.py`, verified `test_phase_minus1.py` 5 kill tests); PIT zero-lag defaults gated by domain (`construction_pipeline.py`, `timestamps.py`); immortal-universe fixed (`master.py`); purge/embargo defaults 1/1 (`walk_forward/production.py`, `alpha_factory.py`); `reproduce_manifest` verified-not-asserted (`gate.py`); paper ADV unknown marked (`paper/broker.py`); calibrator refuses without data.
+Tracked deletions resolved: `tests/unit/test_alpha.py`, `test_pit.py`, `test_statistics.py` are 0-byte placeholders in HEAD — deletion accepted as hygiene, coverage lives in `test_alpha_neutralization.py`, `test_p1_pit_adversarial.py`, `test_quant_research.py`.
+Stale in-package test noted (not collected): `data/tick_pit/test_pit.py` imports non-existent `MarketSession` — dead file, do not cite; tracked for later cleanup, outside Phase −1.
 
 ## PRODUCTION-GAP (do not claim the capability)
 

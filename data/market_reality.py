@@ -180,12 +180,21 @@ class SessionReconstructor:
     def __init__(self, open_h: int = 9, open_m: int = 30, close_h: int = 16,
                  calendar=None) -> None:
         self._o, self._om, self._c = open_h, open_m, close_h
+        # P-1.7: calendar health is tracked, never silently degraded.
+        self.calendar_status = "UNSET"
+        self.last_calendar_error: str | None = None
+        self.fallback_count = 0
         if calendar is None:
             try:
                 from data.market.exchange_calendar import ExchangeCalendar as _EC
                 calendar = _EC()
-            except Exception:
+                self.calendar_status = "REAL"
+            except Exception as exc:
                 calendar = None
+                self.calendar_status = "UNAVAILABLE"
+                self.last_calendar_error = f"{type(exc).__name__}: {exc}"[:200]
+        else:
+            self.calendar_status = "INJECTED"
         self._cal = calendar
 
     def label(self, ts_ns: int) -> SessionKind:
@@ -193,8 +202,13 @@ class SessionReconstructor:
         if self._cal is not None:
             try:
                 return self._cal.session(dt)  # type: ignore[return-value]
-            except Exception:
-                pass
+            except Exception as exc:
+                # P-1.7: fixed-hours fallback is counted and inspectable via
+                # calendar_status/fallback_count — never a silent substitution.
+                self.fallback_count += 1
+                self.last_calendar_error = f"{type(exc).__name__}: {exc}"[:200]
+                if self.calendar_status == "REAL":
+                    self.calendar_status = "DEGRADED"
         mins = dt.hour * 60 + dt.minute
         o, c = self._o * 60 + self._om, self._c * 60
         if o <= mins < c:

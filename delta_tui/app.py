@@ -39,7 +39,12 @@ SCREENS = {
     "automation": AutomationScreen(),
 }
 
-AGENTS = ("quant-researcher", "risk-monitor", "execution-copilot")
+# Single AGENTS source: agent/orchestrator (8 personas). Fallback keeps the
+# legacy 3 only if the orchestrator module is unimportable (never silent).
+try:
+    from agent.orchestrator import AGENTS as AGENTS
+except Exception:
+    AGENTS = ("quant-researcher", "risk-monitor", "execution-copilot")  # fallback
 HERO_TARGETS = {
     "research": "/research",
     "simulate": "/simulate",
@@ -212,6 +217,10 @@ class DeltaApp:
             return self._cmd_open(args)
         if raw_cmd in ("mcp", "config", "auth"):
             return self._passthrough(t)
+        # brain/automation verbs: deterministic backend passthrough
+        if raw_cmd in ("brain", "sentinel", "alerts", "protect", "dipbuy",
+                       "crash", "models"):
+            return self._passthrough(t)
         if raw_cmd in ("exit", "quit"):
             return "bye"
 
@@ -352,10 +361,54 @@ class DeltaApp:
                     self._persist_session()
             except Exception:
                 pass
+            self._drain_sentinel_alerts(be)
             self.refresh_chrome()
             return out
         except Exception as exc:
             return f"ERROR: {exc}"
+
+    def _drain_sentinel_alerts(self, be) -> None:
+        """Surface backend sentinel alerts in the alerts column (TUI-hosted
+        brain fan-out). Never raises; dedupes by timestamp+event."""
+        try:
+            sent = getattr(be, "sentinel", None)
+            pending = list(getattr(sent, "alerts", []) or [])
+        except Exception:
+            return
+        if not pending:
+            return
+        try:
+            seen = getattr(self, "_surfaced_alert_ids", None)
+            if seen is None:
+                seen = self._surfaced_alert_ids = set()
+            try:
+                from delta_tui.widgets.toast import ToastManager
+                tm = getattr(self, "_toasts", None)
+                if tm is None:
+                    tm = self._toasts = ToastManager()
+            except Exception:
+                tm = None
+            for a in pending[-20:]:
+                aid = (str(a.get("timestamp", "")), str(a.get("event", "")))
+                if aid in seen:
+                    continue
+                seen.add(aid)
+                line = f"[{aid[0][11:19]}] {a.get('level', '?')}: {a.get('message', '')}"
+                try:
+                    self.store.alerts.append(line)
+                    self.store.alerts = self.store.alerts[-50:]
+                except Exception:
+                    pass
+                if tm is not None:
+                    try:
+                        if str(a.get("level", "")).upper() == "CRITICAL":
+                            tm.breach(line)
+                        else:
+                            tm.push("warn" if str(a.get("level", "")).upper() == "WARNING" else "info", line)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
     def _palette_text(self, query: str) -> str:
         return format_palette_box(query)

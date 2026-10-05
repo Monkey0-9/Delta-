@@ -20,24 +20,19 @@ pub fn render_command_bar(frame: &mut Frame, area: Rect, state: &ApplicationStat
 
     let input_text = &state.ui.input_buffer;
     let pos = state.ui.cursor_pos.min(input_text.len());
-    let blink_on = (state.ui.tick_count / 3).is_multiple_of(2);
-    let cursor_glyph = if blink_on { "█" } else { " " };
 
     let left_spans = if input_text.is_empty() {
         let placeholder = "Ask DELTA anything, run a strategy, analyze a market, or type / for commands...";
         vec![
             Span::styled("> ", ThemeStyles::accent()),
             Span::styled("│ ", ThemeStyles::muted_text()),
-            Span::styled(cursor_glyph, ThemeStyles::accent()),
             Span::styled(placeholder, ThemeStyles::muted_text()),
         ]
     } else {
         vec![
             Span::styled("> ", ThemeStyles::accent()),
             Span::styled("│ ", ThemeStyles::muted_text()),
-            Span::styled(&input_text[..pos], ThemeStyles::default_text()),
-            Span::styled(cursor_glyph, ThemeStyles::accent()),
-            Span::styled(&input_text[pos..], ThemeStyles::default_text()),
+            Span::styled(input_text, ThemeStyles::default_text()),
         ]
     };
 
@@ -60,9 +55,10 @@ pub fn render_command_bar(frame: &mut Frame, area: Rect, state: &ApplicationStat
     frame.render_widget(left_para, chunks[0]);
     frame.render_widget(right_para, chunks[1]);
 
-    // Set hardware terminal cursor so it blinks in the console
-    let cursor_offset = if input_text.is_empty() { 0 } else { pos as u16 };
-    let cur_x = chunks[0].x + 4 + cursor_offset.min(chunks[0].width.saturating_sub(1));
-    let cur_y = chunks[0].y;
+    // Position native OS terminal cursor smoothly at active input position
+    let cursor_offset = pos as u16;
+    let max_offset = chunks[0].width.saturating_sub(5);
+    let cur_x = (chunks[0].x + 4 + cursor_offset.min(max_offset)).min(frame.area().right().saturating_sub(1));
+    let cur_y = chunks[0].y.min(frame.area().bottom().saturating_sub(1));
     frame.set_cursor_position((cur_x, cur_y));
 }

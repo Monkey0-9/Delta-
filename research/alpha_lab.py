@@ -128,6 +128,55 @@ class CapacityPoint:
     sharpe: float
     drawdown: float
 
+# --- Launch slice G19-G23 additions (appended, non-breaking) ---
+SCENARIOS = ["1987", "1998", "2000-02", "2008", "2010-flash", "2015", "2018", "2020-COVID", "2022-rates"]
+FAMILIES = ["momentum", "mean-reversion", "value", "quality", "carry", "volatility",
+            "liquidity", "event", "stat-arb", "microstructure"]
+
+
+@dataclass
+class AlphaEntry:
+    alpha_id: str = ""
+    family: str = "momentum"
+    status: str = "candidate"
+    half_life_d: float = 60.0
+
+
+@dataclass
+class AlphaRegistry:
+    entries: dict = field(default_factory=dict)
+
+    def register(self, e: "AlphaEntry") -> None:
+        assert e.family in FAMILIES, f"unknown family {e.family}"
+        self.entries[e.alpha_id] = e
+
+    def retire_on_decay(self, alpha_id: str, age_d: float) -> bool:
+        e = self.entries[alpha_id]
+        if age_d > 2 * e.half_life_d:
+            e.status = "retired"
+            return True
+        return False
+
+    def coverage(self) -> dict:
+        have = {e.family for e in self.entries.values() if e.status != "retired"}
+        return {"families": len(FAMILIES), "covered": len(have),
+                "gaps": sorted(set(FAMILIES) - have)}
+
+
+def validation_report(exp_id: str, ic: float, dsr: float, pbo: float) -> dict:
+    verdict = "pass" if (abs(ic) > 0.02 and dsr > 0.5 and pbo < 0.6) else "fail"
+    return {"exp_id": exp_id, "ic": ic, "dsr": dsr, "pbo": pbo, "verdict": verdict}
+
+
+def capacity_check(adv: float, qty: float, max_particip: float = 0.1) -> dict:
+    part = qty / adv if adv else 1.0
+    return {"participation": part, "ok": part <= max_particip}
+
+
+def scenario_manifest(name: str, data_sha: str) -> dict:
+    blob = json.dumps({"name": name, "data_sha": data_sha}, sort_keys=True).encode()
+    return {"name": name, "data_sha": data_sha, "sha": hashlib.sha256(blob).hexdigest()}
+
 
 def capacity_ladder(gross_bps: float, adv_usd: float, turnover: float = 1.0,
                     sharpe_gross: float = 1.0, dd_gross: float = 0.05) -> list[CapacityPoint]:

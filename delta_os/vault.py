@@ -22,7 +22,8 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 VAULT_VERSION = "vault-v1"
 ROUNDS = 600_000
-PROVIDERS = ("alpaca", "ibkr", "fred", "gemini", "anthropic", "openai", "deepseek", "groq")
+PROVIDERS = ("alpaca", "ibkr", "fred", "gemini", "anthropic", "openai",
+             "deepseek", "groq", "astro", "custom", "telegram", "whatsapp")
 
 
 class VaultLocked(Exception):

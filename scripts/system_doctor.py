@@ -22,7 +22,25 @@ def check_import(name: str) -> Check:
         return Check(name, False, repr(exc))
 
 
-def main() -> int:
+def main(argv=None) -> int:
+    import argparse
+    ap = argparse.ArgumentParser(prog="system_doctor")
+    ap.add_argument("--connections", action="store_true",
+                    help="probe every live path (market/broker/model/mcp/daemon/bridge/vault/clock)")
+    ap.add_argument("--json", action="store_true", help="emit artifacts/doctor/connections.json")
+    ap.add_argument("--fix", action="store_true",
+                    help="safe-fix only: artifacts + guidance (never live orders/keys/unlock)")
+    args = ap.parse_args(argv)
+    if args.connections:
+        from delta_os.doctor_connections import run_all, render_table, emit_artifact
+        checks = run_all()
+        print(render_table(checks))
+        if args.json or args.fix:
+            p = emit_artifact(checks)
+            print(f"artifact: {p}")
+        from delta_os.doctor_connections import summarize
+        return 0 if summarize(checks)["core_ok"] else 1
+
     print("=" * 72)
     print("DELTA SYSTEM DOCTOR")
     print("=" * 72)

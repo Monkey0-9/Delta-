@@ -27,9 +27,13 @@ class WalkForward:
         train_size: int,
         test_size: int,
         step: int,
-        purge: int = 0,
-        embargo: int = 0,
+        purge: int = 1,
+        embargo: int = 1,
     ):
+        # P-1.4: fail-closed defaults match the canonical splitter
+        # (validation/walk_forward/splitter.py). Zero purge/embargo silently
+        # permits look-ahead when labels span bars (AFML Ch.7); pass
+        # purge=0, embargo=0 explicitly only for non-temporal unit tests.
 
         if min(
             train_size,

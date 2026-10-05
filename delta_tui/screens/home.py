@@ -12,10 +12,18 @@ class HomeScreen(BaseScreen):
     name = "home"
 
     def build_viewmodel(self, store: TerminalStore) -> HomeVM:
+        # P-1.2: the store carries no portfolio figures, so the viewmodel
+        # reports UNAVAILABLE (None) instead of fabricated splash numbers.
+        snap = store.viewmodels.get("home_snapshot", {}) or {}
         return HomeVM(
-            regime="NEUTRAL", liquidity="NORMAL",
-            net_liq=1_024_218.0, gross_pct=143.2, net_pct=37.6,
-            var99=2.14, es99=3.31, drawdown=4.82,
+            regime=snap.get("regime", "UNKNOWN"),
+            liquidity=snap.get("liquidity", "UNKNOWN"),
+            net_liq=snap.get("net_liq"),
+            gross_pct=snap.get("gross_pct"),
+            net_pct=snap.get("net_pct"),
+            var99=snap.get("var99"),
+            es99=snap.get("es99"),
+            drawdown=snap.get("drawdown"),
             opportunities=store.viewmodels.get("home_opps", ()),
             mode=store.mode.value,
         )

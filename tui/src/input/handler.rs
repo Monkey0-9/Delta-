@@ -51,6 +51,17 @@ pub fn handle_key_event(key: KeyEvent, state: &ApplicationState) -> Action {
         }
     }
 
+    // Modal interceptor: / Slash Commands Autocomplete Dropdown (Image 1)
+    if state.ui.slash_dropdown_open {
+        match key.code {
+            KeyCode::Tab | KeyCode::Enter => return Action::SlashSelect,
+            KeyCode::Down => return Action::SlashNext,
+            KeyCode::Up => return Action::SlashPrev,
+            KeyCode::Esc => return Action::CloseModal,
+            _ => {}
+        }
+    }
+
     // Modal interceptor: Selectors (Model, Agent, Session)
     if state.ui.model_selector_open || state.ui.agent_selector_open || state.ui.session_selector_open {
         match key.code {

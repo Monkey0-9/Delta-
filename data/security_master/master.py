@@ -164,10 +164,13 @@ class SecurityMaster:
         were delisted before the query date or listed after.
         """
         universe: list[UUID] = []
-        
+
         for asset_id, metadata in self._assets.items():
-            # Check if asset was listed at query date
-            if metadata.listed_date and query_date < metadata.listed_date:
+            # P-1.3: unknown listing date can NEVER mean "listed since forever"
+            # (that is survivorship bias). Fail closed: exclude, don't immortalize.
+            if metadata.listed_date is None:
+                continue  # listing date unknown — membership unprovable
+            if query_date < metadata.listed_date:
                 continue  # Not yet listed
             
             # Check if asset was delisted before query date
