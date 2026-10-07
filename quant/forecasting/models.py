@@ -226,6 +226,28 @@ def compare_models(models: list[tuple[str, object]], X: np.ndarray, y: np.ndarra
     return sorted(out, key=lambda s: s.mse)
 
 
+def require_baseline_win(scores_oos: dict[str, float], baseline: str = "ridge",
+                         candidate: str = "") -> None:
+    """Stage-2 G-rule: advanced model must beat baseline OOS (lower MSE wins).
+
+    Raises ValueError naming the violation — promotion code must call this.
+    """
+    if baseline not in scores_oos:
+        raise ValueError(f"baseline {baseline!r} missing from OOS scores")
+    if candidate and candidate not in scores_oos:
+        raise ValueError(f"candidate {candidate!r} missing from OOS scores")
+    target = candidate or min(scores_oos, key=scores_oos.get)
+    if not scores_oos[target] < scores_oos[baseline]:
+        raise ValueError(
+            f"baseline rule violated: {target} OOS {scores_oos[target]:.6f} "
+            f"not better than {baseline} OOS {scores_oos[baseline]:.6f}")
+
+
+def feature_oos_gain(base_mse: float, with_feature_mse: float, min_gain: float = 0.0) -> bool:
+    """Stage-2 E-rule: a feature earns its place only with OOS improvement."""
+    return (base_mse - with_feature_mse) > min_gain
+
+
 class MultiHorizonForecaster:
     """One model per horizon: {horizon: fitted model} -> {horizon: prediction}."""
 

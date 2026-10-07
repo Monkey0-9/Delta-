@@ -118,3 +118,24 @@ class SessionScreen(BaseScreen):
 
     def render_text(self, vm) -> str:
         return f"SESSION {vm['session']} screen={vm['workspace']} [{vm['mode']}]"
+
+
+class DataScreen(BaseScreen):
+    """Audit-gap closure: DATA workspace (feeds/quality/freshness/PIT)."""
+    name = "data"
+
+    def build_viewmodel(self, store: TerminalStore):
+        snap = store.viewmodels.get("data_snapshot", {}) or {}
+        return {"mode": store.mode.value,
+                "feeds": snap.get("feeds", ()),
+                "quality": snap.get("quality", "UNKNOWN"),
+                "freshness_s": snap.get("freshness_s"),
+                "dataset_version": snap.get("dataset_version", "v1")}
+
+    def render_text(self, vm) -> str:
+        feeds = ", ".join(f"{n}:{s}" for n, s in vm["feeds"]) \
+            if vm["feeds"] else "no feeds reporting (UNAVAILABLE)"
+        fresh = (f"{vm['freshness_s']:.1f}s" if vm["freshness_s"] is not None
+                 else "UNAVAILABLE [SOURCE/no-feed]")
+        return (f"DATA [{vm['mode']}] feeds {feeds} | quality {vm['quality']} | "
+                f"freshness {fresh} | dataset {vm['dataset_version']}")

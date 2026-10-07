@@ -36,7 +36,7 @@ DELTA is built on a four-tier heterogeneous architecture designed for mechanical
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
 │                        RUST RATATUI TUI                                │
-│        11-Screen Real-Time Trading Terminal & Hardware Cursor          │
+│        11-View Real-Time Trading Terminal & Hardware Cursor            │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │ JSON-RPC 2.0 (IPC Bridge)
 ┌───────────────────────────────────▼────────────────────────────────────┐
@@ -52,10 +52,10 @@ DELTA is built on a four-tier heterogeneous architecture designed for mechanical
 └───────────────────────────────┘        └───────────────────────────────┘
 ```
 
-1. **Rust Terminal Layer (`tui/`)**: High-performance, zero-flicker terminal user interface built on Ratatui. Renders 11 dedicated screens with hardware-synchronized cursor placement, sub-millisecond redraws, and interactive command bars.
+1. **Rust Terminal Layer (`tui/`)**: High-performance, zero-flicker terminal user interface built on Ratatui. Renders 11 dedicated views (agents/execution/home/logs/markets/models/orders/portfolio/research/risk/system) with hardware-synchronized cursor placement, sub-millisecond redraws, and interactive command bars. The Python rail registers 18 screens (16 canonical workspaces incl. `data`, `reconciliation`, `audit`).
 2. **Python Quantitative Engine (`core/`, `research/`, `delta_os/`)**: Orchestrates the 12-stage canonical institutional trading loop, walk-forward factor testing, portfolio allocation, and model-assisted research.
-3. **Rust Native Numerical Kernels (`rust/`, `native/`)**: High-speed computational kernels compiled to `delta_native.dll`. Provides up to 131x speedup over standard NumPy loops.
-4. **Java Execution Plane (`execution/java_gateway/`)**: Pure-JDK 21+ lock-free execution engine. Employs cache-line-padded LMAX-style ring buffers and integer price matching, achieving >22 million operations per second with sub-microsecond latency.
+3. **Rust Native Numerical Kernels (`rust/`, `native/`)**: High-speed computational kernels compiled to `delta_native.dll`. Measured up to 131x over standard NumPy loops on Wilder RSI (see `BENCHMARKS.md`).
+4. **Java Execution Plane (`execution/java_gateway/`)**: Pure-JDK 25 lock-free execution engine with cache-line-padded ring buffers and integer price matching. In-memory ring lanes certified at 14.2M ops/s; TCP loopback measured 17,711 msgs/s p50 48µs on this box (see `docs/PERF_RUNTIME_VERDICT.md`). PAPER/SIM rails only.
 
 ---
 
@@ -69,7 +69,7 @@ DELTA is built on a four-tier heterogeneous architecture designed for mechanical
 ### Software Toolchains
 - **Python**: Version `3.11.x` or `3.12.x`.
 - **Rust**: Version `1.80+` with `cargo` and MSVC or GCC build tools.
-- **Java**: Oracle JDK or OpenJDK version `21+` (`java` and `javac` on system `PATH`).
+- **Java**: Oracle JDK or OpenJDK version `25` (`java` and `javac` on system `PATH`; measured on 25.0.1).
 
 ### Environment Variables
 Configure the following recommended variables in your shell environment:
@@ -136,29 +136,33 @@ java -Xmx256m -cp execution/java_gateway/bin delta.execution.DeltaJavaGatewaySer
 
 The TUI features a disciplined top header, a dynamic primary workspace, and a bottom interactive command bar with an out-of-band emergency kill indicator.
 
-### Global Hotkeys
+### Global Hotkeys (verified against `delta_tui/keymap.py` — nothing here is aspirational)
 | Keybinding | Action |
 | :--- | :--- |
-| `F1` - `F9` | Jump directly to Screen 1 through Screen 9 |
-| `Tab` / `Shift+Tab` | Cycle between active panels and widgets |
-| `:` or `/` | Focus the Command Bar to enter slash commands |
-| `Esc` | Clear command input or dismiss active modals |
-| `Ctrl+C` | Emergency Kill Switch shortcut (triggers immediate risk freeze) |
-| `Ctrl+Q` | Cleanly disconnect and exit DELTA |
+| `Ctrl+X` then key | Leader: `H` home, `M` market, `B` book, `R` research, `A` alpha, `P` portfolio, `K` risk cockpit, `E` execution, `O` orders, `S` system, `N` new research, `T` new session |
+| `Ctrl+P` or `Ctrl+K` or `/` | Command palette (fuzzy `/re` → `/research` `/regime` `/risk` `/reconcile`) |
+| `Tab` | Cycle between active panels |
+| `Esc` | Clear input / dismiss modal / back |
+| `Ctrl+X K` then `/kill CONFIRM` | **Emergency Kill**: bypasses LLM, hits risk governor directly. `Ctrl+C` never kills (cancels turn only); `Ctrl+K` alone never kills |
 
-### The 11 Terminal Screens
+### The Terminal Screens (every one registered — `tests/test_guide_proof.py` fails the build otherwise)
 
-1. **Screen 1: Dashboard (`/desk`)**: System health, active execution mode, portfolio net liquidation, and top market catalysts.
-2. **Screen 2: Markets (`/markets`)**: Real-time quotes, technical indicators (Wilder RSI, Bollinger Bands, MACD), and order book depth.
-3. **Screen 3: Quant Lab (`/lab`)**: Factor alphas, information coefficients (IC), regime indicators, and walk-forward statistics.
-4. **Screen 4: Portfolio (`/portfolio`)**: Multi-asset holdings, dollar allocations, target shares, and cash balances.
-5. **Screen 5: Risk Firewall (`/risk`)**: Real-time VaR 95/99, Expected Shortfall (CVaR), macro stress test impacts (Treasury shock, oil shock, flash crash).
-6. **Screen 6: Orders (`/orders`)**: Active order state machine, idempotency keys, execution statuses, and cancellations.
-7. **Screen 7: Execution & SOR (`/exec`)**: Smart Order Router, FIX message audit, broker routing policies, and slippage TCA.
-8. **Screen 8: Reconciliation (`/recon`)**: Three-way reconciliation engine comparing local OMS, broker confirmations, and position ledgers.
-9. **Screen 9: Cryptographic Audit (`/audit`)**: Tamper-evident SHA-256 chained audit logs. Every decision is cryptographically provable.
-10. **Screen 10: System Configuration (`/config`)**: Broker connectivity status, MCP tool server health, and memory telemetry.
-11. **Screen 11: Kill Switch & Safety (`/kill`)**: Emergency governance board, trigger causes, and authenticated unlock entry.
+1. **Dashboard (`/desk`)**: HOME 4-pane — market, intelligence, portfolio, attention — with provenance badges.
+2. **Markets (`/markets`)**: Real-time quotes, technical indicators (Wilder RSI, Bollinger Bands, MACD), and order book depth.
+3. **Quant Lab (`/lab`)**: Factor alphas, information coefficients (IC), regime indicators, and walk-forward statistics.
+4. **Portfolio (`/portfolio`)**: Multi-asset holdings, dollar allocations, target shares, and cash balances.
+5. **Risk Firewall (`/risk`)**: Real-time VaR 95/99, Expected Shortfall (CVaR), macro stress test impacts (Treasury shock, oil shock, flash crash).
+6. **Orders (`/orders`)**: Active order state machine, idempotency keys, execution statuses, and cancellations.
+7. **Execution & SOR (`/exec`)**: Smart Order Router, FIX message audit, broker routing policies, and slippage TCA.
+8. **Reconciliation (`/recon`)**: Three-way reconciliation engine comparing local OMS, broker confirmations, and position ledgers — `UNAVAILABLE` until a ledger triple is attached, never zero-filled.
+9. **Cryptographic Audit (`/audit`)**: Tamper-evident SHA-256 chained audit log tail — `UNAVAILABLE` when no session records exist.
+10. **System Configuration (`/config`)**: Broker connectivity status, MCP tool server health, and memory telemetry.
+11. **Kill Switch & Safety (`/kill`, alias `/halt`)**: Emergency governance board, trigger causes, and authenticated unlock entry (`/unlock <token>` — wrong tokens are denied and logged, engine stays HALTED).
+12. **Screen 12: Data (`/data`)** *(v2.0)*: Feed health per source (HEALTHY/DEGRADED/DOWN), data-quality verdict (PASS/WARN/FAIL), freshness age, dataset version, and PIT availability stamps. Shows `UNAVAILABLE` with source badges when no feed reports — never estimates.
+
+### HOME 4-Pane Workspace *(v2.0)*
+
+HOME answers on sight — **MARKET / INTELLIGENCE / PORTFOLIO / ATTENTION** — each figure carrying `SOURCE / AS-OF / FRESHNESS / CONFIDENCE` or `UNAVAILABLE`. Analysis renders **evidence cards** (per-factor for/against with weights, model + OOS IC, risk block) and a **consensus matrix** (Alpha/Regime/News/Risk/Portfolio votes → `CONFLICTED → REVIEW`), never bare sentiment.
 
 ---
 
@@ -181,7 +185,7 @@ When typing in the command prompt or pressing `/`, DELTA renders an interactive,
 
 Pressing `Ctrl+M` or executing `/models` opens the Quant AI Model Selector modal matching Image 2:
 
-- **Local Institutional Brain (`delta-fm-research`)**: Runs 100% offline with zero cloud API keys required. Handles multi-factor analysis, Black-Scholes Greeks, crash detection, forecasting, and algo-trading code generation.
+- **Local Institutional Brain (`delta(delta-fm-research)`)**: Runs 100% offline with zero cloud API keys required. Handles multi-factor analysis, Black-Scholes Greeks, crash detection, forecasting, and algo-trading code generation.
 - **Cloud Frontier Models**:
   - `claude-3-7-sonnet` — Deep Chain-of-Thought quantitative reasoning (Anthropic)
   - `claude-3-5-sonnet` — High-efficiency multi-factor analysis (Anthropic)
@@ -198,6 +202,18 @@ Pressing `Ctrl+M` or executing `/models` opens the Quant AI Model Selector modal
   /key openai sk-proj-...
   /key astro ak-astro-60-...
   ```
+
+  Keys land in the AES-256 vault only (never disk-plaintext). Full flow:
+  `set DELTA_VAULT_PASS=<pass>`, then `/auth`, then `/key <provider> <token>` —
+  the catalogue flips `NEEDS_KEY` → `READY` and `/model switch` unlocks.
+
+### Model Switching, Effort & Thinking *(v2.2 — switching routes inference, not labels)*
+
+- `/model` — registry with `READY` / `NEEDS_KEY` / `UNAVAILABLE` badges; `[ACTIVE]` marks the routed model.
+- `/model switch <name>` — pins the conversational inference role to that model's rail and prints `route=...`. Refusals are explicit: `NEEDS_KEY` names the `/key` fix, `UNAVAILABLE` names the `/models add` fix, rail-less templates refuse even when keyed (never a silent label-swap).
+- `/effort <low|medium|high|xhigh|auto>` — applies timeout + token budget to the gateway (e.g. high = 60 s / 2048 tokens), persists across reboots, echoes in `/effort` with the live numbers.
+- `/thinking <off|summary|activity>` — evidence verbosity for tool-backed answers: `OFF` hides tool evidence, `SUMMARY` counts tool calls (default), `ACTIVITY` shows the ledger. Persists across reboots.
+- `/agent <name>` — switch persona (`research-agent` default; legacy `quant-researcher` maps to it). Unknown names list the 8 available personas instead of failing silently.
 
 ### Local Quant AI Brain Commands
 
@@ -218,6 +234,23 @@ Pressing `Ctrl+M` or executing `/models` opens the Quant AI Model Selector modal
 - `/desk` — Switch to Master Overview Desk.
 - `/plan` — Switch to Strategy & Portfolio Rebalance Planning.
 - `/mcps` — Toggle and inspect Model Context Protocol (MCP) server statuses.
+
+### Data, Doctor & Status *(v2.0)*
+
+- `/data` — Switch to the DATA workspace: feed health, quality verdict, freshness, dataset version, PIT stamps.
+- `/doctor` — Connection doctor: 11 probes (yahoo/fred/paper/alpaca/ibkr/models/mcp/daemon/bridge/vault/clock) with READY/NEEDS_KEY/UNCONFIGURED states and fix hints. Current verdict: **GO-PAPER (6/11 READY)**.
+- `/status` — Workspace + execution status: runtime, data, portfolio, risk, model, regime, broker, orders, MCP, GPU.
+
+### Execution Modes *(v2.0: SHADOW is a true mode)*
+
+| Mode | Data | Execution | Orders reach broker? |
+| :--- | :--- | :--- | :--- |
+| `LIVE` | live | real | YES — R10-gated, currently `ERR_LIVE_PROHIBITED` |
+| `PAPER` | live | simulated fills | NO |
+| `SHADOW` | live | hypothetical (recorded, never submitted) | NO — mirror-diff + 14-day soak artifact |
+| `SIMULATION` | replay/synthetic | simulated | NO |
+| `RESEARCH` | any | none (no orders) | NO |
+| `DEMO` | synthetic showcase | simulated | NO — badged, never portfolio state |
 
 ### Execution & Safety Commands
 
@@ -265,6 +298,12 @@ Every trade, parameter shift, and state change is cryptographically hashed:
 $$\text{Hash}_i = \text{SHA256}(\text{Hash}_{i-1} \parallel \text{Timestamp} \parallel \text{Stage} \parallel \text{Payload})$$
 View the verified immutable audit log anytime via `/audit`.
 
+### Workflow 6: Shadow Validation & Evidence Review *(v2.0)*
+1. Promote a validated candidate to `SHADOW`: live data flows in, decisions are recorded as hypothetical executions — **zero orders reach any broker**.
+2. Track the **mirror-diff** (hypothetical vs realized action mismatch rate) and accumulate the **14-day soak artifact** (`SOAK_COMPLETE` only at ≥14 days, zero downtime).
+3. Review any idea through its **evidence card** (for/against weights, model + OOS IC, marginal VaR, cost preview) and the **consensus matrix**; `CONFLICTED` forces `REVIEW`, never auto-trade.
+4. The decision engine emits `NO_TRADE` (policy/risk block, reason-coded) vs `WAIT` (low confidence) — both are first-class outcomes, not errors.
+
 ---
 
 ## 7. Operational Truth & Provenance Badges
@@ -277,6 +316,9 @@ Every metric displayed on screen carries an explicit data provenance badge:
 | :--- | :--- |
 | `LIVE` | Connected directly to an active, authenticated institutional broker / exchange feed. |
 | `PAPER` | Executing against live tick data with calibrated Almgren-Chriss market impact models. |
+| `SHADOW` *(v2.0)* | Live tick data in, hypothetical execution recorded, **never submitted** — mirror-diff + soak tracked. |
+| `RESEARCH` | Research-only context: datasets, experiments, validation. No orders possible. |
+| `DEMO` | Explicit synthetic showcase. Never portfolio state. |
 | `SIM` | Running against historical tick-pit market replays with full PIT boundary enforcement. |
 | `SYNTHETIC` | Statistically generated geometric Brownian motion / jump-diffusion data for stress testing. |
 | `UNAVAILABLE` | Live broker or market data is offline. Figures are shown as `---` rather than estimated. |
@@ -287,10 +329,11 @@ Every metric displayed on screen carries an explicit data provenance badge:
 
 For institutional trading operations requiring sub-microsecond matching and industry-standard FIX connectivity, DELTA includes a native Java execution gateway.
 
-### Capabilities
-- **Lock-Free Disruptor Ring Buffer**: Sustains **22.1 Million operations/sec** with **p99 latency of 100 nanoseconds**.
+### Capabilities (measured — see `docs/PERF_RUNTIME_VERDICT.md`)
+- **Lock-Free Disruptor Ring Buffer**: in-memory ring lanes certified at **14.2M ops/s** (documented-hardware runs); TCP loopback on this box measured **17,711 msgs/s, p50 48µs / p99 148µs** (`benchmarks/java_gateway_bench.json`). Quote the lane you mean — never the big number for the loopback job.
 - **Price-Time FIFO Order Book**: Full support for limit orders, aggressor market orders, partial fills, and instant cancellations.
 - **FIX 4.2 / 4.4 Engine**: Zero-copy parser and serializer for `Logon (35=A)`, `NewOrderSingle (35=D)`, and `ExecutionReport (35=8)` messages with strict tag-10 checksum validation.
+- **Scope**: PAPER/SIM rails only. Live venue adapters are refusal stubs until R10 sign-off. No C#/JS layers: measured unnecessary (fourth runtime + extra IPC hops would add latency, not remove it).
 
 ### Python Integration
 The Java execution plane can be consumed transparently from Python:
@@ -358,17 +401,20 @@ $env:OMP_NUM_THREADS = "1"
 Verify that all system layers are functioning correctly:
 
 ```bash
-# 1. Run Rust TUI & native kernel test suite (36 tests)
-cargo test --workspace --lib
+# 1. Run Rust TUI & native kernel test suite (25 tests: lib 15 + integration 10)
+cargo test --manifest-path tui/Cargo.toml
 
-# 2. Run Python canonical loop & institutional tests (67 tests)
-pytest tests/test_canonical_end_to_end.py tests/test_terminal_redesign.py tests/test_institutional_hardening.py -v
+# 2. Run the full Python suite — v2.0: 961 passed (846 + 115 institutional)
+python -m pytest tests/ -q
 
-# 3. Run Java execution plane unit tests (4 tests)
+# 3. Stage proofs (29 tests) + audit-gap closure (3 tests)
+python -m pytest tests/test_stage1_foundation.py tests/test_stage2_quantbrain.py tests/test_stage3_decision.py tests/test_stage4_validation.py tests/test_stage5_reality.py tests/test_audit_gaps.py -q
+
+# 4. Connection doctor (expect GO-PAPER 6/11 READY; LIVE stays gated)
+python scripts/system_doctor.py --connections
+
+# 5. Run Java execution plane unit tests (4 tests)
 java -cp execution/java_gateway/bin delta.execution.GatewayTests
-
-# 4. Run native kernel speed & parity tests (6 tests)
-pytest tests/test_native_speed.py -v
 ```
 
 ---

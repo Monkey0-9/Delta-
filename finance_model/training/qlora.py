@@ -24,6 +24,9 @@ class TrainingConfig:
     gradient_accumulation_steps: int = 1
     max_seq_length: int = 256
     use_qlora: bool = True
+    allow_remote_code: bool = False  # Stage-2 L5: explicit opt-in, default False
+    enable_gradient_checkpointing: bool = True  # Stage-2 L4
+    seed: int = 20261007
 
 
 def cuda_available() -> bool:
@@ -102,16 +105,27 @@ def _tokenize_dataset(
 ) -> Dataset:
 
     def tokenize(example: dict[str, Any]) -> dict[str, Any]:
-        text = _example_to_text(example)
+        prompt = str(example.get("prompt", ""))
+        completion = str(example.get("completion", ""))
+        full_text = _example_to_text(example)
 
         result = tokenizer(
-            text,
+            full_text,
             truncation=True,
             max_length=max_seq_length,
             padding=False,
         )
-
-        result["labels"] = result["input_ids"].copy()
+        # Stage-2 L1 response-only loss: mask prompt tokens to -100.
+        # If no prompt/completion split (raw "text"), fall back to full labels.
+        labels = result["input_ids"].copy()
+        if prompt and completion:
+            prompt_ids = tokenizer(
+                prompt, truncation=True,
+                max_length=max_seq_length, padding=False)["input_ids"]
+            n_mask = min(len(prompt_ids), len(labels))
+            for i in range(n_mask):
+                labels[i] = -100
+        result["labels"] = labels
         return result
 
     return dataset.map(
@@ -128,7 +142,7 @@ def _load_model(
     quantization_config = build_quantization_config()
 
     kwargs: dict[str, Any] = {
-        "trust_remote_code": True,
+        "trust_remote_code": bool(config.allow_remote_code),
     }
 
     if quantization_config is not None:
@@ -195,7 +209,7 @@ def train_sft(
 
     tokenizer = AutoTokenizer.from_pretrained(
         config.model_name,
-        trust_remote_code=True,
+        trust_remote_code=bool(config.allow_remote_code),
     )
 
     if tokenizer.pad_token is None:
@@ -216,8 +230,17 @@ def train_sft(
         lora_config,
     )
 
+    if config.enable_gradient_checkpointing:
+        try:
+            model.gradient_checkpointing_enable()
+        except Exception:
+            pass
+
     model.print_trainable_parameters()
 
+    # Stage-2 L3 precision agrees with hardware capability (tested).
+    _use_bf16 = bool(cuda_available() and torch.cuda.is_bf16_supported())
+    _use_fp16 = bool(cuda_available() and not _use_bf16)
     training_args = TrainingArguments(
         output_dir=config.output_dir,
         num_train_epochs=config.num_train_epochs,
@@ -228,9 +251,10 @@ def train_sft(
         save_strategy="no",
         report_to=[],
         remove_unused_columns=False,
-        fp16=False,
-        bf16=False,
+        fp16=_use_fp16,
+        bf16=_use_bf16,
         dataloader_pin_memory=False,
+        seed=config.seed,
     )
 
     from trl import SFTTrainer
@@ -247,6 +271,47 @@ def train_sft(
     trainer.save_model(config.output_dir)
     tokenizer.save_pretrained(config.output_dir)
 
+    # Stage-2 L6 per-run manifest: dataset/model/tokenizer/config/seed/hw/precision.
+    write_run_manifest(config, dataset, actual_qlora, _use_fp16, _use_bf16)
+    return _train_return_payload(config, dataset, result, actual_qlora)
+
+def write_run_manifest(config: TrainingConfig, dataset: Dataset,
+                       actual_qlora: bool, use_fp16: bool, use_bf16: bool) -> Path:
+    """Stage-2 L6: per-run dataset_hash/model_rev/tokenizer_rev/git/sha manifest."""
+    import hashlib
+    import json
+    import subprocess
+    try:
+        git_commit = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=Path(__file__).resolve().parents[2],
+            stderr=subprocess.DEVNULL).decode().strip()
+    except Exception:
+        git_commit = "unknown"
+    probe = "".join(str(r)[:200] for r in dataset[: min(5, len(dataset))])
+    dataset_hash = hashlib.sha256(probe.encode()).hexdigest()[:16]
+    cfg_hash = hashlib.sha256(repr(config).encode()).hexdigest()[:16]
+    manifest = {
+        "model_name": config.model_name,
+        "dataset_hash": dataset_hash,
+        "tokenizer_rev": config.model_name,
+        "config_hash": cfg_hash,
+        "seed": config.seed,
+        "git_commit": git_commit,
+        "hardware": "cuda" if cuda_available() else "cpu",
+        "precision": "bf16" if use_bf16 else ("fp16" if use_fp16 else "fp32"),
+        "qlora": actual_qlora,
+        "gradient_checkpointing": config.enable_gradient_checkpointing,
+        "allow_remote_code": config.allow_remote_code,
+        "response_only_loss": True,
+    }
+    out = Path(config.output_dir) / "run_manifest.json"
+    out.write_text(json.dumps(manifest, indent=2))
+    return out
+
+
+def _train_return_payload(config: TrainingConfig, dataset: Dataset, result: object,
+                          actual_qlora: bool) -> dict:
     return {
         "output_dir": config.output_dir,
         "model_name": config.model_name,

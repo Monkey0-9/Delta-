@@ -27,7 +27,9 @@ class TerminalStore:
     market_live: bool = False
     risk_state: str = "SAFE"
     model: str = "delta-fm-research"
-    agent: str = "quant-researcher"
+    agent: str = "research-agent"  # must exist in agent/orchestrator AGENTS
+    effort: str = "AUTO"  # LOW|MEDIUM|HIGH|XHIGH|AUTO — synced from backend
+    thinking: str = "SUMMARY"  # OFF|SUMMARY|ACTIVITY — synced from backend
     broker: str = "paper"
     kill_armed: bool = True
     viewmodels: dict[str, Any] = field(default_factory=dict)

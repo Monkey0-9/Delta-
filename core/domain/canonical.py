@@ -282,4 +282,78 @@ __all__ = [
     "CanonicalRiskState", "CanonicalOrder", "CanonicalExecution",
     "CanonicalFill", "CanonicalEvidence", "CanonicalDecision",
     "CanonicalExperiment", "CanonicalModel",
+    "DataPoint", "pit_join_filter", "assert_pit_order",
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class DataPoint:
+    """Stage-1 canonical record (plan B). One truth for PIT enforcement.
+
+    Guarantee: t_event <= t_pub <= t_avail <= t_dec <= t_exec.
+    A row whose available_at > decision asof MUST be rejected by pit_join_filter.
+    """
+    symbol: str
+    event_time: datetime
+    publication_time: datetime | None = None
+    received_time: datetime | None = None
+    effective_time: datetime | None = None
+    decision_time: datetime | None = None
+    execution_time: datetime | None = None
+    source: str = "unknown"
+    revision: int = 0
+    dataset_version: str = "v1"
+    quality: str = "UNKNOWN"  # PASS|WARN|FAIL|UNKNOWN
+    value: float = 0.0
+
+    def __post_init__(self) -> None:
+        ev = _utc(self.event_time)
+        object.__setattr__(self, "event_time", ev)
+        for f in ("publication_time", "received_time", "effective_time",
+                  "decision_time", "execution_time"):
+            v = getattr(self, f)
+            if v is not None:
+                object.__setattr__(self, f, _utc(v))
+        pub = self.publication_time or ev
+        avl = self.received_time or self.effective_time or pub
+        if pub < ev:
+            raise ValueError("publication_time < event_time")
+        if avl < pub:
+            raise ValueError("availability < publication")
+        if self.decision_time is not None and self.decision_time < avl:
+            raise ValueError("decision before availability: lookahead")
+        if self.execution_time is not None:
+            dec = self.decision_time or avl
+            if self.execution_time < dec:
+                raise ValueError("execution before decision")
+
+    def available_at(self) -> datetime:
+        return self.received_time or self.effective_time \
+            or self.publication_time or self.event_time
+
+    def is_usable_at(self, asof: datetime) -> bool:
+        a = _utc(asof)
+        assert a is not None
+        avail = self.available_at()
+        assert avail is not None
+        return avail <= a
+
+
+def assert_pit_order(event: datetime, pub: datetime | None = None,
+                     avail: datetime | None = None,
+                     dec: datetime | None = None,
+                     exe: datetime | None = None) -> None:
+    """Raise on any t_event<=t_pub<=t_avail<=t_dec<=t_exec violation."""
+    seq = [(_utc(event), "event")] + [
+        (_utc(v), n) for v, n in
+        ((pub, "publication"), (avail, "availability"),
+         (dec, "decision"), (exe, "execution")) if v is not None]
+    for (a, na), (b, nb) in zip(seq, seq[1:]):
+        assert a is not None and b is not None
+        if b < a:
+            raise ValueError(f"PIT violation: {nb} {b} < {na} {a}")
+
+
+def pit_join_filter(points: list[DataPoint], asof: datetime) -> list[DataPoint]:
+    """PIT-join: keep only rows available at (or before) decision asof."""
+    return [p for p in points if p.is_usable_at(asof)]

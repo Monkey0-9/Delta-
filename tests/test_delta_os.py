@@ -279,8 +279,17 @@ def test_repl_routing_never_raises():
     out, _ = t.handle("/kill")
     assert "FROZEN" in out or "KILLED" in out
     assert t.safety.mode == "HALTED"
+    # Token-gated unlock (shame-proofing): no token → DENIED, stays HALTED.
     out, _ = t.handle("/unlock ops test")
-    assert "MANUAL" in out
+    assert "DENIED" in out
+    assert t.safety.mode == "HALTED"
+    import os as _os
+    _os.environ["DELTA_UNLOCK_TOKEN"] = "UNIT-TEST-TOKEN"
+    try:
+        out, _ = t.handle("/unlock UNIT-TEST-TOKEN ops test")
+        assert "MANUAL" in out
+    finally:
+        del _os.environ["DELTA_UNLOCK_TOKEN"]
     out, _ = t.handle("/quant")
     assert "usage" in out
     # hostile input: empty, giant, weird unicode — never raises

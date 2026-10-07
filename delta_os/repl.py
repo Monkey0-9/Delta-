@@ -43,7 +43,8 @@ def _load_session(term) -> None:
         d = json.loads(p.read_text(encoding="utf-8"))
         if isinstance(d.get("watchlist"), list):
             term.watchlist = [s.upper() for s in d["watchlist"][:50]]
-        for k in ("theme", "workspace", "model_name", "broker_name"):
+        for k in ("theme", "workspace", "model_name", "broker_name",
+                  "effort", "thinking"):
             if isinstance(d.get(k), str) and d[k]:
                 setattr(term, k, d[k])
     except Exception:
@@ -59,6 +60,8 @@ def _save_session(term) -> None:
                                  "theme": term.theme,
                                  "workspace": term.workspace,
                                  "model_name": term.model_name,
+                                 "effort": getattr(term, "effort", "AUTO"),
+                                 "thinking": getattr(term, "thinking", "SUMMARY"),
                                  "broker_name": term.broker_name}),
                      encoding="utf-8")
     except Exception:
@@ -117,6 +120,8 @@ class Terminal:
     vault: Vault | None = None
     broker_name: str = "paper"
     model_name: str = "delta-fm-research"
+    effort: str = "AUTO"  # LOW|MEDIUM|HIGH|XHIGH|AUTO — applied to gateway budgets
+    thinking: str = "SUMMARY"  # OFF|SUMMARY|ACTIVITY — evidence verbosity
     workspace: str = "EQUITIES-ALPHA"
     theme: str = "monokai"
     regime_chip: str = "n/a"
@@ -145,6 +150,11 @@ class Terminal:
                 f"| KILLSWITCH: [{ks}]" + chips)
 
     def _day_pnl(self) -> str:
+        # Shame-proofing: day_start_equity=0.0 means "not initialised" — showing
+        # equity-minus-zero would print a fake +$1M day P&L. Report n/a instead.
+        base = self.safety.day_start_equity or 0.0
+        if base <= 0:
+            return "n/a (no day-start equity)"
         cur = self.router.current()
         if self.broker_name != "paper":
             return "n/a"
@@ -155,7 +165,6 @@ class Terminal:
             except Exception:
                 pass
         eq = cur.positions(px)["equity"]
-        base = self.safety.day_start_equity or 1e-9
         pnl = eq - base
         return f"{pnl:+,.2f} ({pnl / base:+.2%})"
 
@@ -263,11 +272,29 @@ class Terminal:
                     else f"/key {rec['slot']} <token>")
             return (f"refused: {target} is {rec['status']} — "
                     f"never fake-READY. Fix: {hint}")
+        # Pin REAL routing, not just the label: local brain stays local,
+        # cloud entries pin the gateway commentary role to their rail.
+        # Anything without a rail raises honestly (never silent label-swap).
+        routed = "local brain"
+        if rec["kind"] != "local":
+            try:
+                self.models.use_catalogue(target)
+                routed = f"gateway:{self.models.active.get('commentary', '?')}"
+            except Exception as exc:
+                return f"refused: {target} is READY but unwired ({exc})"
+        try:
+            self.models.set_effort(getattr(self, "effort", "AUTO"))
+        except Exception:
+            pass
         self.model_name = target
+        try:
+            _save_session(self)
+        except Exception:
+            pass
         if rec["kind"] == "local":
             return (f"✓ Switched active model -> {self.model_name} "
                     f"(Local Quant FM · 100% Offline · No API key needed)")
-        return f"✓ Switched active model -> {self.model_name} [{rec['slot']} key on file]"
+        return f"✓ Switched active model -> {self.model_name} [{rec['slot']} key on file]" + f" · route={routed}"
 
     def _c_mcp(self, args: list) -> str:
         # Truth rule: statuses are UNPROBED until a runtime report arrives.
@@ -310,19 +337,38 @@ class Terminal:
 
     def _c_effort(self, args: list) -> str:
         if not args:
-            return "Reasoning effort levels: low | medium | high | xhigh | auto\nUsage: /effort <level>"
+            return (f"Reasoning effort: {getattr(self, 'effort', 'AUTO')} "
+                    f"(timeout {self.models.timeout_s:.0f}s, max_tokens {self.models.max_tokens})\n"
+                    "Levels: low | medium | high | xhigh | auto\nUsage: /effort <level>")
         lvl = args[0].upper()
         if lvl not in ("LOW", "MEDIUM", "HIGH", "XHIGH", "AUTO"):
             return f"Invalid effort level: {args[0]}. Choose from: low, medium, high, xhigh, auto"
-        return f"✓ Set reasoning effort -> {lvl}"
+        try:
+            timeout_s, max_tokens = self.models.set_effort(lvl)
+        except Exception as exc:
+            return f"effort NOT applied: {exc}"
+        self.effort = lvl
+        try:
+            _save_session(self)
+        except Exception:
+            pass
+        return (f"✓ Set reasoning effort -> {lvl} "
+                f"(timeout {timeout_s:.0f}s, max_tokens {max_tokens} — applied to gateway)")
 
     def _c_thinking(self, args: list) -> str:
         if not args:
-            return "Thinking display modes: off | summary | activity\nUsage: /thinking <mode>"
+            return (f"Thinking display: {getattr(self, 'thinking', 'SUMMARY')}\n"
+                    "Modes: off | summary | activity\nUsage: /thinking <mode>")
         mode = args[0].upper()
         if mode not in ("OFF", "SUMMARY", "ACTIVITY"):
             return f"Invalid thinking mode: {args[0]}. Choose from: off, summary, activity"
-        return f"✓ Set thinking display -> {mode}"
+        self.thinking = mode
+        try:
+            _save_session(self)
+        except Exception:
+            pass
+        return (f"✓ Set thinking display -> {mode} "
+                f"(OFF hides tool evidence, SUMMARY counts it, ACTIVITY shows full ledger)")
 
     def _c_desk(self, args: list) -> str:
         return self.status_bar()
@@ -547,9 +593,22 @@ class Terminal:
                 f"errors={receipt['errors'] or 'none'}")
 
     def _c_unlock(self, args: list) -> str:
-        if len(args) < 2:
-            return "usage: /unlock [actor] [reason...]"
-        return "mode -> " + self.safety.unlock(args[0], " ".join(args[1:]))
+        # Shame-proofing fix: REPL unlock REQUIRES the DELTA_UNLOCK_TOKEN,
+        # same as the bridge path. `usage: /unlock <token> [actor] [reason...]`.
+        # Without the token the HALTED state cannot be left, period.
+        import os as _os
+        expected = _os.environ.get("DELTA_UNLOCK_TOKEN", "")
+        if len(args) < 1:
+            return "usage: /unlock <token> [actor] [reason...]"
+        if not expected or args[0] != expected:
+            try:
+                self.safety.compliance.append("unlock_denied", {"args": len(args)})
+            except Exception:
+                pass
+            return "unlock DENIED: missing or invalid auth token — still HALTED."
+        actor, reason = (args[1] if len(args) > 1 else "operator"), \
+            (" ".join(args[2:]) if len(args) > 2 else "manual")
+        return "mode -> " + self.safety.unlock(actor, reason)
 
     def _c_flatten(self, args: list) -> str:
         return ("flatten submits market orders — route via preview: "
@@ -885,6 +944,12 @@ class Terminal:
         prov, token = args[0].lower(), args[1]
         try:
             msg = self.brain.set_api_key(prov, token, self.vault)
+        except RuntimeError:
+            return ("key NOT stored: vault locked.\n"
+                    "  1. set DELTA_VAULT_PASS=<passphrase> in this shell\n"
+                    "  2. /auth  (opens/creates the AES-256 vault)\n"
+                    f"  3. /key {prov} <token>  (then /model switch <model>)\n"
+                    "Keys never touch disk outside the vault.")
         except Exception as exc:
             return f"key NOT stored: {exc}"
         return f"✓ {msg}"
@@ -1282,7 +1347,15 @@ class Terminal:
             el = _t.perf_counter() - t0
             flag = "" if r["critic_passed"] else " [UNVERIFIED NUMERICS]"
             snap = (f"\n[{pre}]" if pre else "")
-            return f"[{r['model']}{flag} {el:.1f}s]{snap} {r['text'][:1500]}"
+            think = getattr(self, "thinking", "SUMMARY")
+            ledger = r.get("evidence", []) or []
+            if think == "OFF":
+                ev = ""
+            elif think == "ACTIVITY":
+                ev = "\n".join(["", "evidence:"] + [f"  {l[:200]}" for l in ledger[:8]])
+            else:  # SUMMARY default: count, not the full ledger
+                ev = f"\n[evidence: {len(ledger)} tool calls]" if ledger else ""
+            return f"[{r['model']}{flag} {el:.1f}s]{snap} {r['text'][:1500]}{ev}"
         except Exception:
             try:
                 r = self.models.ask("commentary", question)

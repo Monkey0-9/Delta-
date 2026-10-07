@@ -23,6 +23,7 @@ class DeltaMode(str, Enum):
     SIMULATION = "SIMULATION"
     RESEARCH = "RESEARCH"
     DEMO = "DEMO"
+    SHADOW = "SHADOW"  # Stage-5 X: true live-data/hypothetical-exec split (was PAPER alias)
 
     @classmethod
     def parse(cls, raw: str) -> "DeltaMode":
@@ -32,7 +33,7 @@ class DeltaMode(str, Enum):
             "PRODUCTION": cls.LIVE,
             "SIM": cls.SIMULATION,
             "PAPER": cls.PAPER,
-            "SHADOW": cls.PAPER,  # shadow executes paper-family path
+            "SHADOW": cls.SHADOW,  # true shadow mode (live data, hypothetical exec)
             "RESEARCH": cls.RESEARCH,
             "DEMO": cls.DEMO,
             "LIVE": cls.LIVE,
@@ -49,10 +50,15 @@ class DeltaMode(str, Enum):
         return {
             DeltaMode.LIVE: "prod",
             DeltaMode.PAPER: "paper",
+            DeltaMode.SHADOW: "shadow",
             DeltaMode.SIMULATION: "simulation",
             DeltaMode.RESEARCH: "research",
             DeltaMode.DEMO: "simulation",  # demo runs on sim rails, badged DEMO
         }[self]
+
+    @property
+    def is_paper_family(self) -> bool:
+        return self in (DeltaMode.PAPER, DeltaMode.SHADOW)
 
     @property
     def is_real_money(self) -> bool:
@@ -69,6 +75,8 @@ def mode_banner(mode: DeltaMode, *, extra: str = "") -> str:
         base += " — SYNTHETIC SHOWCASE, NOT PORTFOLIO STATE"
     elif mode is DeltaMode.SIMULATION:
         base += " — SIMULATED EXECUTION"
+    elif mode is DeltaMode.SHADOW:
+        base += " — LIVE DATA, HYPOTHETICAL EXECUTION (NO ORDERS)"
     elif mode is DeltaMode.RESEARCH:
         base += " — RESEARCH ONLY, NO ORDERS"
     if extra:

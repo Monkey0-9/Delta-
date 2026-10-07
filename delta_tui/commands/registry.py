@@ -37,6 +37,7 @@ for _name, _desc, _screen, _sym, _cat in [
     ("simulate", "Run simulation", "scenarios", False, "Primary"),
     ("backtest", "Backtest strategy", "scenarios", True, "Primary"),
     ("trade", "Create trade proposal", "execution", True, "Primary"),
+    ("data", "Market-data feeds, quality, freshness, PIT", "data", False, "Primary"),
     ("automation", "Manage automation", "automation", False, "Primary"),
     ("finance-chat", "Finance conversation", "home", False, "Primary"),
     ("finance-agent", "Finance agent", "research", False, "Primary"),

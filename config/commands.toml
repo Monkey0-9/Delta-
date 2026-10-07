@@ -1,0 +1,114 @@
+# DELTA command registry — generated single source (audit-gap closure).
+# GENERATED from delta_tui/commands/registry.py — do not hand-edit.
+# Regenerate: python -c "from delta_tui.commands.registry import dump_toml; ..."
+# Converged registry: name/aliases/description/arguments/permissions/completion/handler.
+
+[meta]
+version = "1.0"
+date = "2026-10-07"
+source = "delta_tui/commands/registry.py"
+
+[commands.research]
+description = "Research a hypothesis"
+screen = "research"
+needs_symbol = false
+risky = false
+category = "Primary"
+
+[commands.market]
+description = "Analyze a market"
+screen = "market"
+needs_symbol = false
+risky = false
+category = "Primary"
+
+[commands.portfolio]
+description = "Portfolio context"
+screen = "portfolio"
+needs_symbol = false
+risky = false
+category = "Primary"
+
+[commands.risk]
+description = "Risk state"
+screen = "risk"
+needs_symbol = false
+risky = false
+category = "Primary"
+
+[commands.simulate]
+description = "Run simulation"
+screen = "scenarios"
+needs_symbol = false
+risky = false
+category = "Primary"
+
+[commands.backtest]
+description = "Backtest strategy"
+screen = "scenarios"
+needs_symbol = true
+risky = false
+category = "Primary"
+
+[commands.trade]
+description = "Create trade proposal"
+screen = "execution"
+needs_symbol = true
+risky = false
+category = "Primary"
+
+[commands.data]
+description = "Market-data feeds, quality, freshness, PIT"
+screen = "data"
+needs_symbol = false
+risky = false
+category = "Primary"
+
+[commands.kill]
+description = "EMERGENCY kill switch (halt execution)"
+screen = "system"
+needs_symbol = false
+risky = true
+category = "Primary"
+
+[commands.model]
+description = "Switch AI model engine"
+screen = "models"
+needs_symbol = false
+risky = false
+category = "System/AI"
+
+[commands.agent]
+description = "Select active agent persona"
+screen = "models"
+needs_symbol = false
+risky = false
+category = "System/AI"
+
+[commands.mcp]
+description = "Manage MCP tool integrations"
+screen = "system"
+needs_symbol = false
+risky = false
+category = "System/AI"
+
+[commands.doctor]
+description = "Connection doctor (probes + safe-fix)"
+screen = "system"
+needs_symbol = false
+risky = false
+category = "System/AI"
+
+[commands.status]
+description = "Workspace + execution status"
+screen = "system"
+needs_symbol = false
+risky = false
+category = "System/AI"
+
+[commands.help]
+description = "Command help"
+screen = "home"
+needs_symbol = false
+risky = false
+category = "System/AI"

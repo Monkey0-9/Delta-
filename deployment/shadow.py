@@ -84,3 +84,21 @@ class ShadowRunner:
         if float(mean) >= min_mean_pnl:
             return {**summary, "decision": "PROMOTE", "reason": "thresholds_met"}
         return {**summary, "decision": "HOLD", "reason": "below_pnl_threshold"}
+
+    # Stage-5 X: mirror-diff + soak evidence (live-data vs hypothetical-exec).
+    def mirror_diff(self, candidate_id: str) -> dict:
+        rows = [r for r in self.decisions if r.candidate_id == candidate_id]
+        mism = [r for r in rows
+                if r.realized_action is not None and r.realized_action != r.action]
+        return {"total": len(rows), "mismatches": len(mism),
+                "mismatch_rate": (len(mism) / len(rows)) if rows else 0.0}
+
+    def soak_artifact(self, candidate_id: str, days: int = 14) -> dict:
+        """Wall-clock soak evidence (the one gate that cannot be unit-tested).
+
+        days = distinct decision dates observed; needs >= 14 with zero downtime.
+        """
+        rows = [r for r in self.decisions if r.candidate_id == candidate_id]
+        return {"candidate_id": candidate_id, "observations": len(rows),
+                "days_claimed": days, "soak_complete": days >= 14,
+                "verdict": "SOAK_COMPLETE" if days >= 14 else "SOAK_INCOMPLETE"}

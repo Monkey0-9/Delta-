@@ -27,7 +27,9 @@ from .screens.home import HomeScreen
 from .screens.core import (MarketScreen, SecurityScreen, BookScreen,
                            ResearchScreen, AlphaScreen, PortfolioScreen, RiskScreen)
 from .screens.ops import (ExecutionScreen, OrdersScreen, ScenariosScreen,
-                          ModelsScreen, SystemScreen, SessionScreen, AutomationScreen)
+                           ModelsScreen, SystemScreen, SessionScreen,
+                           AutomationScreen, DataScreen)
+from .screens.assurance import ReconScreen, AuditScreen
 
 SCREENS = {
     "home": HomeScreen(), "market": MarketScreen(), "security": SecurityScreen(),
@@ -36,7 +38,8 @@ SCREENS = {
     "execution": ExecutionScreen(), "orders": OrdersScreen(),
     "scenarios": ScenariosScreen(), "models": ModelsScreen(),
     "system": SystemScreen(), "session": SessionScreen(),
-    "automation": AutomationScreen(),
+    "automation": AutomationScreen(), "data": DataScreen(),
+    "reconciliation": ReconScreen(), "audit": AuditScreen(),
 }
 
 # Single AGENTS source: agent/orchestrator (8 personas). Fallback keeps the
@@ -126,9 +129,13 @@ class DeltaApp:
                 self.store.set_model(v)
             v = d.get("agent")
             if isinstance(v, str) and v:
-                if v == "quant-researcher":
-                    v = "delta"
+                if v in ("quant-researcher", "delta"):
+                    v = "research-agent"
                 self.store.set_agent(v)
+            for _k in ("effort", "thinking"):
+                _v = d.get(_k)
+                if isinstance(_v, str) and _v:
+                    setattr(self.store, _k, _v.upper())
             v = d.get("session") or d.get("session_id")
             if isinstance(v, str) and v:
                 self.store.set_session(v)
@@ -153,6 +160,8 @@ class DeltaApp:
                 cur = {}
             cur.update({"model": self.store.model, "model_name": self.store.model,
                         "agent": self.store.agent,
+                        "effort": getattr(self.store, "effort", "AUTO"),
+                        "thinking": getattr(self.store, "thinking", "SUMMARY"),
                         "session": self.store.session_id, "session_id": self.store.session_id,
                         "workspace": self.store.workspace})
             p.write_text(json.dumps(cur, indent=2), encoding="utf-8")
@@ -191,6 +200,9 @@ class DeltaApp:
         t = (text or "").strip()
         if not t:
             return ""
+        # Fresh command, fresh backend echo: never bleed a previous command's
+        # backend output into an unrelated screen (stale-content shame).
+        self._last_live = ""
         self.refresh_chrome()
         parsed = cmd_parser.parse(t)
         action = parsed.get("action")
@@ -216,6 +228,9 @@ class DeltaApp:
         if raw_cmd == "open":
             return self._cmd_open(args)
         if raw_cmd in ("mcp", "config", "auth"):
+            return self._passthrough(t)
+        # model-adjacent verbs: deterministic backend passthrough (never screen-only)
+        if raw_cmd in ("effort", "thinking", "key"):
             return self._passthrough(t)
         # brain/automation verbs: deterministic backend passthrough
         if raw_cmd in ("brain", "sentinel", "alerts", "protect", "dipbuy",
@@ -266,6 +281,13 @@ class DeltaApp:
                 "execution": "/trade", "orders": "/portfolio",
                 "scenarios": None, "alpha": None, "models": "/model list",
                 "system": None, "session": None, "home": None,
+                # Shame-proofing: analytic verbs route to the real REPL backend.
+                "forecast": f"/forecast {self.store.symbol} 5",
+                "crash": "/crash", "sentinel": "/sentinel status",
+                "algo": "/algo momentum", "ask": None,
+                "key": "/key", "lab": None, "recon": None,
+                "audit": None, "halt": None, "mcps": "/mcps",
+                "exec": "/trade", "desk": None, "markets": "/macro",
             }.get(action.name)
             live_out = ""
             if action.name in ("simulate", "backtest"):
@@ -301,10 +323,10 @@ class DeltaApp:
             extra = getattr(self, "_last_live", "")
             if extra and extra not in body:
                 body = f"{body}\n{extra}"
-            # browser hint for heavy work
+            # browser hint for heavy work (terminal-native export; no web UI per ADR-0006)
             if action.name in ("research", "simulate", "backtest", "portfolio", "analyze"):
                 if "[Open analysis" not in body:
-                    body = f"{body}\n\n[Open analysis ↗] [Run research] [Simulate]\n(Full visualization available in DELTA Web — /open or Ctrl+O)"
+                    body = f"{body}\n\n[Run research] [Simulate] [Export]\n(Full detail available via /export markdown|json|csv)"
             self.store.append_turn("You", t)
             self.store.append_turn("DELTA", body)
             return body
@@ -352,13 +374,19 @@ class DeltaApp:
         try:
             out, _ = be.handle(t)
             self._last_live = out
-            # sync model/broker chips
+            # sync model/broker/effort/thinking chips
             try:
                 self.store.broker = getattr(be, "broker_name", self.store.broker)
                 bm = getattr(be, "model_name", "")
                 if bm and "/model" in t:
                     self.store.set_model(bm)
                     self._persist_session()
+                for _chip, _attr in (("effort", "effort"), ("thinking", "thinking")):
+                    if f"/{_chip}" in t:
+                        v = getattr(be, _attr, "")
+                        if v:
+                            setattr(self.store, _attr, v)
+                            self._persist_session()
             except Exception:
                 pass
             self._drain_sentinel_alerts(be)
@@ -422,12 +450,12 @@ class DeltaApp:
         if args[0].lower() == "switch" and len(args) > 1:
             name = args[1]
             out = self._passthrough(f"/model switch {name}")
-            # accept backend rename or keep requested name
-            if "->" in out:
-                try:
-                    self.store.set_model(out.split("->")[-1].strip())
-                except Exception:
-                    self.store.set_model(name)
+            # Parse ONLY the model token after '->' (never the trailing
+            # sentence — a prior build poisoned store.model with it).
+            import re as _re
+            m = _re.search(r"->\s*([A-Za-z0-9][A-Za-z0-9._-]*)", out)
+            if m:
+                self.store.set_model(m.group(1))
             else:
                 self.store.set_model(name)
             self._persist_session()
@@ -445,6 +473,9 @@ class DeltaApp:
         if not args:
             return f"Agent: {self.store.agent}\nAvailable: {', '.join(AGENTS)}\nusage: /agent <name>"
         name = args[0].lower()
+        # legacy alias: the long-time default persona name
+        if name in ("quant-researcher", "quant", "delta"):
+            name = "research-agent"
         match = next((a for a in AGENTS if a.lower() == name or name in a.lower()), None)
         if match is None:
             return f"unknown agent {args[0]} — Available: {', '.join(AGENTS)}"

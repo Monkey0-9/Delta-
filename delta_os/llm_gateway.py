@@ -37,6 +37,44 @@ PROVIDERS = {
     "gpt-4o": ("cloud", "openai", "gpt-4o"),
     "deepseek-r1": ("cloud", "deepseek", "deepseek-reasoner"),
     "groq-free": ("cloud", "groq", "llama-3.3-70b-versatile"),
+    # Catalogue-wired cloud endpoints (same provider rails, per-model ids).
+    # Added so /model switch pins a REAL inference route, never a label.
+    "claude-3-7-sonnet": ("cloud", "anthropic", "claude-3-7-sonnet-20250219"),
+    "claude-5-5": ("cloud", "anthropic", "claude-5-5"),
+    "claude-opus-5-5": ("cloud", "anthropic", "claude-opus-5-5"),
+    "claude-sonnet-5-5": ("cloud", "anthropic", "claude-sonnet-5-5"),
+    "gpt-6-astra": ("cloud", "openai", "gpt-6-astra"),
+    "gpt-6-1-sol": ("cloud", "openai", "gpt-6-1-sol"),
+    "gpt-6-luna": ("cloud", "openai", "gpt-6-luna"),
+    "gemini-3-8-flash": ("cloud", "gemini", "gemini-3-8-flash"),
+    "gemini-2-5": ("cloud", "gemini", "gemini-2.5-pro"),
+}
+
+# Catalogue name -> gateway provider key. `delta-fm-research` is the local
+# brain (handled by DeltaBrain, not the gateway); `astro-6-0` stays
+# unwired until /models add configures its endpoint (refused honestly).
+CATALOGUE_TO_PROVIDER = {
+    "claude-3-7-sonnet": "claude-3-7-sonnet",
+    "claude-5-5": "claude-5-5",
+    "claude-opus-5-5": "claude-opus-5-5",
+    "claude-sonnet-5-5": "claude-sonnet-5-5",
+    "gpt-6-astra": "gpt-6-astra",
+    "gpt-6-1-sol": "gpt-6-1-sol",
+    "gpt-6-luna": "gpt-6-luna",
+    "gemini-3-8-flash": "gemini-3-8-flash",
+    "gpt-4o": "gpt-4o",
+    "deepseek-r1": "deepseek-r1",
+    "gemini-2-5": "gemini-2-5",
+    "groq-free": "groq-free",
+}
+
+# /effort levels -> (timeout_s, max_tokens). Applied to cloud + local calls.
+EFFORT_PROFILES = {
+    "LOW": (15.0, 256),
+    "MEDIUM": (30.0, 1024),
+    "HIGH": (60.0, 2048),
+    "XHIGH": (120.0, 4096),
+    "AUTO": (30.0, 1024),
 }
 
 FIN_SYSTEM = ("You are DELTA OS, an institutional trading copilot. "
@@ -85,6 +123,31 @@ class ModelGateway:
     ollama_host: str = "http://localhost:11434"
     active: dict = field(default_factory=lambda: dict(ROLE_DEFAULTS))
     timeout_s: float = 30.0
+    max_tokens: int = 1024
+    effort: str = "AUTO"
+
+    def set_effort(self, level: str) -> tuple[float, int]:
+        """Apply an /effort level to timeouts + token budget. Returns profile."""
+        lvl = (level or "").upper()
+        if lvl not in EFFORT_PROFILES:
+            raise ModelUnavailable(
+                f"unknown effort {level}; choose low|medium|high|xhigh|auto.")
+        self.effort = lvl
+        self.timeout_s, self.max_tokens = EFFORT_PROFILES[lvl]
+        return (self.timeout_s, self.max_tokens)
+
+    def use_catalogue(self, catalogue_name: str) -> str:
+        """Pin the conversational role to a catalogue model (real routing).
+
+        `delta-fm-research` is the local brain (caller handles it);
+        anything without a provider rail raises ModelUnavailable.
+        """
+        key = CATALOGUE_TO_PROVIDER.get(catalogue_name)
+        if key is None:
+            raise ModelUnavailable(
+                f"{catalogue_name} has no inference rail — "
+                f"configure it via /models add, or pick a READY entry.")
+        return self.use_for("commentary", key)
 
     def use(self, model: str) -> str:
         if model not in PROVIDERS:
@@ -125,7 +188,7 @@ class ModelGateway:
             parse = lambda j: j["candidates"][0]["content"]["parts"][0]["text"]
         elif provider == "anthropic":
             url = "https://api.anthropic.com/v1/messages"
-            body = {"model": model_id, "max_tokens": 1024, "system": system,
+            body = {"model": model_id, "max_tokens": self.max_tokens, "system": system,
                     "messages": [{"role": "user", "content": prompt}]}
             headers = {"Content-Type": "application/json", "x-api-key": key,
                        "anthropic-version": "2023-06-01"}
@@ -136,7 +199,7 @@ class ModelGateway:
                    "https://api.groq.com/openai/v1/chat/completions"
                    if provider == "groq" else
                    "https://api.deepseek.com/chat/completions")
-            body = {"model": model_id,
+            body = {"model": model_id, "max_tokens": self.max_tokens,
                     "messages": [{"role": "system", "content": system},
                                  {"role": "user", "content": prompt}]}
             headers = {"Content-Type": "application/json",

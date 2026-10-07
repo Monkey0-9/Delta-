@@ -375,7 +375,7 @@ class DataQualityChecker:
         failed_records = 0
         for check in checks:
             if check.severity in [QualitySeverity.CRITICAL, QualitySeverity.HIGH]:
-                failed_records += check.affected_records
+                failed_records += check.affected_rows
         
         passed_records = total_records - failed_records
         pass_rate = passed_records / total_records if total_records > 0 else 0.0

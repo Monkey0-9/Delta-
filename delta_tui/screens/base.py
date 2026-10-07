@@ -8,6 +8,7 @@ from ..state.store import TerminalStore
 SCREEN_IDS = (
     "home", "market", "security", "research", "alpha", "portfolio",
     "risk", "execution", "orders", "scenarios", "models", "system", "session",
+    "data", "reconciliation", "audit",
 )
 
 

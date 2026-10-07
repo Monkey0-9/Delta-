@@ -409,3 +409,12 @@ def run_ipc_loop():
 
 if __name__ == "__main__":
     run_ipc_loop()
+
+
+def handle_command(text: str) -> dict[str, Any]:
+    """Audit-gap closure: module-level command entry the doctor probe imports.
+
+    Delegates to DeltaBridge().dispatch (Terminal.handle → typed action model).
+    Exists so `from delta_os.bridge import handle_command` is READY, not DEGRADED.
+    """
+    return DeltaBridge().dispatch(text)

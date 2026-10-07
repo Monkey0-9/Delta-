@@ -21,6 +21,9 @@ class DecisionInput:
     BUY/SELL fire only when utility clears `utility_threshold`; otherwise
     WAIT. Sign-only trading without cost/risk terms is rejected by
     requiring explicit (possibly zero, explicitly stated) terms.
+
+    Canonical semantics (Stage-3 R): NO_TRADE = policy/risk block
+    (reason-coded), WAIT = low confidence / utility below threshold.
     """
 
     instrument_id: UUID
@@ -33,6 +36,9 @@ class DecisionInput:
     risk_penalty: Decimal = Decimal("0")
     transaction_cost: Decimal = Decimal("0")
     utility_threshold: Decimal = Decimal("0")
+    risk_blocked: bool = False
+    policy_blocked: bool = False
+    block_reason: str = ""
 
     model_version: str = "unknown"
     world_state_version: str = "unknown"
@@ -77,6 +83,8 @@ class DecisionEngine:
             risk_penalty=data.risk_penalty,
             transaction_cost=data.transaction_cost,
             utility_threshold=data.utility_threshold,
+            risk_blocked=getattr(data, "risk_blocked", False),
+            policy_blocked=getattr(data, "policy_blocked", False),
         )
 
         return Decision(
@@ -97,13 +105,17 @@ class DecisionEngine:
         risk_penalty: Decimal = Decimal("0"),
         transaction_cost: Decimal = Decimal("0"),
         utility_threshold: Decimal = Decimal("0"),
+        risk_blocked: bool = False,
+        policy_blocked: bool = False,
     ) -> DecisionAction:
         """Utility-gated classification: U = ER - risk - cost.
 
-        WAIT unless confidence is sufficient AND net utility clears the
-        threshold. Direction follows the sign of net utility, not gross
-        expected return.
+        NO_TRADE on any policy/risk block (reason-coded). WAIT unless
+        confidence is sufficient AND net utility clears the threshold.
+        Direction follows the sign of net utility, not gross expected return.
         """
+        if risk_blocked or policy_blocked:
+            return DecisionAction.NO_TRADE
         if confidence < Decimal("0.50"):
             return DecisionAction.WAIT
 

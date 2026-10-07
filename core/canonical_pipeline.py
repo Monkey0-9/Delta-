@@ -357,7 +357,31 @@ class CanonicalInstitutionalPipeline:
 
         # PIT check: ensure timestamps are strictly monotonically increasing
         assert df.index.is_monotonic_increasing, "PIT failure: non-monotonic index"
+        # Stage-1: attach PIT availability stamps (t_pub=t_event+15min, t_avail=+30min)
+        # so downstream joins can enforce available_at <= decision asof.
+        df = df.copy()
+        df["t_publication"] = df.index + pd.Timedelta(minutes=15)
+        df["t_availability"] = df.index + pd.Timedelta(minutes=30)
         return df
+
+    def pit_filter_bars(self, df: pd.DataFrame, asof: datetime) -> pd.DataFrame:
+        """Stage-1 PIT-join: drop any bar not yet available at decision asof."""
+        a = asof if asof.tzinfo else asof.replace(tzinfo=timezone.utc)
+        avail = pd.to_datetime(df["t_availability"], utc=True)
+        return df[avail <= a]
+
+    def gate_training_data(self, symbol: str, df: pd.DataFrame):
+        """Stage-1 D-gate: FAIL quality refuses training (fail-closed, logged)."""
+        from data.market.quality import DataQualityChecker
+        from data.quality.gate import assert_quality_or_raise, gate_report
+        rep = DataQualityChecker().check_dataframe(df, symbol)
+        q = gate_report(symbol, rep.overall_quality,
+                        reason="; ".join(c.description for c in rep.checks[:3]))
+        self._audit("quality_gate", {"symbol": symbol,
+                                       "overall": rep.overall_quality,
+                                       "verdict": q.verdict})
+        assert_quality_or_raise(q)
+        return q
 
     # 2. FEATURE EXTRACTION
     def extract_features(self, symbol: str, df: pd.DataFrame) -> TechnicalIndicators:

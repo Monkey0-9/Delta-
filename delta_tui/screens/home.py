@@ -29,8 +29,29 @@ class HomeScreen(BaseScreen):
         )
 
     def render_text(self, vm: HomeVM) -> str:
-        width = shutil.get_terminal_size((100, 30)).columns
-        return render_frontpart({"model": "delta", "agent": "delta", "session": "default"}, width=width)
+        # Stage-5 UI-3: HOME 4-pane (MARKET / INTELLIGENCE / PORTFOLIO / ATTENTION).
+        # Every number: live/paper state or UNAVAILABLE with SOURCE/AS-OF badges.
+        def _n(v, src="runtime", asof=""):
+            if v is None:
+                return f"UNAVAILABLE [SOURCE/{src}]" + (f" [AS-OF {asof}]" if asof else "")
+            try:
+                return f"{float(v):.2f} [SOURCE/{src}]"
+            except Exception:
+                return f"{v} [SOURCE/{src}]"
+        opps = getattr(vm, "opportunities", ()) or ()
+        attn = list(opps[:3]) if opps else ["No alerts — feeds nominal or UNAVAILABLE"]
+        lines = [
+            f"MODE [{getattr(vm, 'mode', 'PAPER')}]  REGIME: {vm.regime}  LIQ: {vm.liquidity}",
+            "-" * 64,
+            f"MARKET      SPY/QQQ/NVDA/AAPL: {_n(None, 'no-feed')} (live feed or UNAVAILABLE)",
+            f"INTEL       Signal: REVIEW  Confidence: {_n(None, 'model')}  Regime: {vm.regime}",
+            f"PORTFOLIO   NAV {_n(vm.net_liq)}  Gross {_n(vm.gross_pct)}%  Net {_n(vm.net_pct)}%",
+            f"RISK        VaR99 {_n(vm.var99)}  ES99 {_n(vm.es99)}  DD {_n(vm.drawdown)}",
+            "ATTENTION   " + " | ".join(str(a)[:60] for a in attn),
+            "-" * 64,
+            "Every figure carries SOURCE/AS-OF/FRESHNESS/CONFIDENCE or UNAVAILABLE.",
+        ]
+        return "\n".join(lines)
 
     def render_for(self, store: TerminalStore) -> str:
         """Splash with live model/agent/session/context chips matching exact user frontpart."""

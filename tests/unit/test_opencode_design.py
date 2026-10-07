@@ -24,7 +24,7 @@ def test_state_a_landing_minimal():
     assert "Ask DELTA anything, run a strategy, analyze a market, or type / for commands..." in rendered
     assert "Ctrl + K" in rendered
     assert "Model: delta-fm-research" in rendered
-    assert "Agent: quant-researcher" in rendered
+    assert "Agent: research-agent" in rendered
     assert "Session: default" in rendered
     # Zero technical noise
     assert "Python" not in rendered
@@ -42,7 +42,7 @@ def test_state_b_active_conversation():
     assert "You" in rendered
     assert "Analyze NVDA's current regime." in rendered
     assert "DELTA" in rendered
-    assert "Model delta-fm-research · Agent quant-researcher" in rendered
+    assert "Model delta-fm-research · Agent research-agent" in rendered
     assert "> _" in rendered
 
 
