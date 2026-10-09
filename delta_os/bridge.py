@@ -330,7 +330,24 @@ class DeltaBridge:
             return {"status": "DENIED",
                     "message": "unlock denied: missing or invalid auth token",
                     "safety_mode": getattr(self.term.safety, "mode", "UNKNOWN")}
-        out, _ = self.term.handle(f"/unlock {actor} {reason}")
+        if not actor or not isinstance(actor, str) or any(ch.isspace() for ch in actor):
+            return {"status": "DENIED",
+                    "message": "unlock denied: invalid actor",
+                    "safety_mode": getattr(self.term.safety, "mode", "UNKNOWN")}
+        try:
+            out, _ = self.term.handle(f"/unlock {token} {actor} {reason}")
+        except Exception as exc:
+            return {"status": "DENIED",
+                    "message": f"unlock failed: {exc}",
+                    "safety_mode": getattr(self.term.safety, "mode", "UNKNOWN")}
+        halted = str(getattr(self.term.safety, "mode", "")).upper() == "HALTED"
+        out_str = str(out) if out is not None else ""
+        if halted or any(m in out_str for m in ("DENIED", "BLOCKED:", "FAILED", "ERROR:", "usage:")):
+            return {
+                "status": "DENIED",
+                "message": out_str,
+                "safety_mode": self.term.safety.mode,
+            }
         return {
             "status": "UNLOCKED",
             "message": out,
