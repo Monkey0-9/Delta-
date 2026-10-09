@@ -93,10 +93,31 @@ def test_live_engine_blocks_spoofed_bools_without_evidence():
 
 
 def test_live_engine_paper_legacy_still_works():
-    from execution.live_engine import LiveExecutionEngine
+    # B7a: PAPER requires the same evidence bundle shape as LIVE (bound to
+    # the order). Bare-bool PAPER submission is a venue bypass and is refused;
+    # bound evidence on PAPER is allowed.
+    from execution.live_engine import (
+        LiveExecutionEngine,
+        VerifiedRiskEvidence,
+        evidence_order_hash,
+    )
+    from broker.contracts import OrderSide
     eng = LiveExecutionEngine(broker=_FakeBroker(), mandate=_paper_mandate())
-    res = eng.execute(**_exec_kwargs("PAPER"))
-    assert res.allowed
+    bare = eng.execute(**_exec_kwargs("PAPER"))
+    assert not bare.allowed and "risk_evidence_missing" in bare.reasons
+    assert eng.broker.submitted == []
+    bound = eng.execute(
+        **_exec_kwargs("PAPER"),
+        risk_evidence=VerifiedRiskEvidence(
+            risk_verdict="approve",
+            order_id="c1",
+            order_hash=evidence_order_hash(
+                client_order_id="c1", symbol="AAPL",
+                quantity=Decimal("1"), side=OrderSide.BUY,
+                notional=Decimal("100")),
+        ),
+    )
+    assert bound.allowed, bound.reasons
 
 
 def test_live_engine_evidence_mismatch_blocks():

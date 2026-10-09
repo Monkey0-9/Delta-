@@ -276,7 +276,30 @@ class CanonicalInstitutionalPipeline:
     Portfolio -> Risk -> OMS -> Paper Broker -> Fill -> Reconciliation -> Audit.
     """
 
-    def __init__(self, initial_cash: float = 1_000_000.0, venue: str = "XNYS") -> None:
+    def __init__(
+        self,
+        initial_cash: float = 1_000_000.0,
+        venue: str = "XNYS",
+        *,
+        kill_board: Any | None = None,
+        firewall: Any | None = None,
+        allow_short: bool = False,
+        decision_path: str = "RESEARCH",
+        allow_synthetic: bool = False,
+    ) -> None:
+        """B7a: bind the pipeline to the real safety/kill + firewall.
+
+        All new parameters are keyword-only with safe defaults so existing
+        constructions (positional ``initial_cash, venue``) keep working:
+
+        - ``kill_board``: live kill board (``check()`` / ``any_active()``).
+          Consulted on every pre-trade check alongside ``kill_switch_halted``.
+        - ``firewall``: bound risk firewall re-checked before every submit.
+        - ``allow_short``: explicit opt-in for naked SELL; default refuses.
+        - ``decision_path``: RESEARCH (sim) vs PAPER/LIVE. Hash-seeded
+          synthetic bars reaching a PAPER/LIVE decision are refused unless
+          ``allow_synthetic`` is explicitly True.
+        """
         self.initial_cash = initial_cash
         self.cash = initial_cash
         self.positions: dict[str, float] = {}  # symbol -> shares
@@ -290,6 +313,89 @@ class CanonicalInstitutionalPipeline:
         self.audit_log: list[PipelineAuditEntry] = []
         self.last_audit_hash = "0" * 64
         self.kill_switch_halted: bool = False
+        self._kill_board: Any | None = kill_board
+        self._firewall: Any | None = firewall
+        self.allow_short: bool = allow_short
+        self.decision_path: str = decision_path
+        self.allow_synthetic: bool = allow_synthetic
+
+    def _audit_event(self, stage: str, details: dict[str, Any]) -> str:
+        """Audit helper tolerant of bare ``__new__`` test objects."""
+        legacy = getattr(self, "_audit", None)
+        if callable(legacy):
+            try:
+                return str(legacy(stage, details))
+            except Exception:
+                pass
+        return self.log_audit(stage, details)
+
+    def _kill_block_reason(self) -> str | None:
+        """Bind to the real kill state: local flag + injected board."""
+        if self.kill_switch_halted:
+            return "BLOCKED: kill switch is HALTED"
+        board = getattr(self, "_kill_board", None)
+        if board is None:
+            return None
+        try:
+            known_probe = False
+            any_active = getattr(board, "any_active", None)
+            if callable(any_active):
+                known_probe = True
+                if any_active():
+                    return "BLOCKED: kill board reports active (kill)"
+            elif any_active is not None:
+                # Non-callable attribute form (e.g. a bool flag): a truthy
+                # value means the board reports active. Either way the shape
+                # is recognized, so a truthy flag is never silently misread.
+                known_probe = True
+                if bool(any_active):
+                    return "BLOCKED: kill board reports active (kill)"
+            if hasattr(board, "active"):
+                known_probe = True
+                if bool(getattr(board, "active", False)):
+                    return "BLOCKED: kill switch is active (kill)"
+            check = getattr(board, "check", None)
+            if callable(check):
+                known_probe = True
+                try:
+                    check()
+                except Exception as exc:
+                    return f"BLOCKED: kill board check failed ({exc}) (kill)"
+            if not known_probe:
+                return "BLOCKED: kill board shape unrecognized fail-closed (kill)"
+        except Exception:
+            return "BLOCKED: kill board error fail-closed (kill)"
+        return None
+
+    @staticmethod
+    def _is_synthetic_bars(df: pd.DataFrame) -> bool:
+        """Detect hash-seeded/synthetic bars via provenance attrs."""
+        try:
+            attrs = getattr(df, "attrs", None) or {}
+        except Exception:
+            return False
+        if attrs.get("synthetic") is True:
+            return True
+        return str(attrs.get("provenance", "")).lower() in (
+            "synthetic", "hash_seeded", "hash-seeded", "demo_fallback",
+        )
+
+    def _risk_blocks_trading(self, prices: dict[str, float]) -> tuple[bool, str]:
+        """Gate orders on evaluated risk metrics (leverage/conc/halt)."""
+        try:
+            metrics = self.evaluate_risk(prices)
+        except Exception as exc:
+            return True, f"BLOCKED: risk evaluation error fail-closed ({exc})"
+        if metrics.is_halted:
+            return True, "BLOCKED: risk halt — kill switch active (kill)"
+        if metrics.leverage > 2.0:
+            return True, f"BLOCKED: risk leverage breach {metrics.leverage:.2f}x > 2.0x"
+        if metrics.concentration_pct > 20.0:
+            return True, (
+                "BLOCKED: risk concentration breach "
+                f"{metrics.concentration_pct:.1f}% > 20%"
+            )
+        return False, ""
 
     def log_audit(self, stage: str, details: dict[str, Any]) -> str:
         """Append an entry to the cryptographic audit trail."""
@@ -362,6 +468,11 @@ class CanonicalInstitutionalPipeline:
         df = df.copy()
         df["t_publication"] = df.index + pd.Timedelta(minutes=15)
         df["t_availability"] = df.index + pd.Timedelta(minutes=30)
+        # B7a provenance badge: these bars are hash-seeded determinism, not a
+        # live feed. The decision-path gate refuses them on PAPER/LIVE paths
+        # unless allow_synthetic is explicitly True — never silently traded.
+        df.attrs["provenance"] = "hash_seeded"
+        df.attrs["synthetic"] = True
         return df
 
     def pit_filter_bars(self, df: pd.DataFrame, asof: datetime) -> pd.DataFrame:
@@ -377,9 +488,9 @@ class CanonicalInstitutionalPipeline:
         rep = DataQualityChecker().check_dataframe(df, symbol)
         q = gate_report(symbol, rep.overall_quality,
                         reason="; ".join(c.description for c in rep.checks[:3]))
-        self._audit("quality_gate", {"symbol": symbol,
-                                       "overall": rep.overall_quality,
-                                       "verdict": q.verdict})
+        self._audit_event("quality_gate", {"symbol": symbol,
+                                           "overall": rep.overall_quality,
+                                           "verdict": q.verdict})
         assert_quality_or_raise(q)
         return q
 
@@ -653,13 +764,97 @@ class CanonicalInstitutionalPipeline:
         )
 
     def pre_trade_check(self, symbol: str, side: OrderSide, qty: float, price: float) -> tuple[bool, str]:
-        """Fail-closed pre-trade risk firewall."""
-        if self.kill_switch_halted:
-            return False, "BLOCKED: Kill switch is HALTED"
+        """Fail-closed pre-trade risk firewall.
+
+        B7a: bound to the real kill state (local flag + injected board) and
+        the injected firewall — never an unbound local flag alone. Also
+        enforces the naked-short guard and the risk-metric gate.
+        """
+        kill_reason = self._kill_block_reason()
+        if kill_reason is not None:
+            return False, kill_reason
         if qty <= 0:
             return False, "BLOCKED: Non-positive quantity"
         if price <= 0:
             return False, "BLOCKED: Non-positive price"
+
+        # Naked-short guard: SELL requires position unless explicitly enabled.
+        if side == OrderSide.SELL and not bool(getattr(self, "allow_short", False)):
+            held = self.positions.get(symbol, 0.0)
+            if qty > held:
+                return False, (
+                    "BLOCKED: insufficient position for SELL (position): "
+                    f"hold {held:g}, tried {qty:g} — naked short refused"
+                )
+
+        # Bound firewall re-check (kill/limits/stale/idempotency).
+        firewall = getattr(self, "_firewall", None)
+        if firewall is not None:
+            try:
+                try:
+                    from risk.pre_trade.validation import RiskVerdict, TradeIntent
+                except ImportError:  # installed-package layout
+                    from delta.risk.pre_trade.validation import (  # type: ignore
+                        RiskVerdict,
+                        TradeIntent,
+                    )
+                intent = TradeIntent(
+                    order_id=uuid.uuid4(),
+                    instrument_id=uuid.uuid4(),
+                    side=side.value.lower(),
+                    quantity=Decimal(str(qty)),
+                    limit_price=Decimal(str(price)),
+                    # Non-reserving probe key: pre-checks must not consume
+                    # idempotency keys in the firewall's _seen_keys (a fresh
+                    # pipe-{uuid} per check would pollute the set forever
+                    # while the real order key is never presented). The
+                    # probe reservation is rolled back below; duplicate
+                    # protection for pipeline orders stays in create_order
+                    # (OMS idempotency loop), which is authoritative here.
+                    # Authorized: pipeline orders originate from the authorized
+                    # strategy cycle; kill/limits/stale are the enforced gates.
+                    idempotency_key=f"pipe-probe-{uuid.uuid4().hex}",
+                    authorized=True,
+                    price_source="real",
+                )
+                decision = firewall.check(
+                    intent,
+                    ref_price=Decimal(str(price)),
+                    current_position=Decimal(
+                        str(self.positions.get(symbol, 0.0))),
+                )
+                # Roll back the probe reservation: pre-checks observe the
+                # firewall, they never consume keys.
+                seen = getattr(firewall, "_seen_keys", None)
+                if seen is not None:
+                    try:
+                        seen.discard(intent.idempotency_key)
+                    except Exception:
+                        pass
+                if decision.verdict != RiskVerdict.APPROVE:
+                    return False, (
+                        "BLOCKED: firewall refused "
+                        f"({','.join(decision.reasons)})"
+                    )
+            except Exception as exc:
+                try:
+                    from risk.firewall.firewall import (
+                        RiskHaltException as _RiskHalt,
+                    )
+                except ImportError:
+                    try:
+                        from delta.risk.firewall.firewall import (  # type: ignore
+                            RiskHaltException as _RiskHalt,
+                        )
+                    except ImportError:
+                        _RiskHalt = ()
+                try:
+                    halted = isinstance(exc, _RiskHalt) if _RiskHalt else False
+                except Exception:
+                    halted = False
+                if halted or "kill" in str(exc).lower() or "halt" in str(exc).lower():
+                    return False, f"BLOCKED: kill halt from firewall ({exc})"
+                return False, f"BLOCKED: firewall error fail-closed ({exc})"
 
         notional = qty * price
         equity = self.get_net_liquidation({symbol: price})
@@ -671,6 +866,11 @@ class CanonicalInstitutionalPipeline:
         # Check cash balance for BUY
         if side == OrderSide.BUY and notional > self.cash:
             return False, f"BLOCKED: Insufficient cash ${self.cash:,.2f} for buy order ${notional:,.2f}"
+
+        # Risk-metric gate: breach blocks the order with reason.
+        risk_blocked, risk_reason = self._risk_blocks_trading({symbol: price})
+        if risk_blocked:
+            return False, risk_reason
 
         return True, "APPROVED"
 
@@ -743,8 +943,35 @@ class CanonicalInstitutionalPipeline:
         """
         Execute order with realistic microstructure slippage and commission.
         Slippage model: spread / 2 + impact(sigma * sqrt(Q / ADV)).
+
+        B7a: kill + firewall are re-checked immediately before submit. A block
+        marks the order REJECTED, audits ORDER_BLOCKED with the reason, and
+        returns None — fail-closed, never filled on a stale approval.
         """
         if order.status != CanonicalOrderStatus.SUBMITTED:
+            return None
+
+        exec_price = market_price if market_price and market_price > 0 else order.price
+        approved, reason = self.pre_trade_check(
+            order.symbol, order.side, order.quantity, exec_price)
+        if not approved:
+            rejected = CanonicalOrder(
+                order_id=order.order_id,
+                idempotency_key=order.idempotency_key,
+                symbol=order.symbol,
+                side=order.side,
+                quantity=order.quantity,
+                price=order.price,
+                order_type=order.order_type,
+                status=CanonicalOrderStatus.REJECTED,
+                created_at=order.created_at,
+                history=order.history + (CanonicalOrderStatus.REJECTED,),
+            )
+            self.orders[order.order_id] = rejected
+            self._audit_event("ORDER_BLOCKED", {
+                "order_id": order.order_id,
+                "reason": reason,
+            })
             return None
 
         # Calculate realistic execution slippage
@@ -856,18 +1083,98 @@ class CanonicalInstitutionalPipeline:
         pos_val = sum(qty * current_prices.get(sym, 0.0) for sym, qty in self.positions.items())
         return self.cash + pos_val
 
+    def _blocked_cycle_result(
+        self,
+        symbols: list[str],
+        reason: str,
+        path: str,
+        cycle_start: datetime,
+        risk_metrics: PortfolioRiskMetrics | None = None,
+    ) -> dict[str, Any]:
+        """Full-shape cycle result for a refused cycle: no fills, reason set."""
+        cycle_end = datetime.now(timezone.utc)
+        if risk_metrics is None:
+            try:
+                risk_metrics = self.evaluate_risk({})
+            except Exception:
+                risk_metrics = None
+        return {
+            "cycle_start": cycle_start.isoformat(),
+            "cycle_end": cycle_end.isoformat(),
+            "decision_path": path,
+            "blocked_reason": reason,
+            "regime": None,
+            "features": {},
+            "alphas": {},
+            "forecasts": {},
+            "allocation": {},
+            "risk_metrics": asdict(risk_metrics) if risk_metrics is not None else {},
+            "executed_fills": [],
+            "reconciliation": [],
+            "net_liquidation": self.cash,
+            "cash": self.cash,
+            "realized_pnl": self.realized_pnl,
+            "positions": dict(self.positions),
+            "audit_entries_count": len(self.audit_log),
+        }
+
     # 12. RUN FULL CANONICAL END-TO-END CYCLE
-    def run_cycle(self, symbols: Sequence[str] = ("SPY", "QQQ", "NVDA", "AAPL", "MSFT")) -> dict[str, Any]:
+    def run_cycle(
+        self,
+        symbols: Sequence[str] = ("SPY", "QQQ", "NVDA", "AAPL", "MSFT"),
+        *,
+        decision_path: str | None = None,
+    ) -> dict[str, Any]:
         """
         Run the complete unified institutional quantitative loop.
+
+        B7a gates (fail-closed, audited, never silently traded):
+        - PIT join: bars filtered to ``t_availability <= decision asof`` via
+          the existing ``pit_filter_bars`` before any decision.
+        - Synthetic/decision-path gate: hash-seeded bars reaching a
+          PAPER/LIVE decision path are refused (or require explicit
+          ``allow_synthetic``) — never silently traded.
+        - Quality gate: existing ``gate_training_data`` per symbol.
+        - Risk gate: a risk-metric breach blocks all order generation.
+        - Naked SELL deltas are skipped with audit (unless ``allow_short``).
         """
         cycle_start = datetime.now(timezone.utc)
-        self.log_audit("CYCLE_START", {"symbols": list(symbols), "start_time": cycle_start.isoformat()})
+        path = (decision_path or getattr(self, "decision_path", "RESEARCH")
+                or "RESEARCH").upper()
+        allow_synth = bool(getattr(self, "allow_synthetic", False))
+        self.log_audit("CYCLE_START", {"symbols": list(symbols), "start_time": cycle_start.isoformat(),
+                                       "decision_path": path})
 
-        # Step 1: Real Market Data & PIT
+        # Step 1: Real Market Data & PIT (gated before any decision)
         bars_map: dict[str, pd.DataFrame] = {}
+        blocked_reason: str | None = None
         for sym in symbols:
-            bars_map[sym] = self.fetch_market_bars(sym, n_bars=120)
+            bars = self.fetch_market_bars(sym, n_bars=120)
+            pit_bars = self.pit_filter_bars(bars, cycle_start)
+            if len(pit_bars) == 0:
+                blocked_reason = (
+                    f"PIT gate: no bars available at decision asof for {sym} "
+                    f"(PIT) — cycle refused"
+                )
+                break
+            if self._is_synthetic_bars(bars) and path in ("PAPER", "LIVE") and not allow_synth:
+                blocked_reason = (
+                    f"decision-path gate: hash_seeded synthetic bars refused on "
+                    f"{path} decision path (synthetic/PIT) — never silently traded"
+                )
+                break
+            try:
+                self.gate_training_data(sym, pit_bars)
+            except Exception as exc:
+                blocked_reason = f"quality gate for {sym}: {exc} (PIT)"
+                break
+            bars_map[sym] = pit_bars
+        if blocked_reason is not None:
+            self._audit_event("CYCLE_BLOCKED", {
+                "reason": blocked_reason, "decision_path": path,
+                "start_time": cycle_start.isoformat()})
+            return self._blocked_cycle_result(
+                list(symbols), blocked_reason, path, cycle_start)
 
         market_sym = "SPY"
         market_ind = self.extract_features(market_sym, bars_map[market_sym])
@@ -896,8 +1203,16 @@ class CanonicalInstitutionalPipeline:
         # Step 6: Portfolio Allocation
         allocation = self.optimize_portfolio(forecasts_map, cur_prices, regime)
 
-        # Step 7: Risk Check & Pre-Trade Firewall
+        # Step 7: Risk Check & Pre-Trade Firewall (gates orders on metrics)
         risk_metrics = self.evaluate_risk(cur_prices)
+        risk_blocked, risk_reason = self._risk_blocks_trading(cur_prices)
+        if risk_blocked:
+            self._audit_event("CYCLE_BLOCKED", {
+                "reason": risk_reason, "decision_path": path,
+                "start_time": cycle_start.isoformat()})
+            return self._blocked_cycle_result(
+                list(symbols), risk_reason, path, cycle_start,
+                risk_metrics=risk_metrics)
 
         # Step 8: OMS Order Generation & Paper Broker Matching
         executed_fills = []
@@ -907,6 +1222,18 @@ class CanonicalInstitutionalPipeline:
             if abs(delta_qty) >= 1.0:
                 side = OrderSide.BUY if delta_qty > 0 else OrderSide.SELL
                 qty_abs = abs(delta_qty)
+                if (side == OrderSide.SELL
+                        and not bool(getattr(self, "allow_short", False))
+                        and qty_abs > self.positions.get(sym, 0.0)):
+                    self._audit_event("ORDER_BLOCKED", {
+                        "symbol": sym,
+                        "reason": (
+                            "BLOCKED: insufficient position for SELL (position): "
+                            f"hold {self.positions.get(sym, 0.0):g}, tried {qty_abs:g} "
+                            "— naked short refused"
+                        ),
+                    })
+                    continue
                 px = cur_prices[sym]
                 key = f"IDEMP-{sym}-{int(cycle_start.timestamp())}"
                 order = self.create_order(sym, side, qty_abs, px, idempotency_key=key)
@@ -934,6 +1261,8 @@ class CanonicalInstitutionalPipeline:
         return {
             "cycle_start": cycle_start.isoformat(),
             "cycle_end": cycle_end.isoformat(),
+            "decision_path": path,
+            "blocked_reason": None,
             "regime": regime.value,
             "features": {s: asdict(ind) for s, ind in features_map.items()},
             "alphas": {s: asdict(a) for s, a in alphas_map.items()},
