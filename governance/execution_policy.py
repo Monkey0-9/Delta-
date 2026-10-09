@@ -100,3 +100,21 @@ def authorize(
         allowed=not reasons,
         reasons=tuple(reasons),
     )
+
+
+def authorize_or_raise(
+    mandate: TradingMandate,
+    mode: AutonomyMode,
+    *,
+    order_notional: Decimal,
+    context: ExecutionContext,
+) -> PolicyDecision:
+    """Enforcing variant of authorize: returns the decision when allowed,
+    raises PermissionError naming every refusal reason otherwise."""
+    decision = authorize(
+        mandate, mode,
+        order_notional=order_notional, context=context)
+    if not decision.allowed:
+        raise PermissionError(
+            "execution refused: " + "; ".join(decision.reasons))
+    return decision

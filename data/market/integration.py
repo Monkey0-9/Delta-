@@ -6,9 +6,10 @@ existing DELTA trader service, replacing demo_candidates() with real signals.
 
 from __future__ import annotations
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
+import math
 import pandas as pd
 import numpy as np
 
@@ -32,9 +33,44 @@ class RealDataConfig:
     cache_duration_hours: int = 24
 
 
+def signal_age_s(sig_ts: Any, now: datetime) -> float:
+    """Honest quote age: seconds from the signal's timestamp to now.
+
+    UNKNOWN (missing/unparseable/future timestamp) returns +inf so the
+    downstream stale-data TTL treats it as stale. Never returns 0.0
+    unless the quote is genuinely fresh.
+
+    Timezone note: a naive ``sig_ts`` is assumed UTC (consistent with
+    exchange-calendar handling elsewhere); a naive/tz-aware mix is
+    normalized to UTC before subtraction. Epoch numbers or other
+    non-datetime/non-ISO-string stamps are NOT parsed — they return
+    +inf (UNKNOWN), never a guessed age.
+    """
+    try:
+        if sig_ts is None:
+            return math.inf
+        if isinstance(sig_ts, str):
+            sig_ts = datetime.fromisoformat(sig_ts)
+        a = sig_ts
+        b = now
+        if isinstance(a, datetime) and isinstance(b, datetime):
+            if (a.tzinfo is None) != (b.tzinfo is None):
+                if a.tzinfo is None:
+                    a = a.replace(tzinfo=timezone.utc)
+                else:
+                    b = b.replace(tzinfo=timezone.utc)
+            age = (b - a).total_seconds()
+        else:
+            return math.inf
+        if not math.isfinite(age) or age < 0:
+            return math.inf
+        return float(age)
+    except Exception:
+        return math.inf
+
+
 class RealDataPipeline:
-    """Main pipeline for real market data → features → signals"""
-    
+    """Main pipeline for real market data → features → signals"""    
     def __init__(self, config: RealDataConfig = None):
         self.config = config or RealDataConfig()
         
@@ -330,7 +366,8 @@ class RealDataPipeline:
                 uncertainty=1.0 - float(signal.confidence),
                 liquidity=0.7,  # Default liquidity
                 estimated_cost_bps=10.0,  # Default cost
-                data_age_s=0.0,
+                data_age_s=signal_age_s(
+                    getattr(signal, "timestamp", None), timestamp),
                 portfolio_weight=0.0,
                 regime="mixed",
             )

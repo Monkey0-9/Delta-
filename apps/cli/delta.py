@@ -211,9 +211,9 @@ def main() -> None:
     # Python workstation fallback
     try:
         from delta_tui.app import DeltaApp
-        from config.mode import DeltaMode
+        from config.mode import resolve_mode
 
-        raise SystemExit(DeltaApp(DeltaMode.parse(os.getenv("DELTA_MODE", "PAPER"))).run())
+        raise SystemExit(DeltaApp(resolve_mode(os.getenv("DELTA_MODE", "PAPER"))).run())
     except SystemExit:
         raise
     except Exception:

@@ -23,7 +23,7 @@ PROFILE_FILES = {
 }
 
 
-def load_profile(name: str) -> dict[str, Any]:
+def load_profile(name: str, *, enforce: bool = False) -> dict[str, Any]:
     key = (name or "").lower()
     if key not in PROFILE_FILES:
         raise ValueError(f"unknown profile {name!r}; expected one of {sorted(PROFILE_FILES)}")
@@ -35,6 +35,13 @@ def load_profile(name: str) -> dict[str, Any]:
     cfg["_sha"] = config_hash(cfg)
     if key == "prod" and not cfg.get("r10_certified"):
         cfg["_gated"] = "BLOCKED: production requires R10 + sign-offs (Group 30)"
+    if enforce and cfg.get("_gated"):
+        # Enforcing variant: the gated dict is real config data, but handing
+        # it out for execution would let a caller trade on a blocked profile.
+        # Refuse loudly instead. Default enforce=False preserves the old
+        # advisory behavior for readers that only inspect the marker.
+        raise RuntimeError(
+            f"production profile refused: {cfg['_gated']}")
     return cfg
 
 

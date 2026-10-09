@@ -206,10 +206,10 @@ def scan(
     mode: str = typer.Option("PAPER", "--mode", help="LIVE|PAPER|SIMULATION|RESEARCH|DEMO"),
 ) -> None:
     """Run TODAY/WEEK/MONTH/YEAR opportunity scan (mode-badged, never silent demo)."""
-    from config.mode import DeltaMode, mode_banner
+    from config.mode import mode_banner, resolve_mode
     from trader.service import run_scan
 
-    m = DeltaMode.parse(mode)
+    m = resolve_mode(mode)
     typer.echo(mode_banner(m))
 
     mandate = _build_mandate_from_opts("TRADER-1", capital, horizon, risk, universe, execution, "VWAP")
@@ -258,9 +258,9 @@ def portfolio_review(
     LIVE/PAPER read actual broker state. Synthetic state REQUIRES
     --simulation or --mode DEMO/SIMULATION and is always badged.
     """
-    from config.mode import DeltaMode, mode_banner
+    from config.mode import DeltaMode, mode_banner, resolve_mode
 
-    m = DeltaMode.parse(mode)
+    m = resolve_mode(mode)
     if m is DeltaMode.LIVE:
         raise NotImplementedError(
             "LIVE portfolio-review must read the bound broker adapter; "

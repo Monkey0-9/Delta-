@@ -14,7 +14,13 @@ Mapping to existing config envs:
 """
 from __future__ import annotations
 
+import logging
+import os
+import sys
+import warnings
 from enum import Enum
+
+logger = logging.getLogger("DELTA.Config.Mode")
 
 
 class DeltaMode(str, Enum):
@@ -82,3 +88,24 @@ def mode_banner(mode: DeltaMode, *, extra: str = "") -> str:
     if extra:
         base += f" — {extra}"
     return base
+
+
+def resolve_mode(raw: str) -> DeltaMode:
+    """Parse a mode string with the LIVE fail-closed gate.
+
+    LIVE resolves only when ``DELTA_LIVE=ARMED`` is set in the environment.
+    Otherwise the request downgrades to PAPER with a loud warning (warnings
+    + stderr) — never silently. Deeper live gates (vault unlock, health,
+    signed authorization) live in ``brokers/live.py`` and the execution
+    policy; this is the first downgrade layer, not the whole gate.
+    """
+    mode = DeltaMode.parse(raw)
+    if mode is DeltaMode.LIVE and os.environ.get("DELTA_LIVE", "").upper() != "ARMED":
+        msg = (
+            "LIVE mode requested without DELTA_LIVE=ARMED: "
+            "fail-closed downgrade to PAPER (no live orders)")
+        warnings.warn(msg, UserWarning, stacklevel=2)
+        logger.warning(msg)
+        print(f"WARNING: {msg}", file=sys.stderr)
+        return DeltaMode.PAPER
+    return mode

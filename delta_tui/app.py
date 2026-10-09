@@ -16,7 +16,7 @@ import shutil
 from datetime import datetime, timezone
 
 # pyrefly: ignore [missing-import]
-from config.mode import DeltaMode, mode_banner
+from config.mode import DeltaMode, mode_banner, resolve_mode
 # pyrefly: ignore [missing-import]
 from .commands import parser as cmd_parser
 from .commands.palette import format_palette_box
@@ -903,7 +903,7 @@ class DeltaApp:
 
 
 def main(mode: str = "PAPER") -> int:
-    return DeltaApp(DeltaMode.parse(mode)).run()
+    return DeltaApp(resolve_mode(mode)).run()
 
 
 if __name__ == "__main__":

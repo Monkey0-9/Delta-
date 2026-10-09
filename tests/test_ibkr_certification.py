@@ -53,7 +53,11 @@ def test_ibkr_contract_resolution(mock_post):
 
 
 @patch("httpx.post")
-def test_ibkr_order_submission(mock_post):
+def test_ibkr_order_submission(mock_post, monkeypatch):
+    # B7b: mutating calls require DELTA_LIVE=ARMED (fail-closed) plus an
+    # explicitly bound kill board (ARMED alone never admits a live order).
+    from risk.kill_switch.kill_switch import KillSwitchBoard
+    monkeypatch.setenv("DELTA_LIVE", "ARMED")
     mock_post_search = MagicMock()
     mock_post_search.status_code = 200
     mock_post_search.json.return_value = [{"conid": 265598, "symbol": "AAPL"}]
@@ -65,7 +69,8 @@ def test_ibkr_order_submission(mock_post):
     # Return search on first call, order on second call
     mock_post.side_effect = [mock_post_search, mock_post_order]
 
-    client = IBKRClientPortalAdapter(host="https://localhost:5000", account_id="U1234567")
+    client = IBKRClientPortalAdapter(host="https://localhost:5000", account_id="U1234567",
+                                      kill_board=KillSwitchBoard())
     res = client.submit("AAPL", "BUY", 50.0, 150.0, idempotency_key="KEY-123")
     assert res["order_id"] == "1001"
     assert res["status"] == "Submitted"

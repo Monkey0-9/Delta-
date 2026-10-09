@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 import hashlib
 import time
 
@@ -25,6 +26,14 @@ EXECUTION_MODEL_VERSION = "exec-sim-v1"
 
 
 class PaperBroker:
+    """Simulated-fill broker.
+
+    An UNBOUND broker (no ``kill_board``/``safety`` passed and no persisted
+    HALT marker) is SIM-ONLY: it always fills at the quoted/simulated price
+    and must never be mistaken for a guarded execution path. Pass the bound
+    kill board (or a safety object exposing ``check()``/``any_active``) so
+    fills are refused while halted.
+    """
 
     def __init__(
         self,
@@ -32,11 +41,18 @@ class PaperBroker:
         spreads_bps: dict[str, float] | None = None,
         adv: dict[str, float] | None = None,
         simulate: bool = False,
+        kill_board: Any | None = None,
     ):
         self.prices = dict(prices)
         self.spreads_bps = dict(spreads_bps or {})
         self.adv = dict(adv or {})
         self.simulate = simulate
+        self.kill_board = kill_board
+        # Persisted-marker cache (unbound path only): the marker file + JSON
+        # parse cost is paid at most once per TTL window, not per submit.
+        self._halt_cache_ts: float = 0.0
+        self._halt_cache_reason: str | None = None
+        self._halt_cache_ttl_s: float = 1.0
         self.orders: dict[
             str,
             ExecutionRequest,
@@ -102,10 +118,66 @@ class PaperBroker:
                 }
         return {"order_id": order_id, "status": "no-fill"}
 
+    def _halt_reason(self) -> str | None:
+        """Fail-closed halt probe: bound board/switch first, then the cheap
+        persisted session HALT marker. Returns the refusal reason or None.
+
+        The persisted read uses ``delta_os.safety`` (the single canonical
+        in-repo safety path) and accepts both ``"HALT"`` and ``"HALTED"``
+        because the contract upper-cases the stored value (``read_...``
+        returns ``"HALTED"``). Results are cached for a short TTL so a
+        hot submit loop does not pay file+JSON-parse per order.
+        """
+        kb = self.kill_board
+        if kb is not None:
+            check = getattr(kb, "check", None)
+            if callable(check):
+                try:
+                    check()
+                except Exception as exc:
+                    return f"kill switch active: paper fill refused ({exc})"
+                return None
+            any_active = getattr(kb, "any_active", None)
+            if callable(any_active):
+                try:
+                    if any_active():
+                        return "kill switch active: paper fill refused (board halted)"
+                    return None
+                except Exception as exc:
+                    return f"kill probe failed fail-closed ({exc})"
+            active = getattr(kb, "active", None)
+            if isinstance(active, bool):
+                return "kill switch active: paper fill refused" if active else None
+            return "unrecognized kill state: paper fill refused fail-closed"
+        now = time.monotonic()
+        if now - self._halt_cache_ts < self._halt_cache_ttl_s:
+            return self._halt_cache_reason
+        reason: str | None = None
+        try:
+            from delta_os.safety import read_persisted_safety_mode
+
+            mode = read_persisted_safety_mode()
+            if isinstance(mode, str) and mode.strip().upper() in ("HALT", "HALTED"):
+                reason = "kill switch active: paper fill refused (persisted HALT marker)"
+        except Exception:
+            reason = None
+        self._halt_cache_ts = now
+        self._halt_cache_reason = reason
+        return reason
+
     def submit(
         self,
         request: ExecutionRequest,
     ) -> ExecutionAck:
+
+        halted = self._halt_reason()
+        if halted is not None:
+            return ExecutionAck(
+                request.order_id,
+                False,
+                None,
+                halted,
+            )
 
         if request.order_id in self.orders:
 

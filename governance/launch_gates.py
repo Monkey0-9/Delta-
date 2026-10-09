@@ -67,5 +67,17 @@ def unified_launch(strategy: dict, llm: dict, shared: list[Verdict]) -> dict:
                  [(c.check, c.ok) for c in shared]]).encode()).hexdigest()[:12]}
 
 
+def unified_launch_or_raise(strategy: dict, llm: dict, shared: list[Verdict]) -> dict:
+    """Enforcing variant of unified_launch: returns the verdict dict on
+    launch, raises RuntimeError naming every failed gate otherwise."""
+    verdict = unified_launch(strategy, llm, shared)
+    if not verdict["launch"]:
+        raise RuntimeError(
+            "launch refused: failed gates "
+            f"{verdict['failed']} critical_block={verdict['critical_block']}")
+    return verdict
+
+
 __all__ = ["Verdict", "check_signoff", "check_docs", "check_monitoring",
-           "check_killswitch", "check_oncall", "unified_launch"]
+           "check_killswitch", "check_oncall", "unified_launch",
+           "unified_launch_or_raise"]

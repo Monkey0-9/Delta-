@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import os
+import warnings
 from datetime import datetime, timezone
 from decimal import Decimal
+from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 try:
@@ -26,6 +30,97 @@ except ImportError:  # pragma: no cover - kernel always installed in-repo
         """Uncatchable-by-policy halt (fallback if kernel unimportable)."""
 
 
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Atomic text write via a unique same-dir tmp file + os.replace.
+
+    The tmp name carries pid + uuid4 hex so two writers (threads or
+    processes) can never share it. Raises on failure: callers decide
+    whether persistence loss warns or blocks. Kept local (not shared
+    with ``delta_os.safety.atomic_write_json``) so the risk package
+    stays dependency-free and handles plain text, not JSON.
+    """
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{uuid4().hex}.tmp")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, path)
+    finally:
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+class _SeenKeySet(set):  # type: ignore[type-arg]
+    """A set of idempotency keys that persists mutations best-effort.
+
+    Scope: SINGLE-PROCESS, BEST-EFFORT. Concurrent writers in other
+    processes may interleave appends (append-only, so keys are never
+    lost, only reordered); a concurrent ``discard`` rewrite can drop a
+    key appended mid-rewrite. For crash recovery this is fine: the
+    in-memory set is authoritative within a process, the file only
+    seeds restarts. Cross-process exactly-once needs an external store.
+
+    ``add`` appends the key to the backing file; ``discard`` rewrites the
+    file atomically. All I/O is swallowed (warn once) so persistence can
+    never break the fail-closed check path. ``None`` path = memory only.
+    """
+
+    def __init__(self, *args: Any, _persist_path: Path | None = None) -> None:
+        super().__init__(*args)
+        self._persist_path = _persist_path
+
+    def add(self, key: str) -> None:  # type: ignore[override]
+        super().add(key)
+        if self._persist_path is not None:
+            try:
+                self._persist_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(self._persist_path, "a", encoding="utf-8") as fh:
+                    fh.write(f"{key}\n")
+            except Exception as exc:
+                warnings.warn(
+                    f"seen-keys persist skipped ({exc}).",
+                    UserWarning, stacklevel=2,
+                )
+
+    def discard(self, key: str) -> None:  # type: ignore[override]
+        super().discard(key)
+        if self._persist_path is not None:
+            try:
+                _atomic_write_text(
+                    self._persist_path, "".join(f"{k}\n" for k in sorted(self)))
+            except Exception as exc:
+                warnings.warn(
+                    f"seen-keys persist skipped ({exc}).",
+                    UserWarning, stacklevel=2,
+                )
+
+
+def _load_seen_keys(path: Path) -> set[str]:
+    """Best-effort load of a newline-delimited key file.
+
+    Missing file -> empty (silent). Corrupt (undecodable/unreadable) ->
+    warn + fresh empty set. Never raises.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return set()
+    except Exception as exc:
+        warnings.warn(
+            f"seen-keys file unreadable ({exc}); starting fresh.",
+            UserWarning, stacklevel=3,
+        )
+        return set()
+    try:
+        return {line.strip() for line in text.splitlines() if line.strip()}
+    except Exception as exc:
+        warnings.warn(
+            f"seen-keys file corrupt ({exc}); starting fresh.",
+            UserWarning, stacklevel=3,
+        )
+        return set()
+
+
 def enforce_red_button(gate_state) -> None:
     """Call the kernel's 10-criteria red_button; raise RiskHaltException if tripped.
 
@@ -47,6 +142,8 @@ class RiskFirewall:
         self,
         limits: RiskLimits | None = None,
         kill_switch: KillSwitch | KillSwitchBoard | None = None,
+        *,
+        seen_keys_path: str | Path | None = None,
     ) -> None:
         self._limits = limits or RiskLimits()
         # Triple-layer board preferred: ANY of global/strategy/broker blocks.
@@ -58,8 +155,14 @@ class RiskFirewall:
                 glob=kill_switch, strategy=KillSwitch(), broker=KillSwitch()
             )
         self._kill = kill_switch
-        self._seen_keys: set[str] = set()
-        self._order_counts: list[datetime] = []
+        persist_path = Path(seen_keys_path) if seen_keys_path is not None else None
+        initial = _load_seen_keys(persist_path) if persist_path is not None else set()
+        self._seen_keys: set[str] = _SeenKeySet(
+            initial, _persist_path=persist_path)
+        # Sliding-window event clocks (B7b): per-second message rate and
+        # per-symbol duplicative-order cap. Keyed by `now` (injectable).
+        self._msg_times: list[datetime] = []
+        self._dup_events: dict[tuple[str, str, str], list[datetime]] = {}
 
     @property
     def limits(self) -> RiskLimits:
@@ -79,6 +182,7 @@ class RiskFirewall:
         data_age_s: float = 0.0,
         now: datetime | None = None,
         portfolio_var: Decimal | None = None,
+        symbol: str | None = None,
     ) -> RiskDecision:
         reasons: list[str] = []
         now = now or datetime.now(timezone.utc)
@@ -111,6 +215,51 @@ class RiskFirewall:
         # ---------------------------------------------------------------
         if intent.idempotency_key in self._seen_keys:
             reasons.append("duplicate_idempotency_key")
+
+        # ---------------------------------------------------------------
+        # 3a. Message rate (sliding 1s window, fail-closed refuse)
+        # ---------------------------------------------------------------
+        # Clock-skew guard: only events with 0 <= dt < window count. A
+        # back-dated `now` (or a future-stamped event) yields dt < 0 and
+        # is evicted, never counted — stale clocks fail open on rate,
+        # never false-breach.
+        self._msg_times = [
+            t for t in self._msg_times
+            if 0 <= (now - t).total_seconds() < 1.0
+        ]
+        if len(self._msg_times) >= self._limits.max_messages_per_s:
+            reasons.append("message_rate_breach")
+        self._msg_times.append(now)
+
+        # ---------------------------------------------------------------
+        # 3b. Duplicative orders per symbol+side+qty (sliding window)
+        # ---------------------------------------------------------------
+        # Canonical identity is ``intent.instrument_id``. The ``symbol``
+        # argument is a documented grouping override (e.g. display symbol
+        # shared across instrument ids): when given, buckets key on it;
+        # when None, each instrument id buckets alone. Passing a symbol
+        # vs omitting it therefore NEVER shares a bucket (None-vs-explicit
+        # split is by design, not accident).
+        dup_key = (
+            symbol if symbol is not None else str(intent.instrument_id),
+            str(intent.side),
+            str(intent.quantity),
+        )
+        window = float(self._limits.duplicative_window_s)
+        recent = [
+            t for t in self._dup_events.get(dup_key, [])
+            if 0 <= (now - t).total_seconds() < window
+        ]
+        if len(recent) >= self._limits.max_duplicative_orders:
+            reasons.append("duplicative_order_breach")
+        recent.append(now)
+        self._dup_events[dup_key] = recent
+        # Bound memory: drop buckets that aged fully empty, and compact
+        # the whole map once it grows past a safety cap.
+        if len(self._dup_events) > 4096:
+            self._dup_events = {
+                k: v for k, v in self._dup_events.items() if v
+            }
 
         # ---------------------------------------------------------------
         # 4. Order size / notional
