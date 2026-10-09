@@ -26,6 +26,45 @@ MAX_LEVERAGE = 1.5
 DAILY_HALT_DRAWDOWN = 0.02
 
 
+def _tokens_match(provided: str | None, expected: str) -> bool:
+    """Constant-time token compare over UTF-8 bytes; False on any mismatch."""
+    import hmac
+
+    try:
+        if not isinstance(provided, str) or not isinstance(expected, str):
+            return False
+        return hmac.compare_digest(provided.encode("utf-8"),
+                                   expected.encode("utf-8"))
+    except Exception:
+        return False
+
+
+def _scrub_secret(text: str, secret: str | None) -> str:
+    """Redact a secret value from a logged/returned string (token-in-field)."""
+    if secret and isinstance(text, str) and secret in text:
+        return text.replace(secret, "[REDACTED]")
+    return text
+
+
+def _env_token() -> str:
+    import os as _os
+
+    return _os.environ.get("DELTA_UNLOCK_TOKEN", "")
+
+
+def _caller_info() -> str:
+    """Best-effort caller frame for legacy-path audit (filename:line fn)."""
+    try:
+        import inspect
+
+        for frame in inspect.stack()[2:6]:
+            if frame.filename != __file__:
+                return f"{frame.filename}:{frame.lineno} in {frame.function}"
+        return "unknown"
+    except Exception:
+        return "unknown"
+
+
 def _session_path():
     """Existing session file (shared with delta_os.repl persistence)."""
     from pathlib import Path
@@ -357,8 +396,30 @@ class SafetyState:
             return False, why
         return True, "PASS"
 
-    def kill_all(self, adapters: list, actor: str = "operator") -> dict:
+    def kill_all(self, adapters: list, actor: str = "operator", *,
+                 role: str | None = None) -> dict:
         """Triple-layer kill. Returns timed receipt; always freezes."""
+        if role is not None:
+            # RBAC gate: kill requires RISK_OFFICER+. Denial changes nothing
+            # (no cancel, no freeze) — an unauthorized kill must not DoS the desk.
+            from security.authorization import Permission, normalize_role, role_can
+            resolved = normalize_role(role)
+            if resolved is None or not role_can(resolved, Permission.KILL_SWITCH):
+                # Scrub before logging/returning: a token pasted as the role
+                # (or inside the actor string) must never land at rest.
+                _secret = _env_token() or None
+                _actor = _scrub_secret(actor, _secret)
+                _role = _scrub_secret(str(role), _secret)
+                try:
+                    self.compliance.append(
+                        "kill_denied", {"actor": _actor, "reason": f"unauthorized_role:{_role}"})
+                except Exception:
+                    pass
+                return {"denied": True,
+                        "reason": f"kill DENIED: unauthorized role {_role!r} — no state change.",
+                        "layer1_cancelled": 0, "layer1_ms": 0.0,
+                        "layer2_flatten": "denied", "layer3_freeze": "denied",
+                        "errors": [f"unauthorized_role:{_role}"], "actor": _actor}
         t0 = time.perf_counter()
         cancelled, errors = 0, []
         for ad in adapters:
@@ -405,9 +466,50 @@ class SafetyState:
             receipt["audit"] = "COMPLIANCE-WRITE-FAILED"
         return receipt
 
-    def unlock(self, actor: str, reason: str, token: str | None = None) -> str:
+    def unlock(self, actor: str, reason: str, token: str | None = None, *,
+               role: str | None = None) -> str:
         if not actor.strip() or not reason.strip():
             raise SafetyError("unlock requires actor + reason.")
+        # Legacy no-credential path (token=None + role=None): still succeeds
+        # for existing direct callers, but LOUD — warn and leave a distinct
+        # unlock_legacy record (with best-effort caller frame) so the bypass
+        # is visible in the ledger.
+        # REMOVAL TRIGGER: delete this branch once roles are bound to
+        # authenticated expiring operator identities (MFA) — then every
+        # unlock carries token+identity-bound role.
+        _legacy = token is None and role is None
+        if _legacy:
+            import warnings as _warnings
+
+            _warnings.warn(
+                "unlock() without token+role is legacy and will be removed "
+                "once identity-bound roles land — pass token= and role=.",
+                FutureWarning, stacklevel=2)
+        # Token value must NEVER land in logs/audit: scrub it from every
+        # recorded field (a pasted reason could otherwise embed the secret).
+        # Fall back to the env token when no token was passed (role-as-token
+        # or actor-as-token accidents must still redact).
+        _secret = token if token else (_env_token() or None)
+
+        def _scrub(text: str) -> str:
+            return _scrub_secret(text, _secret)
+        # RBAC gate (optional kw: None preserves legacy behavior for existing
+        # callers). Unknown roles and roles below RISK_OFFICER are DENIED and
+        # stay HALTED. NOTE: MFA / per-operator token expiry is out of scope —
+        # next step is binding roles to authenticated expiring identities.
+        if role is not None:
+            from security.authorization import Permission, normalize_role, role_can
+            resolved = normalize_role(role)
+            if resolved is None or not role_can(resolved, Permission.UNLOCK):
+                _role = _scrub(str(role))
+                try:
+                    self.compliance.append(
+                        "unlock_denied",
+                        {"actor": _scrub(actor), "reason": f"unauthorized_role:{_role}"})
+                except Exception:
+                    pass
+                raise SafetyError(
+                    f"unlock DENIED: unauthorized role {_role!r} — still HALTED.")
         # Core token gate: only enforced when a token is passed. Direct
         # no-token calls keep legacy behavior (callers enforce); REPL/bridge
         # pass the token through so the core enforces too. Denials are
@@ -415,9 +517,9 @@ class SafetyState:
         if token is not None:
             import os as _os
             expected = _os.environ.get("DELTA_UNLOCK_TOKEN", "")
-            if not expected or token != expected:
+            if not expected or not _tokens_match(token, expected):
                 try:
-                    self.compliance.append("unlock_denied", {"actor": actor})
+                    self.compliance.append("unlock_denied", {"actor": _scrub(actor)})
                 except Exception:
                     pass
                 raise SafetyError("unlock DENIED: missing or invalid auth token — still HALTED.")
@@ -430,7 +532,7 @@ class SafetyState:
         if self.kill.active:
             raise SafetyError("unlock FAILED: kill still active after release — still HALTED")
         try:
-            self.compliance.append("reset", {"actor": actor, "reason": reason})
+            self.compliance.append("reset", {"actor": _scrub(actor), "reason": _scrub(reason)})
         except Exception as exc:
             # State is already released, but an unaudited unlock is not
             # acceptable: re-freeze loud rather than proceed silently.
@@ -441,6 +543,16 @@ class SafetyState:
                 pass
             persist_safety_mode("HALTED")
             raise SafetyError(f"unlock FAILED: audit write failed ({exc}) — re-frozen HALTED") from exc
+        if _legacy:
+            # Distinct legacy marker (best-effort caller frame) — the reset
+            # above stays the state record; this one flags the bypass.
+            try:
+                self.compliance.append(
+                    "unlock_legacy",
+                    {"actor": _scrub(actor), "reason": _scrub(reason),
+                     "caller": _caller_info()})
+            except Exception:
+                pass
         self.mode = "MANUAL"
         persist_safety_mode("MANUAL")
         return "MANUAL"

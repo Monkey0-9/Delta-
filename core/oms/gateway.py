@@ -74,8 +74,71 @@ class OrderGateway:
         price_source: str = "real",
         broker: BrokerSubmit | None = None,
         now: datetime | None = None,
+        actor: str | None = None,
+        role: Any | None = None,
     ) -> GatewayDecision:
         ts = now or datetime.now(timezone.utc)
+        # Legacy no-role path: still routes for existing callers, but LOUD —
+        # warn and stamp every audit entry with the legacy_bypass marker.
+        # REMOVAL TRIGGER: delete the legacy branch once roles are bound to
+        # authenticated expiring operator identities — then role is required.
+        _legacy = role is None
+        if _legacy:
+            import warnings as _warnings
+
+            _warnings.warn(
+                "gateway.submit() without role= is legacy and will be removed "
+                "once identity-bound roles land — pass role= explicitly.",
+                FutureWarning, stacklevel=2)
+        # Scrub before logging/returning: a token pasted as the role (or
+        # inside the actor string) must never land at rest.
+        import os as _os
+
+        _secret = _os.environ.get("DELTA_UNLOCK_TOKEN", "") or None
+
+        def _scrub(text: object) -> object:
+            if _secret and isinstance(text, str) and _secret in text:
+                return text.replace(_secret, "[REDACTED]")
+            return text
+
+        # RBAC gate (optional: None preserves legacy behavior for existing
+        # callers). Order routing requires RISK_OFFICER+; unknown or
+        # under-privileged roles are refused with a reason and audit-logged
+        # before the firewall ever sees the order.
+        if role is not None:
+            try:
+                from security.authorization import Permission, normalize_role, role_can
+            except ImportError:  # fail closed when the RBAC module is missing
+                entry = {
+                    "ts": ts.isoformat(),
+                    "order_id": str(order.order_id),
+                    "idempotency_key": order.idempotency_key,
+                    "verdict": "block",
+                    "reasons": ["unauthorized_role:rbac_unavailable"],
+                    "risk_decision_id": "",
+                    "broker_ack": None,
+                    "actor": _scrub(actor),
+                }
+                self.audit_log.append(entry)
+                return GatewayDecision(False, order, ("unauthorized_role:rbac_unavailable",),
+                                       "", entry)
+            resolved = normalize_role(role)
+            if resolved is None or not role_can(resolved, Permission.SUBMIT_ORDER):
+                _role = _scrub(str(role))
+                reason = f"unauthorized_role:{_role}"
+                entry = {
+                    "ts": ts.isoformat(),
+                    "order_id": str(order.order_id),
+                    "idempotency_key": order.idempotency_key,
+                    "verdict": "block",
+                    "reasons": [reason],
+                    "risk_decision_id": "",
+                    "broker_ack": None,
+                    "actor": _scrub(actor),
+                    "role": _role,
+                }
+                self.audit_log.append(entry)
+                return GatewayDecision(False, order, (reason,), "", entry)
         intent = TradeIntent(
             order_id=order.order_id,
             instrument_id=order.instrument_id,
@@ -100,6 +163,7 @@ class OrderGateway:
             "verdict": decision.verdict.value,
             "reasons": list(decision.reasons),
             "risk_decision_id": decision.risk_decision_id,
+            "legacy_bypass": _legacy,
         }
         if decision.verdict != RiskVerdict.APPROVE:
             entry["broker_ack"] = None

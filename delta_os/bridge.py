@@ -347,20 +347,42 @@ class DeltaBridge:
         }
 
     def unlock(self, actor: str = "trader", reason: str = "manual_override",
-               token: str | None = None) -> dict[str, Any]:
+               token: str | None = None, role: str | None = None) -> dict[str, Any]:
         # Fail-closed: arbitrary actor/reason strings over the pipe are NOT auth.
         # Require DELTA_UNLOCK_TOKEN env match; otherwise refuse and log.
+        from delta_os.safety import _scrub_secret, _tokens_match
         expected = os.environ.get("DELTA_UNLOCK_TOKEN", "")
-        if not expected or token != expected:
+        # Unset server token denies everything (empty==empty must not pass).
+        if not expected or not _tokens_match(token, expected):
+            # Consistent 3-path audit: denials here are recorded like the
+            # REPL/core gates (never the token value itself).
+            try:
+                self.term.safety.compliance.append(
+                    "unlock_denied",
+                    {"actor": _scrub_secret(actor, token or expected or None),
+                     "reason": "missing_or_invalid_token"})
+            except Exception:
+                pass
             return {"status": "DENIED",
                     "message": "unlock denied: missing or invalid auth token",
                     "safety_mode": getattr(self.term.safety, "mode", "UNKNOWN")}
         if not actor or not isinstance(actor, str) or any(ch.isspace() for ch in actor):
+            try:
+                self.term.safety.compliance.append(
+                    "unlock_denied", {"reason": "invalid_actor"})
+            except Exception:
+                pass
             return {"status": "DENIED",
                     "message": "unlock denied: invalid actor",
                     "safety_mode": getattr(self.term.safety, "mode", "UNKNOWN")}
+        # Role passes through to the REPL unlock gate (unknown or
+        # under-privileged roles are DENIED there and in the safety core);
+        # omitted role preserves legacy behavior.
+        cmd = f"/unlock {token} {actor} {reason}"
+        if role is not None:
+            cmd += f" --role {role}"
         try:
-            out, _ = self.term.handle(f"/unlock {token} {actor} {reason}")
+            out, _ = self.term.handle(cmd)
         except Exception as exc:
             return {"status": "DENIED",
                     "message": f"unlock failed: {exc}",
@@ -430,7 +452,8 @@ def run_ipc_loop():
                         resp_data = bridge.kill_switch(confirm=params.get("confirm", False))
                     elif method == "unlock":
                         resp_data = bridge.unlock(actor=params.get("actor", "trader"),
-                            reason=params.get("reason", "manual"), token=params.get("token"))
+                            reason=params.get("reason", "manual"), token=params.get("token"),
+                            role=params.get("role"))
                     elif method == "ping":
                         resp_data = {"pong": True, "time": datetime.now(timezone.utc).isoformat()}
                     else:
@@ -449,8 +472,25 @@ def run_ipc_loop():
                 pass
 
 
+def main() -> int:
+    """Bridge process entry: IPC loop with fail-closed tamper delivery."""
+    try:
+        run_ipc_loop()
+    except Exception as exc:
+        # Fail-closed delivery: an AuditTamperError (raised at import or boot
+        # when the ledger fails integrity) halts LOUD with a non-zero exit
+        # naming file/line instead of a bare traceback. Type-name check (not
+        # isinstance) because the audit import itself may be what raised.
+        if type(exc).__name__ == "AuditTamperError":
+            print(f"DELTA BRIDGE HALTED: audit ledger tamper — refusing to boot: {exc}",
+                  file=sys.stderr)
+            return 2
+        raise
+    return 0
+
+
 if __name__ == "__main__":
-    run_ipc_loop()
+    raise SystemExit(main())
 
 
 def handle_command(text: str) -> dict[str, Any]:

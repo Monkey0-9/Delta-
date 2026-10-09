@@ -636,6 +636,9 @@ class Terminal:
         return "MANUAL: every order needs [y/N]."
 
     def _c_kill(self, args: list) -> str:
+        # /kill is intentionally role-exempt: the panic path always freezes
+        # (no credential gate may stand between an operator and the halt).
+        # RBAC applies only when a role is explicitly passed to kill_all.
         ads = [self.router.paper]
         if self.router.alpaca is not None:
             ads.append(self.router.alpaca)
@@ -646,23 +649,42 @@ class Terminal:
 
     def _c_unlock(self, args: list) -> str:
         # Shame-proofing fix: REPL unlock REQUIRES the DELTA_UNLOCK_TOKEN,
-        # same as the bridge path. `usage: /unlock <token> [actor] [reason...]`.
-        # Without the token the HALTED state cannot be left, period.
+        # same as the bridge path. `usage: /unlock <token> [actor] [reason...]
+        # [--role ROLE]`. Without the token the HALTED state cannot be left,
+        # period. Unknown or under-privileged roles are DENIED (kill/unlock
+        # require RISK_OFFICER+); omitting --role preserves legacy behavior.
         import os as _os
         expected = _os.environ.get("DELTA_UNLOCK_TOKEN", "")
         if len(args) < 1:
-            return "usage: /unlock <token> [actor] [reason...]"
-        if not expected or args[0] != expected:
+            return "usage: /unlock <token> [actor] [reason...] [--role ROLE]"
+        from delta_os.safety import _tokens_match
+        # Unset server token denies everything (empty==empty must not pass).
+        if not expected or not _tokens_match(args[0] if args else None, expected):
             try:
                 self.safety.compliance.append("unlock_denied", {"args": len(args)})
             except Exception:
                 pass
             return "unlock DENIED: missing or invalid auth token — still HALTED."
-        actor, reason = (args[1] if len(args) > 1 else "operator"), \
-            (" ".join(args[2:]) if len(args) > 2 else "manual")
+        rest = list(args[1:])
+        role = None
+        if "--role" in rest:
+            i = rest.index("--role")
+            if i + 1 >= len(rest) or not rest[i + 1].strip():
+                try:
+                    self.safety.compliance.append(
+                        "unlock_denied", {"reason": "missing_role_value"})
+                except Exception:
+                    pass
+                return "unlock DENIED: --role needs a value — still HALTED."
+            role = rest[i + 1]
+            del rest[i:i + 2]
+        actor, reason = (rest[0] if len(rest) > 0 else "operator"), \
+            (" ".join(rest[1:]) if len(rest) > 1 else "manual")
         # Pass the token through so the safety core enforces it too
         # (defense in depth: REPL gate + core gate must both agree).
-        return "mode -> " + self.safety.unlock(actor, reason, token=args[0])
+        # Role denials raise SafetyError -> "BLOCKED: ..." via handle().
+        return "mode -> " + self.safety.unlock(actor, reason, token=args[0],
+                                               role=role)
 
     def _c_flatten(self, args: list) -> str:
         return ("flatten submits market orders — route via preview: "

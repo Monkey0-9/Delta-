@@ -12,6 +12,8 @@ import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from provenance.audit.chain import AuditChain
+
 COMPLIANCE_VERSION = "compliance-v1"
 
 
@@ -26,8 +28,17 @@ class AuditRecord:
 
 
 class ComplianceLog:
+    """Hash-chained compliance log.
+
+    The local record list is the store of record; every append is mirrored
+    into the canonical :class:`provenance.audit.chain.AuditChain` (single
+    chain implementation shared with core.audit). verify() requires both
+    the local replay and the canonical chain to agree.
+    """
+
     def __init__(self) -> None:
         self._records: list[AuditRecord] = []
+        self._chain = AuditChain()
 
     def append(self, kind: str, payload: dict) -> AuditRecord:
         if not kind.strip():
@@ -38,6 +49,10 @@ class ComplianceLog:
         rec.hash = hashlib.sha256(json.dumps(
             [rec.seq, rec.ts, kind, rec.payload, prev],
             sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
+        # Mirror-then-local: a canonical-chain failure leaves zero local
+        # state, so the two can never permanently diverge.
+        self._chain.append(record_type=kind, record_id=str(rec.seq),
+                           payload_hash=rec.hash)
         self._records.append(rec)
         return rec
 
@@ -53,10 +68,14 @@ class ComplianceLog:
             if h != r.hash:
                 return False
             prev = r.hash
-        return True
+        return self._chain.verify()
 
     def best_execution_report(self, tolerance_bps: float = 10.0) -> dict:
-        """Per-fill slippage vs arrival reference; flags > tolerance."""
+        """Per-fill slippage vs arrival reference; flags > tolerance.
+
+        Fills missing arrival_px/price are FLAGGED rows (never silently
+        skipped) so gaps in best-execution evidence stay visible.
+        """
         rows, bad = [], 0
         for r in self._records:
             if r.kind != "fill":
@@ -65,6 +84,10 @@ class ComplianceLog:
             px = float(r.payload.get("price", 0) or 0)
             side = r.payload.get("side", "buy")
             if ref <= 0 or px <= 0:
+                rows.append({"order_id": r.payload.get("order_id"),
+                             "slip_bps": None, "flag": True,
+                             "reason": "missing_arrival_or_price"})
+                bad += 1
                 continue
             slip = (px - ref) / ref * 1e4 * (1 if side == "buy" else -1)
             flag = abs(slip) > tolerance_bps
