@@ -13,9 +13,9 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _isolate_delta_session(monkeypatch, tmp_path):
-    import delta_os.repl as _repl
     import delta_os.safety as _safety
 
     p = tmp_path / "session.json"
+    # Single canonical path lives in delta_os.safety (repl resolves it
+    # late-bound), so isolating safety alone covers both.
     monkeypatch.setattr(_safety, "_session_path", lambda: p)
-    monkeypatch.setattr(_repl, "_session_path", lambda: p)

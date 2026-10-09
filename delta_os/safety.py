@@ -33,23 +33,133 @@ def _session_path():
     return Path(os.path.expanduser("~")) / ".delta" / "session.json"
 
 
-def read_persisted_safety_mode() -> str | None:
-    """Best-effort HALT marker read. Missing -> None; corrupt -> warn + None."""
+def atomic_write_json(path, payload: dict) -> None:
+    """Write JSON atomically (unique same-dir tmp file + os.replace).
+
+    Accepts str or Path. The tmp name is unique per call (pid + ns clock)
+    so two concurrent sessions can never share it; it lives in the same
+    directory (same filesystem, so os.replace stays atomic). A failed write
+    unlinks its own tmp and never touches a sibling's.
+    """
+    import json
+    import os
+    import time
+    from pathlib import Path
+
+    path = Path(path)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
+    replaced = False
     try:
-        import json
-        import warnings
+        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        os.replace(tmp, path)
+        replaced = True
+    finally:
+        if not replaced:
+            try:
+                tmp.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+
+_MAX_SESSION_BACKUPS = 3
+
+
+def _backup_corrupt_file(path, raw: str, stacklevel: int = 4) -> str | None:
+    """Back up corrupt session text to a timestamped sibling.
+
+    Target is ``<name>.<YYYYMMDDTHHMMSS>.bak`` (+ ``.N`` on a same-second
+    collision, so the first backup is never truncated). Bounded: only the
+    latest 3 backups are kept. Returns the backup file name, or None when
+    the backup itself failed (loud warn + terminal-visible print; the
+    corrupt content is then left in place, never wiped).
+    """
+    import sys
+    import warnings
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    path = Path(path)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    cand = path.with_name(f"{path.name}.{ts}.bak")
+    n = 1
+    while cand.exists():
+        n += 1
+        cand = path.with_name(f"{path.name}.{ts}.bak.{n}")
+    try:
+        cand.write_text(raw, encoding="utf-8")
+    except Exception as exc:
+        warnings.warn(f"session backup FAILED ({exc}); corrupt content left in place.",
+                      UserWarning, stacklevel=stacklevel)
+        print(f"WARNING: session backup FAILED ({exc}); corrupt content left in place.",
+              file=sys.stderr)
+        return None
+    try:
+        priors = sorted(path.parent.glob(path.name + "*.bak*"),
+                        key=lambda q: q.name)
+        for stale in priors[:-_MAX_SESSION_BACKUPS]:
+            try:
+                stale.unlink()
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return cand.name
+
+
+def read_session_dict(path, backup: bool = True, *, _stacklevel: int = 2) -> tuple[dict, bool]:
+    """Read an existing session file. Returns (dict, was_corrupt).
+
+    On parse failure (or a non-object document) the raw text is backed up
+    to a timestamped sibling (never wiped silently) unless backup=False, in
+    which case the caller gets warn + fresh dict and no file is created
+    (pure read for load paths). Missing file -> ({}, False), no warning.
+    """
+    import json
+    import warnings
+    from pathlib import Path
+
+    path = Path(path)
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return {}, False
+
+    def _corrupt(msg: str) -> tuple[dict, bool]:
+        # +1: this closure adds a frame between warn and read_session_dict's caller.
+        bname = _backup_corrupt_file(path, raw, stacklevel=_stacklevel + 2) if backup else None
+        if backup:
+            where = f"backed up to {bname}" if bname else "backup FAILED, left in place"
+        else:
+            where = "no backup (read-only load)"
+        warnings.warn(f"session file corrupt ({msg}); {where}, starting fresh.",
+                      UserWarning, stacklevel=_stacklevel + 1)
+        return {}, True
+
+    try:
+        d = json.loads(raw)
+    except Exception as exc:
+        return _corrupt(str(exc))
+    if not isinstance(d, dict):
+        return _corrupt("not an object")
+    return d, False
+
+
+def _read_session_dict(path, backup: bool = True) -> tuple[dict, bool]:
+    """Legacy alias of read_session_dict (kept for existing callers)."""
+    return read_session_dict(path, backup=backup)
+
+
+def read_persisted_safety_mode() -> str | None:
+    """Best-effort HALT marker read. Missing -> None; corrupt -> warn + None.
+
+    Pure read: never writes a backup, just warns and boots defaults.
+    """
+    try:
         p = _session_path()
         if not p.exists():
             return None
-        try:
-            d = json.loads(p.read_text(encoding="utf-8"))
-        except Exception as exc:
-            warnings.warn(f"safety marker unreadable ({exc}); booting current defaults.",
-                          UserWarning, stacklevel=2)
-            return None
-        if not isinstance(d, dict):
-            warnings.warn("safety marker corrupt (not an object); booting current defaults.",
-                          UserWarning, stacklevel=2)
+        d, _ = read_session_dict(p, backup=False, _stacklevel=3)
+        if not d:
             return None
         v = d.get("safety_mode")
         if isinstance(v, str) and v.strip():
@@ -60,23 +170,26 @@ def read_persisted_safety_mode() -> str | None:
 
 
 def persist_safety_mode(mode: str) -> None:
-    """Best-effort HALT marker write (merge, never raise, never wipe keys)."""
+    """Best-effort HALT marker write (merge, never raise, never wipe keys).
+
+    Corrupt files are backed up to a timestamped sibling (never wiped
+    silently); the write itself is atomic (unique tmp file + os.replace).
+    """
     try:
-        import json
+        import warnings
+
         p = _session_path()
         p.parent.mkdir(parents=True, exist_ok=True)
         cur: dict = {}
-        try:
-            if p.exists():
-                d = json.loads(p.read_text(encoding="utf-8"))
-                if isinstance(d, dict):
-                    cur = d
-        except Exception:
-            cur = {}
+        if p.exists():
+            cur, _ = read_session_dict(p, _stacklevel=3)
         cur["safety_mode"] = mode
-        p.write_text(json.dumps(cur, indent=2), encoding="utf-8")
-    except Exception:
-        pass
+        atomic_write_json(p, cur)
+    except Exception as exc:
+        import warnings
+
+        warnings.warn(f"safety marker write skipped ({exc}).",
+                      UserWarning, stacklevel=2)
 
 
 @dataclass
@@ -335,4 +448,5 @@ class SafetyState:
 
 __all__ = ["SAFETY_VERSION", "OrderTicket", "SafetyError", "AntiTiltGovernor",
            "SafetyState", "MAX_POSITION_PCT", "MAX_LEVERAGE", "DAILY_HALT_DRAWDOWN",
-           "read_persisted_safety_mode", "persist_safety_mode"]
+           "read_persisted_safety_mode", "persist_safety_mode",
+           "atomic_write_json", "read_session_dict"]

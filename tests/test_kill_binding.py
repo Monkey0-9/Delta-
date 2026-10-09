@@ -20,14 +20,12 @@ sys.path.insert(0, ".")
 
 @pytest.fixture
 def _isolated_session(monkeypatch, tmp_path):
-    """Point both session-file helpers at a tmp file (hermetic marker)."""
-    import delta_os.repl as _repl
+    """Point the canonical session-file helper at a tmp file (hermetic marker)."""
     import delta_os.safety as _safety
 
     p = tmp_path / "session.json"
 
     monkeypatch.setattr(_safety, "_session_path", lambda: p)
-    monkeypatch.setattr(_repl, "_session_path", lambda: p)
     return p
 
 

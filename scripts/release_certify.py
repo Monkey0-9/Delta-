@@ -54,18 +54,62 @@ def run_pytest_slice() -> dict:
 
 
 def secret_scan() -> dict:
-    pats = ["tvly-", "sk-", "AKIA", "BEGIN PRIVATE KEY", "DELTA_UNLOCK_TOKEN="]
+    import re
+    # Prefix pats alone are too noisy ("risk-adjusted" contains "sk-", and
+    # a literal pats list flags its own definition line): every pattern
+    # requires key-like shape. Real keys (sk-proj-*/sk-ant-*/tvly-*/AKIA*)
+    # always carry digits/uppercase over a long token; PEM armor always
+    # carries its dashes; a token assignment always carries a value.
+    # English prose and the definition lines below match none of these.
+    shaped = [("sk-", re.compile(r"sk-[A-Za-z0-9_\-]{8,}")),
+              ("tvly-", re.compile(r"tvly-[A-Za-z0-9_\-]{8,}")),
+              ("AKIA", re.compile(r"AKIA[0-9A-Z]{16}")),
+              ("BEGIN PRIVATE KEY",
+               re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY")),
+              ("DELTA_UNLOCK_TOKEN=",
+               re.compile(r"DELTA_UNLOCK_TOKEN=[\"']?[A-Za-z0-9_\-]{4,}"))]
+    # Doc placeholder for the unlock token (USER_GUIDE) — non-working by
+    # design, never a leak. Lines carrying it are not hits.
+    placeholder = "SET_A_PRIVATE_TOKEN_HERE"
+    exts = {".py", ".yaml", ".yml", ".toml", ".md", ".env"}
+    skip_dirs = {".venv", "__pycache__", ".git", "artifacts", "target",
+                 "node_modules"}
     hits = []
-    for p in Path(".").rglob("*.py"):
-        if ".venv" in str(p) or "__pycache__" in str(p):
+    for p in Path(".").rglob("*"):
+        if not p.is_file():
+            continue
+        s = str(p)
+        if ".venv" in s or "__pycache__" in s or ".git" in s:
+            continue
+        if skip_dirs & set(p.parts):
+            continue
+        name = p.name
+        if name.startswith(".env") or p.suffix.lower() in exts:
+            pass
+        else:
             continue
         try:
             t = p.read_text(encoding="utf-8", errors="ignore")
         except Exception:
             continue
-        for pat in pats:
-            if pat in t and "test" not in str(p).lower():
-                hits.append(f"{p}:{pat}")
+        if "test" in s.lower():
+            continue
+        for line in t.splitlines():
+            if placeholder in line:
+                continue
+            if "..." in line:
+                # Truncated doc examples (e.g. USER_GUIDE "/key ... sk-ant-api03-...")
+                # are illustrations, never leaked secrets.
+                continue
+            hit = None
+            for label, rx in shaped:
+                m = rx.search(line)
+                if m and (label != "sk-"
+                          or any(c.isdigit() or c.isupper() for c in m.group(0)[3:])):
+                    hit = label
+                    break
+            if hit is not None:
+                hits.append(f"{p}:{hit}")
                 break
     return {"hits": hits[:20], "ok": len(hits) == 0}
 

@@ -13,34 +13,43 @@ session. Ctrl+K / Ctrl+M are terminal-level; use /kill and /manual here
 from __future__ import annotations
 
 import difflib
+import sys
 from dataclasses import dataclass, field
 
+from delta_os import safety as _safety
 from delta_os.brain import DeltaBrain, DeltaSentinel
 from delta_os.brokers import BrokerRouter
 from delta_os.data_router import DataRouter
 from delta_os.llm_gateway import ModelGateway
-from delta_os.safety import OrderTicket, SafetyError, SafetyState
+from delta_os.safety import OrderTicket, SafetyError, SafetyState, atomic_write_json, read_session_dict
 from delta_os.vault import Vault, default_path
 
 OS_VERSION = "delta-os-v1"
 
 SESSION_PATH_NOTE = "~/.delta/session.json"
 
-
-def _session_path():
-    from pathlib import Path
-    import os
-    return Path(os.path.expanduser("~")) / ".delta" / "session.json"
+# Session path is canonical in delta_os.safety (_safety._session_path);
+# repl always resolves it late-bound so tests isolate via safety only.
 
 
 def _load_session(term) -> None:
-    """Restore watchlist/theme/workspace/model across reboots (best-effort)."""
+    """Restore watchlist/theme/workspace/model across reboots (best-effort).
+
+    Pure read: a corrupt file warns + boots defaults and is NEVER backed up
+    here (no .bak from the load path); the next successful save merges over
+    it after the write-merge path takes its own timestamped backup.
+    """
     try:
-        import json
-        p = _session_path()
+        import warnings
+
+        p = _safety._session_path()
         if not p.exists():
             return
-        d = json.loads(p.read_text(encoding="utf-8"))
+        d, was_corrupt = read_session_dict(p, backup=False, _stacklevel=3)
+        if was_corrupt:
+            print("WARNING: session file corrupt; booting defaults (load writes no backup).",
+                  file=sys.stderr)
+            return
         if isinstance(d.get("watchlist"), list):
             term.watchlist = [s.upper() for s in d["watchlist"][:50]]
         for k in ("theme", "workspace", "model_name", "broker_name",
@@ -54,34 +63,57 @@ def _load_session(term) -> None:
                 term.safety.mode = "HALTED"
                 try:
                     term.safety.kill.activate()
-                except Exception:
-                    pass
-        except Exception:
-            pass
-    except Exception:
-        pass
+                except Exception as exc:
+                    warnings.warn(f"session restore: kill re-arm failed ({exc}); mode stays HALTED.",
+                                  UserWarning, stacklevel=2)
+                    print(f"WARNING: session restore: kill re-arm failed ({exc}); mode stays HALTED.",
+                          file=sys.stderr)
+        except Exception as exc:
+            warnings.warn(f"session restore: safety marker handling failed ({exc}).",
+                          UserWarning, stacklevel=2)
+    except Exception as exc:
+        import warnings
+
+        warnings.warn(f"session load skipped ({exc}).",
+                      UserWarning, stacklevel=2)
 
 
 def _save_session(term) -> None:
+    """Persist session keys, merging over the existing file (never wiping keys).
+
+    Never invents a safety mode: when the live mode is unreadable the write
+    is skipped (a stale HALTED marker must survive). Writes are atomic
+    (tmp file + os.replace).
+    """
     try:
-        import json
-        p = _session_path()
+        import warnings
+
+        p = _safety._session_path()
         p.parent.mkdir(parents=True, exist_ok=True)
         try:
             safety_mode = str(term.safety.mode)
-        except Exception:
-            safety_mode = "MANUAL"
-        p.write_text(json.dumps({"watchlist": term.watchlist,
-                                 "theme": term.theme,
-                                 "workspace": term.workspace,
-                                 "model_name": term.model_name,
-                                 "effort": getattr(term, "effort", "AUTO"),
-                                 "thinking": getattr(term, "thinking", "SUMMARY"),
-                                 "broker_name": term.broker_name,
-                                 "safety_mode": safety_mode}),
-                     encoding="utf-8")
-    except Exception:
-        pass
+        except Exception as exc:
+            warnings.warn(f"session save skipped: safety mode unreadable ({exc}); "
+                          "never inventing a mode.",
+                          UserWarning, stacklevel=2)
+            return
+        cur: dict = {}
+        if p.exists():
+            cur, _ = read_session_dict(p, _stacklevel=3)  # corrupt -> timestamped .bak + warn
+        cur.update({"watchlist": term.watchlist,
+                    "theme": term.theme,
+                    "workspace": term.workspace,
+                    "model_name": term.model_name,
+                    "effort": getattr(term, "effort", "AUTO"),
+                    "thinking": getattr(term, "thinking", "SUMMARY"),
+                    "broker_name": term.broker_name,
+                    "safety_mode": safety_mode})
+        atomic_write_json(p, cur)
+    except Exception as exc:
+        import warnings
+
+        warnings.warn(f"session save skipped ({exc}).",
+                      UserWarning, stacklevel=2)
 
 HELP = {
     "analyze": "[symbol] — multi-factor stock analysis & fundamental score",

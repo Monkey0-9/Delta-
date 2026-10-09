@@ -74,18 +74,25 @@ DELTA is built on a four-tier heterogeneous architecture designed for mechanical
 ### Environment Variables
 Configure the following recommended variables in your shell environment:
 
+> **Secret hygiene:** the unlock token is a per-install secret. Never reuse a
+> value from documentation, never commit it, and rotate it immediately if a
+> value you used was ever published or shared. (An earlier revision of this
+> guide published a working example token — treat that value as compromised
+> and do not use it.)
+
 ```powershell
 # PowerShell (Windows)
 $env:OPENBLAS_NUM_THREADS = "1"     # Prevents excessive OpenBLAS thread allocation on high-core machines
 $env:OMP_NUM_THREADS = "1"          # Constrains OpenMP pool size
-$env:DELTA_UNLOCK_TOKEN = "UNLEASH_DELTA_2026" # Token required to unlock the Kill Switch
+$env:DELTA_UNLOCK_TOKEN = "SET_A_PRIVATE_TOKEN_HERE" # Per-install secret required to unlock the Kill Switch
 ```
 
 ```bash
 # Bash / Zsh (Linux / macOS)
 export OPENBLAS_NUM_THREADS=1
 export OMP_NUM_THREADS=1
-export DELTA_UNLOCK_TOKEN="UNLEASH_DELTA_2026"
+# Replace with your own per-install secret (never reuse a doc value):
+export DELTA_UNLOCK_TOKEN="SET_A_PRIVATE_TOKEN_HERE"
 ```
 
 ---
@@ -122,9 +129,10 @@ python -m delta_os.bridge
 ### Mode 4: Standalone Java Execution Gateway
 Compiles and starts the high-speed Disruptor matching engine on port 9876:
 
-```bash
-# Compile Java execution plane
-javac -d execution/java_gateway/bin (Get-ChildItem -Recurse execution/java_gateway/src/*.java).FullName
+```powershell
+# Compile Java execution plane (quoted paths: safe when directory names contain spaces)
+$src = (Get-ChildItem -Recurse -Filter *.java -Path "execution/java_gateway/src").FullName
+javac -d "execution/java_gateway/bin" $src
 
 # Start the gateway daemon
 java -Xmx256m -cp execution/java_gateway/bin delta.execution.DeltaJavaGatewayServer 9876
@@ -145,7 +153,7 @@ The TUI features a disciplined top header, a dynamic primary workspace, and a bo
 | `Esc` | Clear input / dismiss modal / back |
 | `Ctrl+X K` then `/kill CONFIRM` | **Emergency Kill**: bypasses LLM, hits risk governor directly. `Ctrl+C` never kills (cancels turn only); `Ctrl+K` alone never kills |
 
-### The Terminal Screens (every one registered — `tests/test_guide_proof.py` fails the build otherwise)
+### The Terminal Screens (Python rail registers 18 — `delta_tui/app.py` SCREENS; Rust terminal renders 11 views; the 12 below are the primary operator workspaces — `tests/test_guide_proof.py` fails the build otherwise)
 
 1. **Dashboard (`/desk`)**: HOME 4-pane — market, intelligence, portfolio, attention — with provenance badges.
 2. **Markets (`/markets`)**: Real-time quotes, technical indicators (Wilder RSI, Bollinger Bands, MACD), and order book depth.
@@ -185,16 +193,17 @@ When typing in the command prompt or pressing `/`, DELTA renders an interactive,
 
 Pressing `Ctrl+M` or executing `/models` opens the Quant AI Model Selector modal matching Image 2:
 
-- **Local Institutional Brain (`delta(delta-fm-research)`)**: Runs 100% offline with zero cloud API keys required. Handles multi-factor analysis, Black-Scholes Greeks, crash detection, forecasting, and algo-trading code generation.
-- **Cloud Frontier Models**:
-  - `claude-3-7-sonnet` — Deep Chain-of-Thought quantitative reasoning (Anthropic)
-  - `claude-3-5-sonnet` — High-efficiency multi-factor analysis (Anthropic)
-  - `claude-5-5-preview` — Frontier reasoning & complex alpha synthesis (Anthropic)
-  - `astro-6-0-quantum` — Quantum numerical & stochastic simulation (Astro AI)
-  - `gpt-4o` — Broad financial knowledge & multi-modal parsing (OpenAI)
-  - `deepseek-r1-quant` — Mathematical reasoning & statistical arbitrage (DeepSeek)
-  - `qwen-2.5-72b-instruct` — Factor decomposition & macro regime modeling (Alibaba)
-  - `groq-llama3-70b-fast` — Sub-50ms ultra-low latency inference gate (Groq)
+- **Local Institutional Brain (`delta-fm-research`)**: Runs 100% offline with zero cloud API keys required. Handles multi-factor analysis, Black-Scholes Greeks, crash detection, forecasting, and algo-trading code generation.
+- **Cloud / Custom Catalogue** (names match `delta_os/model_catalogue.py` BUILTIN exactly — use them verbatim with `/model switch <name>`):
+    - `claude-3-7-sonnet` — Anthropic quant depth (key required)
+    - `claude-5-5` — Anthropic latest template (key required)
+    - `claude-opus-5-5` / `claude-sonnet-5-5` — Anthropic Opus / Sonnet 5.5 (key required)
+    - `gpt-6-astra` / `gpt-6-1-sol` / `gpt-6-luna` — OpenAI Astra / Sol 6.1 / Luna (key required)
+    - `gpt-4o` — OpenAI function-calling/tools (key required)
+    - `deepseek-r1` — DeepSeek reasoning (key required)
+    - `gemini-3-8-flash` / `gemini-2-5` — Google Gemini Flash 3.8 / long-context filings (key required)
+    - `groq-free` — Groq fast inference (key required)
+    - `astro-6-0` — Custom endpoint template · configure via `/models add <base-url>` (UNAVAILABLE until configured)
 - **BYOK Key Management (`/key`)**: Configure API keys for cloud frontier models:
 
   ```bash
@@ -375,16 +384,16 @@ DELTA implements a fail-closed emergency circuit breaker governed by institution
 ```
 
 1. **Triggering the Kill Switch**:
-   - In TUI: Press `Ctrl+C` or enter `/kill [reason]`.
-   - In REPL: Execute `kill [reason]`.
-   - Automated: The Risk Firewall automatically trips if VaR limits are breached or broker disconnects occur.
+    - In TUI: type `/kill` to arm, then `/kill CONFIRM` to engage — this bypasses the LLM and hits the risk governor directly. `Ctrl+C` cancels the current turn only; it never kills. `Ctrl+K` alone only opens the command palette.
+    - In REPL: execute `/kill [reason]` (halts immediately). `Ctrl+C` cancels the current turn only (see `delta_os/repl.py`).
+    - Automated: The Risk Firewall automatically trips if VaR limits are breached or broker disconnects occur.
 2. **Behavior Under Halt**:
    - In-memory order entry is rejected immediately prior to any network transmission.
    - All open resting orders are cancelled across connected brokers.
    - The status banner pulses `CRITICAL: HALTED`.
 3. **Unlocking**:
-   - Unlocking cannot be performed through ordinary keystrokes or AI model prompts.
-   - Requires explicit execution of `/unlock <DELTA_UNLOCK_TOKEN>` using the pre-shared secret.
+    - Unlocking cannot be performed through ordinary keystrokes or AI model prompts.
+    - Requires explicit execution of `/unlock <token> [actor] [reason...]` using the per-install secret (`$env:DELTA_UNLOCK_TOKEN`); wrong tokens are denied and logged, engine stays HALTED.
 
 ---
 
