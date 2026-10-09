@@ -35,6 +35,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    "datasets>=2.14.0",
+    "peft>=0.6.0",
+    "accelerate>=0.24.0",
 ]
 
 # Pin NumPy to avoid deprecation warnings with hmmlearn 0.3.3
