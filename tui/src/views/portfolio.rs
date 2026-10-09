@@ -14,6 +14,34 @@ use crate::tables::aligned::{format_currency, format_percent, format_pnl, format
 use crate::theme::ThemeStyles;
 
 pub fn render_portfolio_view(frame: &mut Frame, area: Rect, state: &ApplicationState) {
+    // Gate on bridge status: UNAVAILABLE (or pre-sync PENDING/empty) renders
+    // UNAVAILABLE, never $0.00 as if measured.
+    let portfolio_status = state.portfolio.status.to_uppercase();
+    if portfolio_status == "UNAVAILABLE"
+        || portfolio_status == "PENDING"
+        || portfolio_status.is_empty()
+    {
+        let reason = if state.portfolio.status_reason.is_empty() {
+            "no portfolio source attached".to_string()
+        } else {
+            state.portfolio.status_reason.clone()
+        };
+        let block = Block::default()
+            .title(" PORTFOLIO POSITIONS ")
+            .title_style(ThemeStyles::header_brand())
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(ThemeStyles::panel_border());
+        let lines = vec![
+            Line::from(vec![Span::styled(
+                format!("PORTFOLIO UNAVAILABLE — {reason} [SOURCE/no-portfolio]"),
+                ThemeStyles::muted_text(),
+            )]),
+        ];
+        frame.render_widget(Paragraph::new(lines).block(block), area);
+        return;
+    }
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(7), Constraint::Min(12), Constraint::Length(6)])

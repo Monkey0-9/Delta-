@@ -14,6 +14,34 @@ use crate::tables::aligned::{format_currency, format_percent};
 use crate::theme::ThemeStyles;
 
 pub fn render_risk_view(frame: &mut Frame, area: Rect, state: &ApplicationState) {
+    // Gate on bridge status: UNAVAILABLE (or pre-sync PENDING/empty) renders
+    // UNAVAILABLE, never $0.00 / 0.00% as if measured.
+    let risk_status = state.risk.status.to_uppercase();
+    if risk_status == "UNAVAILABLE"
+        || risk_status == "PENDING"
+        || risk_status.is_empty()
+    {
+        let reason = if state.risk.status_reason.is_empty() {
+            "no risk engine attached".to_string()
+        } else {
+            state.risk.status_reason.clone()
+        };
+        let block = Block::default()
+            .title(" RISK ")
+            .title_style(ThemeStyles::header_brand())
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(ThemeStyles::panel_border());
+        let lines = vec![
+            Line::from(vec![Span::styled(
+                format!("RISK UNAVAILABLE — {reason} [SOURCE/no-risk-engine]"),
+                ThemeStyles::muted_text(),
+            )]),
+        ];
+        frame.render_widget(Paragraph::new(lines).block(block), area);
+        return;
+    }
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(8), Constraint::Length(8), Constraint::Min(8)])
@@ -83,7 +111,7 @@ pub fn render_risk_view(frame: &mut Frame, area: Rect, state: &ApplicationState)
     let factor_lines = vec![
         Line::from(vec![
             Span::styled("Liquidity Risk:    ", ThemeStyles::muted_text()),
-            Span::styled("NORMAL — All positions unwound in < 15 minutes at < 5.0% participation", ThemeStyles::positive()),
+            Span::styled("UNAVAILABLE [SOURCE/no-liquidity-engine]", ThemeStyles::muted_text()),
         ]),
         Line::from(vec![
             Span::styled("Market Beta:       ", ThemeStyles::muted_text()),

@@ -66,6 +66,14 @@ pub struct PortfolioInfo {
     pub positions_count: usize,
     #[serde(default)]
     pub positions: Vec<PositionInfo>,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub status_reason: String,
+    #[serde(default)]
+    pub provenance: String,
+    #[serde(default)]
+    pub day_pnl_display: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -81,7 +89,12 @@ pub struct PositionInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RiskInfo {
+    #[serde(default)]
     pub status: String,
+    #[serde(default)]
+    pub status_reason: String,
+    #[serde(default)]
+    pub provenance: String,
     pub var95: f64,
     pub var99: f64,
     pub cvar: f64,
@@ -215,6 +228,8 @@ pub struct QuoteResponse {
     pub depth_bids: Vec<DepthLevel>,
     #[serde(default)]
     pub depth_asks: Vec<DepthLevel>,
+    #[serde(default)]
+    pub depth_provenance: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

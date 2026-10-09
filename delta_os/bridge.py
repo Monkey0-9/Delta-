@@ -92,6 +92,26 @@ class DeltaBridge:
         day_pnl = equity - base
         day_pnl_pct = (day_pnl / base * 100.0) if base > 0 else 0.0
         leverage = (gross_exp / equity) if equity > 0 else 0.0
+        # A3: an empty book (no positions AND no day-start equity) is
+        # UNAVAILABLE — never $0.00/day-PnL 0 as if measured. Numerics stay
+        # for schema parity; display layers must gate on status/provenance.
+        has_book = len(pos_list) > 0
+        has_base = base > 0
+        book_available = has_book or has_base
+        if has_base:
+            day_pnl_display = f"{day_pnl:+,.2f} ({day_pnl_pct:+.2f}%)"
+        else:
+            day_pnl_display = "n/a (no day-start equity)"
+        portfolio_status = "AVAILABLE" if book_available else "UNAVAILABLE"
+        if book_available:
+            portfolio_reason = ""
+            portfolio_prov = "PAPER" if self.term.broker_name == "paper" else "LIVE"
+        elif not has_base:
+            portfolio_reason = "no day-start equity (empty book)"
+            portfolio_prov = "UNAVAILABLE"
+        else:
+            portfolio_reason = "empty book (no positions)"
+            portfolio_prov = "UNAVAILABLE"
 
         # Exact venue calendar check (NYSE via exchange_calendar; no UTC hack)
         try:
@@ -158,6 +178,10 @@ class DeltaBridge:
                 "equity": equity,
                 "day_pnl": day_pnl,
                 "day_pnl_pct": day_pnl_pct,
+                "day_pnl_display": day_pnl_display,
+                "status": portfolio_status,
+                "status_reason": portfolio_reason,
+                "provenance": portfolio_prov,
                 "realized_pnl": self.pipeline.realized_pnl,
                 "gross_exposure": gross_exp,
                 "net_exposure": net_exp,
@@ -166,7 +190,8 @@ class DeltaBridge:
                 "positions": pos_list,
             },
             "risk": {
-                "status": risk_status,
+                "status": risk_status if book_available else "UNAVAILABLE",
+                "status_reason": "" if book_available else portfolio_reason,
                 "var95": round(risk_m.var95_pct, 2),
                 "var95_dollar": round(risk_m.var95_dollar, 2),
                 "var99": round(risk_m.var99_pct, 2),
@@ -178,13 +203,13 @@ class DeltaBridge:
                 "market_beta": round(risk_m.market_beta, 2),
                 "concentration_pct": round(risk_m.concentration_pct, 2),
                 "gross_limit": 2_000_000.0,
-                "gross_limit_provenance": "CONFIG",
+                "gross_limit_provenance": "CONFIG" if book_available else "UNAVAILABLE",
                 "net_limit": 500_000.0,
-                "net_limit_provenance": "CONFIG",
+                "net_limit_provenance": "CONFIG" if book_available else "UNAVAILABLE",
                 "killswitch_armed": "UNAVAILABLE",
                 "killswitch_armed_provenance": "UNAVAILABLE",
                 "killswitch_halted": is_halted,
-                "risk_provenance": "PAPER" if self.term.broker_name == "paper" else "LIVE",
+                "risk_provenance": ("PAPER" if self.term.broker_name == "paper" else "LIVE") if book_available else "UNAVAILABLE",
                 "risk_asof": now.isoformat(),
                 "rate_shock_impact": round(risk_m.rate_shock_impact_pct, 2),
                 "oil_shock_impact": round(risk_m.oil_shock_impact_pct, 2),

@@ -14,9 +14,18 @@ class Number:
 
     def render(self) -> str:
         try:
-            return format(self.value, self.fmt)
+            val = format(self.value, self.fmt)
         except Exception:
-            return str(self.value)
+            val = str(self.value)
+        src = (self.source or "").strip() or "unknown"
+        if src.lower() in ("unavailable", "unknown", "n/a"):
+            return f"UNAVAILABLE [SOURCE/{src}]"
+        out = f"{val} [SOURCE/{src}]"
+        if self.as_of:
+            out += f" [AS-OF {self.as_of}]"
+        if self.confidence and str(self.confidence).lower() not in ("n/a", ""):
+            out += f" [CONF {self.confidence}]"
+        return out
 
 
 @dataclass(frozen=True)
@@ -30,6 +39,7 @@ class QuoteVM:
     ask_sz: int = 0
     vwap: float = 0.0
     mode: str = "PAPER"
+    depth_source: str = "unavailable"
 
 
 @dataclass(frozen=True)
@@ -47,6 +57,7 @@ class BookVM:
     microprice: float = 0.0
     spread_bps: float = 0.0
     mode: str = "PAPER"
+    source: str = "unavailable"
 
 
 @dataclass(frozen=True)
@@ -68,14 +79,15 @@ class HomeVM:
 @dataclass(frozen=True)
 class RiskVM:
     status: str = "GREEN"
-    gross: float = 0.0
+    gross: float | None = None
     gross_lim: float = 200.0
-    net: float = 0.0
+    net: float | None = None
     net_lim: float = 100.0
-    var99: float = 0.0
-    es99: float = 0.0
+    var99: float | None = None
+    es99: float | None = None
     watches: tuple = ()
     mode: str = "PAPER"
+    source: str = "unavailable"
 
 
 @dataclass(frozen=True)
@@ -88,6 +100,7 @@ class ResearchVM:
     icir: float | None = None
     verdict: str = "PENDING"
     mode: str = "RESEARCH"
+    source: str = "unavailable"
 
 
 @dataclass(frozen=True)
@@ -106,11 +119,12 @@ class SystemVM:
     data: tuple = ()
     models: tuple = ()
     brokers: tuple = ()
-    events_per_s: float = 0.0
-    p99_us: float = 0.0
-    modelled_p99_ms: float = 0.0
-    compute_p99_ms: float = 0.0
+    events_per_s: float | None = None
+    p99_us: float | None = None
+    modelled_p99_ms: float | None = None
+    compute_p99_ms: float | None = None
     mode: str = "PAPER"
+    source: str = "unavailable"
 
 
 @dataclass(frozen=True)
@@ -124,11 +138,12 @@ class MarketVM:
 
 @dataclass(frozen=True)
 class PortfolioVM:
-    net_liq: float = 0.0
-    cash: float = 0.0
-    gross_pct: float = 0.0
-    net_pct: float = 0.0
-    beta: float = 0.0
+    net_liq: float | None = None
+    cash: float | None = None
+    gross_pct: float | None = None
+    net_pct: float | None = None
+    beta: float | None = None
     positions: tuple = ()
     mode: str = "PAPER"
     live: bool = False  # False => labelled SIMULATION/illustrative
+    source: str = "unavailable"

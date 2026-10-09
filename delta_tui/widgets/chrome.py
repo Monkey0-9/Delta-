@@ -19,11 +19,14 @@ def _safe_glyph(text: str) -> str:
 
 
 def header_text(h: dict, state: str = "A", width: int = 100) -> str:
-    """Institutional micro-header matching exact user layout."""
+    """Institutional micro-header matching exact user layout.
+    A3: data chip defaults to UNAVAILABLE (never HEALTHY by default);
+    HEALTHY renders only when the caller passes it explicitly (i.e. a feed
+    reported live — see state.selectors.header_model derivation)."""
     mode = str(h.get("mode", "PAPER")).upper()
     market_dot = "●"
     mkt_status = "LIVE" if h.get("market_live", True) else "CLOSED"
-    data_status = str(h.get("data", "HEALTHY")).upper()
+    data_status = str(h.get("data", "UNAVAILABLE")).upper()
     data_dot = "●" if "HEALTHY" in data_status or str(h.get("data")) == "●" else "○"
     risk_status = str(h.get("risk", "SAFE")).upper()
     risk_dot = "●" if "SAFE" in risk_status or str(h.get("risk")) == "●" else "○"
@@ -62,7 +65,7 @@ def header_rich(h: dict, state: str = "A", width: int = 100) -> str:
     """Rich color markup for micro-header matching exact user visual specification."""
     mode = str(h.get("mode", "PAPER")).upper()
     mkt_status = "LIVE" if h.get("market_live", True) else "CLOSED"
-    data_status = str(h.get("data", "HEALTHY")).upper()
+    data_status = str(h.get("data", "UNAVAILABLE")).upper()
     risk_status = str(h.get("risk", "SAFE")).upper()
     
     clock = str(h.get("clock_utc", "14:32:18"))

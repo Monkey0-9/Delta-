@@ -23,7 +23,7 @@ class TerminalStore:
     session_id: str = "default"
     symbol: str = "NVDA"
     data_live: bool = False
-    data_health: str = "HEALTHY"
+    data_health: str = "UNAVAILABLE"
     market_live: bool = False
     risk_state: str = "SAFE"
     model: str = "delta-fm-research"
@@ -36,11 +36,11 @@ class TerminalStore:
     alerts: list[str] = field(default_factory=list)
     conversation: list[dict[str, str]] = field(default_factory=list)
     browser_ref: str = ""
-    hypothesis: str = "H-2026-0041"
-    experiment: str = "EXP-9182"
-    strategy: str = "momentum-v4"
-    dataset: str = "US_EQ_PIT_2026_08"
-    research_status: str = "OOS validation"
+    hypothesis: str = ""
+    experiment: str = ""
+    strategy: str = ""
+    dataset: str = ""
+    research_status: str = "UNAVAILABLE"
     updated_at: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )

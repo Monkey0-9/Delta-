@@ -70,7 +70,7 @@ pub fn render_markets_view(frame: &mut Frame, area: Rect, state: &ApplicationSta
     let sym = &state.market.active_symbol;
     let quote_opt = state.market.quote.as_ref().or_else(|| state.market.quotes_cache.get(sym));
 
-    let (price, chg_pct, points) = if let Some(q) = quote_opt {
+    let (price, chg_pct, points): (f64, f64, Vec<PricePoint>) = if let Some(q) = quote_opt {
         let mut pts = Vec::new();
         if !q.sparkline.is_empty() {
             let base_vol = (q.volume / q.sparkline.len().max(1) as f64).max(100.0);
@@ -89,11 +89,29 @@ pub fn render_markets_view(frame: &mut Frame, area: Rect, state: &ApplicationSta
         }
         (q.price, q.change_pct, pts)
     } else {
-        (100.0, 0.0, Vec::new())
+        // No live quote: honest empty series, never a fabricated $100 line.
+        (0.0, 0.0, Vec::new())
     };
 
-    let chart = CandlestickChart::new(sym, &points, "1D", price, chg_pct);
-    chart.render(frame, mid_chunks[0]);
+    if quote_opt.is_none() {
+        let unav_block = Block::default()
+            .title(format!(" {sym}  UNAVAILABLE [1D] "))
+            .title_style(ThemeStyles::header_brand())
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(ThemeStyles::panel_border());
+        frame.render_widget(
+            Paragraph::new(vec![Line::from(vec![Span::styled(
+                "UNAVAILABLE [SOURCE/no-quote] — no live quote",
+                ThemeStyles::muted_text(),
+            )])])
+            .block(unav_block),
+            mid_chunks[0],
+        );
+    } else {
+        let chart = CandlestickChart::new(sym, &points, "1D", price, chg_pct);
+        chart.render(frame, mid_chunks[0]);
+    }
 
     // Trend & Technical Indicators (Dynamic from Real Backend)
     let (rsi_str, macd_str, bb_str, atr_str, vwap_str, regime_str) = if let Some(q) = quote_opt {
@@ -110,7 +128,7 @@ pub fn render_markets_view(frame: &mut Frame, area: Rect, state: &ApplicationSta
         let bb_s = if let (Some(up), Some(low)) = (q.bb_upper, q.bb_lower) {
             format!("[{:.2} – {:.2}]", low, up)
         } else {
-            "Normalized Band".into()
+            "--".into()
         };
 
         let atr_s = q.atr.map(|v| format!("${:.2}", v)).unwrap_or_else(|| "--".into());
@@ -118,13 +136,15 @@ pub fn render_markets_view(frame: &mut Frame, area: Rect, state: &ApplicationSta
             let diff_pct = (price - v) / v * 100.0;
             format!("${:.2} ({diff_pct:+.2}%)", v)
         }).unwrap_or_else(|| "--".into());
-        let reg_s = q.regime.clone().unwrap_or_else(|| "NORMAL".into());
+        let reg_s = q.regime.clone().unwrap_or_else(|| "UNKNOWN-REGIME".into());
 
         (rsi_s, macd_s, bb_s, atr_s, vwap_s, reg_s)
     } else {
-        ("--".into(), "--".into(), "--".into(), "--".into(), "--".into(), "NORMAL".into())
+        ("--".into(), "--".into(), "--".into(), "--".into(), "--".into(), "UNAVAILABLE".into())
     };
 
+    let regime_unknown = regime_str == "UNKNOWN-REGIME" || regime_str == "UNAVAILABLE";
+    let regime_style = if regime_unknown { ThemeStyles::muted_text() } else { ThemeStyles::positive() };
     let ind_lines = vec![
         Line::from(vec![
             Span::styled(" RSI (14d): ", ThemeStyles::muted_text()),
@@ -142,7 +162,7 @@ pub fn render_markets_view(frame: &mut Frame, area: Rect, state: &ApplicationSta
             Span::styled(" VWAP (Session):  ", ThemeStyles::muted_text()),
             Span::styled(format!("{:<22}", vwap_str), ThemeStyles::positive()),
             Span::styled("│ Regime: ", ThemeStyles::muted_text()),
-            Span::styled(regime_str, ThemeStyles::positive()),
+            Span::styled(regime_str, regime_style),
         ]),
     ];
 
@@ -161,7 +181,9 @@ pub fn render_markets_view(frame: &mut Frame, area: Rect, state: &ApplicationSta
         ]),
     ];
 
+    let mut depth_provenance = String::new();
     if let Some(q) = quote_opt.filter(|q| !q.depth_bids.is_empty() && !q.depth_asks.is_empty()) {
+        depth_provenance = q.depth_provenance.clone().unwrap_or_default();
         for b in q.depth_bids.iter().take(3) {
             depth_lines.push(Line::from(vec![
                 Span::styled(format!("{:>8.0}      ", b.size), ThemeStyles::positive()),
@@ -177,46 +199,32 @@ pub fn render_markets_view(frame: &mut Frame, area: Rect, state: &ApplicationSta
             ]));
         }
     } else {
-        // Fallback realistic depth from price
-        depth_lines.push(Line::from(vec![
-            Span::styled("   2,400      ", ThemeStyles::positive()),
-            Span::styled(format!("{:.2}", price - 0.04), ThemeStyles::default_text()),
-            Span::styled("      --", ThemeStyles::muted_text()),
-        ]));
-        depth_lines.push(Line::from(vec![
-            Span::styled("   5,100      ", ThemeStyles::positive()),
-            Span::styled(format!("{:.2}", price - 0.07), ThemeStyles::default_text()),
-            Span::styled("      --", ThemeStyles::muted_text()),
-        ]));
-        depth_lines.push(Line::from(vec![
-            Span::styled("  12,800      ", ThemeStyles::positive()),
-            Span::styled(format!("{:.2}", price - 0.12), ThemeStyles::default_text()),
-            Span::styled("      --", ThemeStyles::muted_text()),
-        ]));
-        depth_lines.push(Line::from(vec![
-            Span::styled("      --      ", ThemeStyles::muted_text()),
-            Span::styled(format!("{:.2}", price + 0.02), ThemeStyles::default_text()),
-            Span::styled("     3,200", ThemeStyles::negative()),
-        ]));
-        depth_lines.push(Line::from(vec![
-            Span::styled("      --      ", ThemeStyles::muted_text()),
-            Span::styled(format!("{:.2}", price + 0.05), ThemeStyles::default_text()),
-            Span::styled("     6,400", ThemeStyles::negative()),
-        ]));
-        depth_lines.push(Line::from(vec![
-            Span::styled("      --      ", ThemeStyles::muted_text()),
-            Span::styled(format!("{:.2}", price + 0.10), ThemeStyles::default_text()),
-            Span::styled("     9,800", ThemeStyles::negative()),
-        ]));
+        // No real L2 source: honest UNAVAILABLE, never fabricated sizes.
+        depth_lines.push(Line::from(vec![Span::styled(
+            "  UNAVAILABLE [SOURCE/no-l2] — no live depth",
+            ThemeStyles::muted_text(),
+        )]));
     }
 
     depth_lines.push(Line::from(""));
-    depth_lines.push(Line::from(vec![
-        Span::styled("Spread: ", ThemeStyles::muted_text()),
-        Span::styled("$0.04 (0.5 bps) ", ThemeStyles::accent()),
-        Span::styled("│ Depth: ", ThemeStyles::muted_text()),
-        Span::styled("NORMAL", ThemeStyles::positive()),
-    ]));
+    if depth_provenance.is_empty() {
+        depth_lines.push(Line::from(vec![
+            Span::styled("Spread: ", ThemeStyles::muted_text()),
+            Span::styled("UNAVAILABLE [SOURCE/no-l2]", ThemeStyles::muted_text()),
+            Span::styled(" │ Depth: ", ThemeStyles::muted_text()),
+            Span::styled("UNAVAILABLE", ThemeStyles::muted_text()),
+        ]));
+    } else {
+        depth_lines.push(Line::from(vec![
+            Span::styled("Spread: ", ThemeStyles::muted_text()),
+            Span::styled("see levels ", ThemeStyles::muted_text()),
+            Span::styled("│ Depth: ", ThemeStyles::muted_text()),
+            Span::styled(
+                format!("[SOURCE/{}]", depth_provenance.to_uppercase()),
+                ThemeStyles::positive(),
+            ),
+        ]));
+    }
 
     let depth_block = Block::default()
         .title(" DEPTH OF MARKET (L2) ")

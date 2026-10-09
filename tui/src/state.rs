@@ -256,11 +256,15 @@ pub struct PortfolioState {
     pub leverage: f64,
     pub positions: Vec<PositionInfo>,
     pub selected_position_idx: usize,
+    pub status: String,
+    pub status_reason: String,
 }
 
 #[derive(Debug, Clone)]
 pub struct RiskState {
     pub status: String,
+    pub status_reason: String,
+    pub provenance: String,
     pub var95: f64,
     pub var99: f64,
     pub cvar: f64,
@@ -286,6 +290,8 @@ impl Default for RiskState {
             // All financial fields initialize to 0 / false.
             // PENDING until first bridge sync via apply_snapshot().
             status: "PENDING".into(),
+            status_reason: String::new(),
+            provenance: String::new(),
             var95: 0.0,
             var99: 0.0,
             cvar: 0.0,
@@ -547,12 +553,16 @@ impl ApplicationState {
         self.portfolio.gross_exposure = snapshot.portfolio.gross_exposure;
         self.portfolio.net_exposure = snapshot.portfolio.net_exposure;
         self.portfolio.leverage = snapshot.portfolio.leverage;
+        self.portfolio.status = snapshot.portfolio.status;
+        self.portfolio.status_reason = snapshot.portfolio.status_reason;
         if !snapshot.portfolio.positions.is_empty() {
             self.portfolio.positions = snapshot.portfolio.positions;
         }
 
         // Risk
         self.risk.status = snapshot.risk.status;
+        self.risk.status_reason = snapshot.risk.status_reason;
+        self.risk.provenance = snapshot.risk.provenance;
         self.risk.var95 = snapshot.risk.var95;
         self.risk.var99 = snapshot.risk.var99;
         self.risk.cvar = snapshot.risk.cvar;

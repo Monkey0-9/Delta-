@@ -99,21 +99,25 @@ def test_automation_mental_model():
     app = DeltaApp()
     auto_out = app.dispatch("/automation")
     assert "AUTOMATIONS" in auto_out
-    assert "Morning portfolio review" in auto_out
-    assert "Risk regime watch" in auto_out
-    assert "research monitor" in auto_out
-    assert "[Create] [Pause] [Resume] [History]" in auto_out
+    # A3 de-fake: fresh store has no scheduler source — honest UNAVAILABLE,
+    # never hardcoded job names.
+    assert "UNAVAILABLE" in auto_out
+    assert "SOURCE/no-scheduler" in auto_out
+    for fake in ("Morning portfolio review", "Risk regime watch", "research monitor"):
+        assert fake not in auto_out
 
 
 def test_research_persistent_state():
     app = DeltaApp()
     res_out = app.dispatch("/research")
     assert "RESEARCH" in res_out
-    assert "H-2026-0041" in res_out
-    assert "EXP-9182" in res_out
-    assert "momentum-v4" in res_out
-    assert "OOS validation" in res_out
-    assert "[Open analysis ↗] [Run research] [Simulate]" in res_out
+    # A3 de-fake: fresh store has no experiment attached — honest UNAVAILABLE
+    # with a no-source marker, never invented IDs.
+    assert "UNAVAILABLE" in res_out
+    assert "SOURCE/no-experiment" in res_out
+    for fake in ("H-2026-0041", "EXP-9182", "momentum-v4"):
+        assert fake not in res_out
+    assert "[Run research] [Simulate] [Export]" in res_out
 
 
 def test_browser_handoff_and_open():

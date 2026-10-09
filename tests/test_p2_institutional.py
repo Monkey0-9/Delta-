@@ -48,9 +48,11 @@ def test_tui_no_hardcoded_portfolio_risk():
     from delta_tui.state.store import TerminalStore
     store = TerminalStore()
     pvm = PortfolioScreen().build_viewmodel(store)
-    assert pvm.net_liq == 0.0 and pvm.beta == 0.0
+    # A3 de-fake: no attached source -> None (UNAVAILABLE), never $0-as-data.
+    assert pvm.net_liq is None and pvm.beta is None
+    assert pvm.source == "unavailable"
     rvm = RiskScreen().build_viewmodel(store)
-    assert rvm.var99 == 0.0 and "UNKNOWN" in rvm.watches[0]
+    assert rvm.var99 is None and "UNAVAILABLE" in rvm.watches[0]
 
 
 def test_agent_budget_enforced():

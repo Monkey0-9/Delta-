@@ -71,6 +71,7 @@ fn test_mode_visibility_and_snapshot_consumption() {
             net_exposure: 600_000.0,
             leverage: 0.80,
             positions_count: 2,
+            status: "AVAILABLE".into(),
             positions: vec![
                 PositionInfo {
                     symbol: "NVDA".into(),
@@ -91,6 +92,7 @@ fn test_mode_visibility_and_snapshot_consumption() {
                     unrealized_pnl_pct: 1.26,
                 },
             ],
+            ..Default::default()
         },
         risk: RiskInfo {
             status: "NORMAL".into(),
@@ -111,6 +113,7 @@ fn test_mode_visibility_and_snapshot_consumption() {
             rate_shock_impact: -1.24,
             oil_shock_impact: -0.42,
             alerts: vec![],
+            ..Default::default()
         },
         orders: vec![
             OrderInfo {

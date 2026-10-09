@@ -7,12 +7,22 @@ from .store import TerminalStore
 def header_model(s: TerminalStore) -> dict:
     from datetime import datetime, timezone
 
+    # A3: HEALTHY only when a feed reports live. A HEALTHY flag with
+    # data_live=False (e.g. store default) derives to DEGRADED — never show
+    # a healthy dot on a dark feed. Explicit UNAVAILABLE is preserved.
+    _health = (s.data_health or "").upper()
+    if bool(s.data_live) and _health == "HEALTHY":
+        _data = "HEALTHY"
+    elif _health in ("DEGRADED", "UNAVAILABLE"):
+        _data = _health
+    else:
+        _data = "DEGRADED"
     return {
         "mode": s.mode.value,
         "workspace": s.workspace,
         "symbol": s.symbol,
         "market": "LIVE" if s.market_live else "CLOSED",
-        "data": s.data_health or ("LIVE" if s.data_live else "CACHED"),
+        "data": _data,
         "risk": s.risk_state or "SAFE",
         "model": s.model,
         "agent": s.agent,
