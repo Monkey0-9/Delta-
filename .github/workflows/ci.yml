@@ -20,7 +20,7 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install -r requirements.txt && pip install -e ".[dev]"
-      - run: python -m pytest tests validation -q
+      - run: python -m pytest -q
   rust:
     runs-on: ubuntu-latest
     steps:
