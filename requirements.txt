@@ -32,8 +32,6 @@ semgrep>=1.100.0
 bandit>=1.7.0
 pip-audit>=2.7.0
 
-# Async Support
-asyncio>=3.4.3
 
 # Utilities
 python-dateutil>=2.8.0
