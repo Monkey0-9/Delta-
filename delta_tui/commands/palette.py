@@ -6,9 +6,12 @@ from .registry import REGISTRY
 
 def entries(query: str = "") -> list[dict]:
     q = (query or "").lower().strip("/")
-    out = []
-    for a in REGISTRY.values():
-        if not q or q in a.name or q in a.description.lower() or q in a.category.lower():
+    # Ranked order always comes from the real fuzzy ranker (ux.fuzzy_rank),
+    # never a parallel substring re-implementation. Empty query keeps the
+    # curated Primary-first priority order (Section 8 box, stable snapshot).
+    if not q:
+        out = []
+        for a in REGISTRY.values():
             out.append({
                 "name": "/" + a.name,
                 "description": a.description,
@@ -16,18 +19,37 @@ def entries(query: str = "") -> list[dict]:
                 "category": getattr(a, "category", "Primary"),
                 "risky": a.risky,
             })
-    # Sort Primary first, then System/AI, then preserve priority
-    order = [
-        "/research", "/market", "/portfolio", "/risk", "/simulate",
-        "/backtest", "/trade", "/automation", "/finance-chat", "/finance-agent",
-        "/kill-switch", "/model", "/agent", "/mcp", "/auth", "/session", "/config", "/open"
-    ]
-    def sort_key(e):
-        name = e["name"]
-        idx = order.index(name) if name in order else 99
-        return (0 if e["category"] == "Primary" else 1, idx, e["name"])
+        # Sort Primary first, then System/AI, then preserve priority
+        order = [
+            "/research", "/market", "/portfolio", "/risk", "/simulate",
+            "/backtest", "/trade", "/automation", "/finance-chat", "/finance-agent",
+            "/kill-switch", "/model", "/agent", "/mcp", "/auth", "/session", "/config", "/open"
+        ]
 
-    return sorted(out, key=sort_key)
+        def sort_key(e):
+            name = e["name"]
+            idx = order.index(name) if name in order else 99
+            return (0 if e["category"] == "Primary" else 1, idx, e["name"])
+
+        return sorted(out, key=sort_key)
+    # Non-empty query: order is exactly ux.fuzzy_rank (fuzzy, not substring).
+    # Full registry in rank order — fuzzy matches like /risk for "re" stay
+    # visible; the box slices the top rows.
+    from .ux import fuzzy_rank as _fuzzy_rank
+
+    ranked: list[dict] = []
+    for name in _fuzzy_rank(q, limit=len(REGISTRY)):
+        a = REGISTRY.get(name)
+        if a is None:
+            continue
+        ranked.append({
+            "name": "/" + a.name,
+            "description": a.description,
+            "screen": a.screen,
+            "category": getattr(a, "category", "Primary"),
+            "risky": a.risky,
+        })
+    return ranked
 
 
 def format_palette_box(query: str = "") -> str:

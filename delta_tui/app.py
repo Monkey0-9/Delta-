@@ -80,6 +80,37 @@ except Exception:
     pass
 
 
+def _mcp_summary() -> str:
+    """Best-effort MCP registry census. Liveness stays UNPROBED (honest)."""
+    from agent.mcp_registry import McpRegistry
+    dash = McpRegistry().dashboard()
+    n = sum(len(v) for v in dash.values())
+    return f"registry readable ({n} servers, UNPROBED liveness)"
+
+
+def _gpu_summary() -> str:
+    """Best-effort GPU census. Anything unreadable raises to the caller."""
+    import torch
+    if torch.cuda.is_available():
+        return "READY " + torch.cuda.get_device_name(0)
+    return "UNAVAILABLE (no CUDA)"
+
+
+def build_completer_words() -> list[str]:
+    """prompt_toolkit completion words from the REAL command registry.
+
+    Slash + NL + alias + terminal surfaces all register into REGISTRY, so
+    new commands complete the day they register — never a hardcoded list.
+    """
+    try:
+        from .commands import aliases as _aliases  # noqa: F401 loads aliases
+        from .commands import terminal as _terminal  # noqa: F401 loads surface
+        from .commands.registry import REGISTRY
+        return sorted("/" + n for n in REGISTRY)
+    except Exception:
+        return ["/help", "/kill", "/quit"]
+
+
 class DeltaApp:
     """Workstation controller (UI-framework agnostic)."""
 
@@ -238,6 +269,14 @@ class DeltaApp:
             return self._passthrough(t)
         if raw_cmd in ("exit", "quit"):
             return "bye"
+
+        # A4: doctor/status/data run REAL probes — never screen-only renders.
+        if raw_cmd == "doctor":
+            return self._cmd_doctor(args)
+        if raw_cmd == "status":
+            return self._cmd_status(args)
+        if raw_cmd == "data":
+            return self._cmd_data(args)
 
         # finance-chat (conversational explanation)
         if raw_cmd == "finance-chat" or (action is not None and action.name == "finance-chat"):
@@ -440,6 +479,129 @@ class DeltaApp:
 
     def _palette_text(self, query: str) -> str:
         return format_palette_box(query)
+
+    # -- A4: doctor/status/data (real probes, honest states, never faked) --
+    def _run_doctor_probes(self):
+        """Run the real probe layer (mock point: patch run_all in tests)."""
+        from delta_os import doctor_connections as _D
+        be = self.backend()
+        vault = getattr(be, "vault", None) if be is not None else None
+        try:
+            return _D.run_all(vault=vault)
+        except TypeError:
+            return _D.run_all()
+
+    def _cmd_doctor(self, args: list) -> str:
+        try:
+            checks = self._run_doctor_probes()
+            from delta_os import doctor_connections as _D
+            body = ("DOCTOR — live connection probes (never faked)\n"
+                    + _D.render_table(checks))
+        except Exception as exc:
+            body = f"DOCTOR UNAVAILABLE [SOURCE/no-probe] — {exc}"
+        self.store.append_turn("You", ("/doctor " + " ".join(args)).strip())
+        self.store.append_turn("DELTA", body)
+        return body
+
+    def _cmd_status(self, args: list) -> str:
+        s = self.store
+        be = self.backend()
+
+        def _safe(fn, fallback="UNAVAILABLE"):
+            try:
+                v = fn()
+                return v if v not in (None, "") else fallback
+            except Exception:
+                return fallback
+
+        broker = _safe(lambda: getattr(be, "broker_name", s.broker), s.broker)
+        safety_mode = _safe(
+            lambda: str(getattr(getattr(be, "safety", None), "mode", "")
+                        or s.risk_state or "?"))
+        regime = _safe(lambda: getattr(be, "regime_chip", "n/a"), "n/a")
+        var_chip = _safe(lambda: getattr(be, "var_chip", "n/a"), "n/a")
+        model = _safe(lambda: getattr(be, "model_name", s.model), s.model)
+        portfolio = _safe(be._ledger_equity) if be is not None else "UNAVAILABLE"
+        if isinstance(portfolio, float):
+            try:
+                positions = be._ledger_positions()
+                portfolio = (f"equity ${portfolio:,.2f} "
+                             f"positions {positions or 'flat'}")
+            except Exception:
+                portfolio = f"equity ${portfolio:,.2f}"
+        elif portfolio is None:
+            portfolio = "UNAVAILABLE (ledger equity unreadable)"
+        orders = _safe(lambda: f"{len(be._ledger_positions())} symbols tracked "
+                       "(paper rail)")
+        mcp = _safe(lambda: _mcp_summary(), "UNPROBED (use /mcp)")
+        gpu = _safe(lambda: _gpu_summary(), "UNAVAILABLE (torch unreadable)")
+        import sys as _sys
+        runtime = f"python {_sys.version.split()[0]}"
+        market = "LIVE" if s.market_live else "CLOSED"
+        lines = [
+            (f"STATUS workspace={s.workspace} session={s.session_id} "
+             f"symbol={s.symbol} mode={s.mode.value}"),
+            f"runtime: {runtime} | data: {s.data_health} (live={s.data_live})",
+            f"portfolio: {portfolio}",
+            (f"risk: safety={safety_mode} state={s.risk_state} "
+             f"regime={regime} var99={var_chip}"),
+            f"model: {model} | agent: {s.agent} | broker: {broker} | market: {market}",
+            f"orders: {orders}",
+            f"mcp: {mcp} | gpu: {gpu}",
+        ]
+        body = "\n".join(lines)
+        self.store.append_turn("You", ("/status " + " ".join(args)).strip())
+        self.store.append_turn("DELTA", body)
+        return body
+
+    def _snapshot_feed_health(self) -> None:
+        """Best-effort feed probe feeding DataScreen. Never raises.
+
+        Fresh TIER1/TIER2 quotes publish a READY feed snapshot; anything else
+        (stale cache, synthetic, offline) leaves feeds empty so the honest
+        UNAVAILABLE render stays — the fix is attempting, not inventing.
+        """
+        try:
+            be = self.backend()
+            data = getattr(be, "data", None) if be is not None else None
+            if data is None:
+                from delta_os.data_router import DataRouter
+                data = DataRouter()
+            qf = data.quote(self.store.symbol, days=30)
+            prov = getattr(qf, "provenance", None)
+            tier = getattr(prov, "tier", "")
+            if tier in ("TIER1", "TIER2"):
+                try:
+                    age = float(getattr(prov, "age_s", 0.0) or 0.0)
+                except Exception:
+                    age = 0.0
+                self.store.viewmodels["data_snapshot"] = {
+                    "feeds": ((self.store.symbol, "READY"),),
+                    "quality": "FRESH",
+                    "freshness_s": age,
+                }
+                self.store.data_live = True
+                self.store.data_health = "HEALTHY"
+            else:
+                self.store.data_live = False
+                self.store.data_health = ("DEGRADED" if tier == "TIER3-CACHE"
+                                          else "UNAVAILABLE")
+        except Exception:
+            pass
+
+    def _cmd_data(self, args: list) -> str:
+        try:
+            self._snapshot_feed_health()
+        except Exception:
+            pass
+        screen = SCREENS["data"]
+        self.store.set_screen(screen.name)
+        vm = screen.build_viewmodel(self.store)
+        self.store.publish(screen.name, vm)
+        body = screen.render_text(vm)
+        self.store.append_turn("You", ("/data " + " ".join(args)).strip())
+        self.store.append_turn("DELTA", body)
+        return body
 
     def _cmd_model(self, args: list) -> str:
         if not args:
@@ -660,20 +822,41 @@ class DeltaApp:
             from prompt_toolkit.completion import WordCompleter
             from prompt_toolkit.key_binding import KeyBindings
 
-            words = ["/" + n for n in
-                    ("research", "market", "portfolio", "risk", "simulate", "backtest",
-                    "trade", "automation", "finance-chat", "finance-agent", "kill-switch",
-                    "model", "agent", "session", "auth", "mcp", "config", "open", "system",
-                    "home", "kill", "help")]
+            # A4: completer from the real command registry (never hardcoded).
+            words = build_completer_words()
             kb = KeyBindings()
 
             @kb.add("c-k")
             def _(event):
-                event.app.current_buffer.text = "/kill"
+                # Keymap truth: Ctrl+K opens the palette (never instant kill).
+                # Kill stays Ctrl+X K (risk cockpit) + typed /kill CONFIRM only.
+                event.app.current_buffer.text = "/"
 
             @kb.add("c-o")
             def _(event):
                 event.app.current_buffer.text = "/open"
+
+            # A4: leader sequences per delta_tui.keymap (Ctrl+X then key).
+            # Each chord stages its slash text — nothing dispatches without
+            # Enter. Fallback-loop scope: the minimal Textual shell passes
+            # raw text (slash works there; chords don't — see keymap notes).
+            try:
+                from . import keymap as _km
+
+                def _bind_leader(second: str, _action: str) -> None:
+                    @kb.add("c-x", second)
+                    def _go(event, _a=_action):
+                        text = _km.leader_slash(_a)
+                        if text:
+                            event.app.current_buffer.text = text
+
+                for _seq, _action in _km.BINDINGS.items():
+                    _parts = _seq.split(" ")
+                    if (len(_parts) == 2 and _parts[0] == "ctrl+x"
+                            and len(_parts[1]) == 1):
+                        _bind_leader(_parts[1], _action)
+            except Exception:
+                pass
 
             session = PromptSession(completer=WordCompleter(words, ignore_case=True),
                                     key_bindings=kb)
