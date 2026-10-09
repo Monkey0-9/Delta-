@@ -1,4 +1,21 @@
-# Stub / Synthetic / Simulation Audit — 2026-09-30 (P0-9), refreshed 2026-10-02 (Phase −1)
+# Stub / Synthetic / Simulation Audit — 2026-09-30 (P0-9), refreshed 2026-10-02 (Phase −1), 2026-10-09 (B8/B9/B10)
+
+Rule (§31): every match is classified SAFE-TEST, RESEARCH-SIM (labeled, never
+enters order path), or PRODUCTION-GAP (must be fixed before the capability it
+implies may be claimed). Guards verified, not assumed.
+
+## Refresh 2026-10-09 — B8/B9/B10 resolutions (verified, with tests)
+
+Label map to the canonical scale: ✅ CLOSED = Implemented; 🟡 NARROWED / OPEN = Partially validated (residual gap named in Evidence); 🔴 CORRECTED = Not implemented as a capability claim (target unmet, documented with measured evidence). Unknown items stay in the PRODUCTION-GAP table below until measured.
+
+| # | Prior gap / new finding | Status now | Evidence |
+|---|---|---|---|
+| 5 | Telemetry format-only (row below) | 🟡 NARROWED, still open for prod | `observability/exporter.py` serves real `:9108/metrics` (proven `test_sre_wiring.py::test_exporter_serves_real_delta_series`); canonical `observability/ops_rules.py` + `scripts/sre_check.py` + `docs/SRE_RUNBOOK.md` evaluate real metrics with blindness notes; no prod dashboards/on-call/PagerDuty — stays OPEN for live |
+| 6 | Firewall 7µs claim (MEMORY 2026-09-30) | 🔴 CORRECTED: unmet target | Measured 2026-10-09 this box: p50 ~163µs / p99 ~343µs (`artifacts/bench/bench.json`, verdict FAIL vs 7µs plan target); SRE thresholds re-baselined to measured numbers with the gap documented (`ops_rules.py` BASELINE NOTE); the 7µs figure must not be cited until a bench artifact shows it met |
+| 7 | `datasets`/`peft` missing from requirements | ✅ CLOSED | Added to `requirements.txt`; `tests/test_ci_security_gates.py::test_requirements_cover_training_imports` pins it; `tests/test_stage2_quantbrain.py` 7/7 green |
+| 8 | No CI security gates | ✅ CLOSED (static) | `.github/workflows/security.yml` (semgrep/bandit/secret-scan/cargo-audit/pip-audit, pinned); dynamic DAST/pentest stays OPEN per SECURITY_CERTIFICATION |
+| 9 | DR rehearsal unproven | ✅ CLOSED (drill) | `scripts/dr_drill.py` PASS (RPO=0, RTO 0.02s<60s, reconcile RESUME, tamper refused) + `tests/test_dr_drill.py` 4/4; real-SIGKILL + 14-day soak stay OPEN (sign-off matrix) |
+| 10 | OMS SUBMITTED had no recovery-cancel edge | ✅ CLOSED | `core/oms/journal.py` SUBMITTED→CANCELLED (crash-window cancel); no prior test weakened (`tests/test_dr_drill.py`) |
 
 Rule (§31): every match is classified SAFE-TEST, RESEARCH-SIM (labeled, never
 enters order path), or PRODUCTION-GAP (must be fixed before the capability it
