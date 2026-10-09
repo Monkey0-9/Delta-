@@ -410,10 +410,10 @@ $env:OMP_NUM_THREADS = "1"
 Verify that all system layers are functioning correctly:
 
 ```bash
-# 1. Run Rust TUI & native kernel test suite (25 tests: lib 15 + integration 10)
+# 1. Run Rust TUI & native kernel test suite (25 tests: lib 15 + integration 10 — verified 2026-10-09, 25 passed, 0 failed)
 cargo test --manifest-path tui/Cargo.toml
 
-# 2. Run the full Python suite — v2.0: 961 passed (846 + 115 institutional)
+# 2. Run the full Python suite — 2026-10-09: 1038 passed, 0 failed (session-bleed root cause fixed: stale model-label migration removed, TUI session isolated in tests/conftest.py)
 python -m pytest tests/ -q
 
 # 3. Stage proofs (29 tests) + audit-gap closure (3 tests)

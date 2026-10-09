@@ -151,17 +151,16 @@ class DeltaApp:
                 return
             d = json.loads(p.read_text(encoding="utf-8"))
             # New TUI keys take precedence; legacy backend model_name is NOT
-            # adopted as the display model (display default: delta).
-            # Legacy display names migrate to delta.
+            # adopted as the display model (display default: delta-fm-research).
+            # No migration: persisted values restore verbatim. Intended
+            # defaults are delta-fm-research/research-agent — a prior
+            # migration inverted them (delta-fm-research->delta) and broke
+            # fresh instances after any persist (session-bleed, A6bleed).
             v = d.get("model")
             if isinstance(v, str) and v:
-                if v == "delta-fm-research":
-                    v = "delta"
                 self.store.set_model(v)
             v = d.get("agent")
             if isinstance(v, str) and v:
-                if v in ("quant-researcher", "delta"):
-                    v = "research-agent"
                 self.store.set_agent(v)
             for _k in ("effort", "thinking"):
                 _v = d.get(_k)
@@ -307,10 +306,15 @@ class DeltaApp:
             return body
 
         if action is not None:
-            # symbol capture
+            # symbol capture: symbol-explicit verbs (/quote + needs_symbol
+            # actions like /book /analyze /backtest) accept full NSE-length
+            # tickers (RELIANCE=8 … ≤12); every other verb keeps the ≤6
+            # heuristic so plain-English first words never become the symbol.
             if args:
                 maybe_sym = str(args[0]).upper()
-                if maybe_sym.isalpha() and len(maybe_sym) <= 6:
+                _explicit = raw_cmd in ("quote",) or (
+                    action is not None and action.needs_symbol)
+                if maybe_sym.isalpha() and len(maybe_sym) <= (12 if _explicit else 6):
                     self.store.symbol = maybe_sym
             # live backend first for finance verbs; screens render the chrome
             live_prefix = {

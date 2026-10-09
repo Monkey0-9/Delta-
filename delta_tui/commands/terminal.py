@@ -46,7 +46,7 @@ EXTRA: list[tuple] = [
     ("macro", "Macro workspace", "market", "Market", "READ", True, False),
     ("fundamentals", "Fundamentals workspace", "market", "Market", "READ", True, False),
     ("compare", "Compare instruments", "market", "Research", "READ", True, False),
-    ("quote", "Quote (read-only)", "market", "Market", "READ", True, False),
+    ("quote", "Quote (read-only)", "security", "Market", "READ", True, False),
     ("stress", "Stress scenarios", "risk", "Risk", "RISK_READ", True, False),
     ("account", "Account scope", "system", "Workspace", "PORTFOLIO_READ", True, False),
     ("accounts", "Account list", "system", "Workspace", "PORTFOLIO_READ", True, False),
