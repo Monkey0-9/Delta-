@@ -53,7 +53,7 @@ def run_pytest_slice() -> dict:
             "ok": r.returncode == 0}
 
 
-def secret_scan() -> dict:
+def secret_scan(root: str | Path = ".") -> dict:
     import re
     # Prefix pats alone are too noisy ("risk-adjusted" contains "sk-", and
     # a literal pats list flags its own definition line): every pattern
@@ -61,6 +61,10 @@ def secret_scan() -> dict:
     # always carry digits/uppercase over a long token; PEM armor always
     # carries its dashes; a token assignment always carries a value.
     # English prose and the definition lines below match none of these.
+    # B9: hyphen-joined metric/rule names (e.g. "risk-latency-p99-hot"
+    # contain the substring "sk-latency-p99-hot") also match the loose
+    # sk- shape, so sk- additionally requires a 16+ char unbroken
+    # [A-Za-z0-9] run — real keys always carry one, English words don't.
     shaped = [("sk-", re.compile(r"sk-[A-Za-z0-9_\-]{8,}")),
               ("tvly-", re.compile(r"tvly-[A-Za-z0-9_\-]{8,}")),
               ("AKIA", re.compile(r"AKIA[0-9A-Z]{16}")),
@@ -71,17 +75,29 @@ def secret_scan() -> dict:
     # Doc placeholder for the unlock token (USER_GUIDE) — non-working by
     # design, never a leak. Lines carrying it are not hits.
     placeholder = "SET_A_PRIVATE_TOKEN_HERE"
-    exts = {".py", ".yaml", ".yml", ".toml", ".md", ".env"}
+    # .json/.ps1 included: pasted secrets land in configs and scripts too;
+    # none exist in-tree today, so the wider net costs no triage.
+    exts = {".py", ".yaml", ".yml", ".toml", ".md", ".env", ".json", ".ps1"}
     skip_dirs = {".venv", "__pycache__", ".git", "artifacts", "target",
-                 "node_modules"}
+                 "node_modules", ".trunk"}
+    # .trunk = third-party linter plugin cache (trunk downloads gitleaks/
+    # trivy fixtures incl. canonical AKIA...EXAMPLE doc keys) — not our code.
+    # Test-tree skip matches path COMPONENTS (a `tests/` dir, or a test file
+    # name) — never a raw substring, which would also excuse `latest/`,
+    # `contest/`, `attestation/` and friends.
     hits = []
-    for p in Path(".").rglob("*"):
+    for p in Path(root).rglob("*"):
         if not p.is_file():
             continue
         s = str(p)
         if ".venv" in s or "__pycache__" in s or ".git" in s:
             continue
         if skip_dirs & set(p.parts):
+            continue
+        name_l = p.name.lower()
+        if "tests" in {part.lower() for part in p.parts}:
+            continue
+        if name_l.startswith("test_") or name_l.endswith("_test.py"):
             continue
         name = p.name
         if name.startswith(".env") or p.suffix.lower() in exts:
@@ -92,20 +108,20 @@ def secret_scan() -> dict:
             t = p.read_text(encoding="utf-8", errors="ignore")
         except Exception:
             continue
-        if "test" in s.lower():
-            continue
         for line in t.splitlines():
             if placeholder in line:
-                continue
-            if "..." in line:
-                # Truncated doc examples (e.g. USER_GUIDE "/key ... sk-ant-api03-...")
-                # are illustrations, never leaked secrets.
                 continue
             hit = None
             for label, rx in shaped:
                 m = rx.search(line)
                 if m and (label != "sk-"
-                          or any(c.isdigit() or c.isupper() for c in m.group(0)[3:])):
+                          or (any(c.isdigit() or c.isupper() for c in m.group(0)[3:])
+                              and re.search(r"[A-Za-z0-9]{16,}", m.group(0)))):
+                    # Truncated doc examples (e.g. USER_GUIDE "/key ... sk-ant-...")
+                    # are illustrations, never leaks — but only when the
+                    # ellipsis sits next to the match, not anywhere on the line.
+                    if "..." in line[max(0, m.start() - 8):m.end() + 8]:
+                        continue
                     hit = label
                     break
             if hit is not None:

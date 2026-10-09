@@ -17,7 +17,18 @@ VALID_NEXT: dict[str, set[str]] = {
     "CREATED": {"VALIDATED", "REJECTED"},
     "VALIDATED": {"RISK_APPROVED", "REJECTED"},
     "RISK_APPROVED": {"SUBMITTED", "CANCELLED"},
-    "SUBMITTED": {"ACKNOWLEDGED", "REJECTED"},
+    # B9 DR: a SUBMITTED order the broker never saw (crash landed between
+    # journal-append and broker-send) never reached the venue — recovery
+    # cancels it in-journal. REJECTED would imply venue action; CANCELLED
+    # is the truthful state.
+    # PRECONDITION on SUBMITTED→CANCELLED: valid ONLY when the broker never
+    # saw the order (venue-absent, attested by the recovery path polling the
+    # broker book first) — never as a live cancel of a venue-held order.
+    # Recovery procedure: scripts/dr_drill.py Phase 3 (broker poll, then
+    # catch-up append). Direct appends of this edge outside recovery are a
+    # state-machine misuse; treat unexpected CANCELLED-from-SUBMITTED as
+    # audit findings, not normal flow.
+    "SUBMITTED": {"ACKNOWLEDGED", "REJECTED", "CANCELLED"},
     "ACKNOWLEDGED": {"FILLED", "CANCELLED"},
 }
 

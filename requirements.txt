@@ -22,6 +22,17 @@ openai>=1.0.0
 anthropic>=0.18.0
 google-generativeai>=0.3.0
 
+# Finance-model training (required by finance_model/training/qlora.py;
+# missing these broke tests/test_stage2_quantbrain.py collection)
+datasets>=2.14.0
+peft>=0.6.0
+accelerate>=0.24.0
+
+# Security gates (CI .github/workflows/security.yml pins exact versions)
+semgrep>=1.100.0
+bandit>=1.7.0
+pip-audit>=2.7.0
+
 # Async Support
 asyncio>=3.4.3
 
@@ -29,6 +40,7 @@ asyncio>=3.4.3
 python-dateutil>=2.8.0
 pytz>=2023.3
 typing-extensions>=4.5.0
+pyyaml>=6.0.0
 
 # Development Dependencies (optional)
 pytest>=7.4.0

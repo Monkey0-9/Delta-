@@ -1,0 +1,67 @@
+name: delta-security-gates
+# B9: blocking SAST/secret/dependency gates on every push + PR.
+# Tool versions are pinned; the offline pin-test is tests/test_ci_security_gates.py.
+# pins-verified: 2026-10-09 (max-age 180d — the pin-freshness test fails past
+# this date; refresh the pins below to reset the clock).
+# NOTE (B9 gitleaks decision): no gitleaks/entropy-history job. The shaped
+# secret_scan (scripts/release_certify.py) already covers key/PEM/token
+# shapes with placeholder/truncation guards, and semgrep --config auto adds
+# secrets rules; a gitleaks job would add an external action dep plus
+# triage surface for no new coverage. Revisit if secret_scan ever goes red
+# on a shape it cannot express.
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  semgrep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install semgrep==1.180.0
+      - run: semgrep scan --config auto --error --exclude='*.ipynb' --exclude='artifacts/**' .
+  bandit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install bandit==1.8.3
+      # Bandit scope = every live Python dir (broker/observability/scripts/
+      # trading/finance_model added B9-review: all ship production code).
+      # Intentionally unscanned: tui/ (Rust — cargo-audit covers it),
+      # tests/ (asserts, not attack surface), artifacts/ (generated output).
+      # -ll = medium severity and up only (low/info is triage noise).
+      # KNOWN STATE (2026-10-09): -ll exits 1 on BOTH the old and widened
+      # scope — pre-existing mediums (B310 urlopen audits, B314 XML, B324
+      # MD5) plus 2 highs predate this widening; widening adds 11 mediums
+      # (B310/B615), no new highs. Triage is deferred work, not silent: do
+      # not "fix" this gate by narrowing scope again.
+      - run: bandit -r core delta_os execution governance risk security research validation data simulation broker observability scripts trading finance_model -ll -f txt
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -c "import sys; sys.path.insert(0,'scripts'); from release_certify import secret_scan; import json; r=secret_scan(); print(json.dumps(r)); raise SystemExit(0 if r['ok'] else 1)"
+  cargo-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install cargo-audit --version 0.21.0 --locked
+      - run: cargo audit --manifest-path tui/Cargo.toml
+  pip-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pip-audit==2.9.0 -r requirements.txt
+      - run: pip-audit -r requirements.txt --desc

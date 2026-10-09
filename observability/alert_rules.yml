@@ -1,0 +1,82 @@
+# B9: SRE alert rules — ops-visible mirror of observability/ops_rules.py.
+#
+# SINGLE SOURCE OF TRUTH is OPS_RULES in ops_rules.py; this file MUST match
+# it exactly (pinned by tests/test_sre_check.py::test_alert_rules_yaml_mirrors_ops_rules).
+# scripts/sre_check.py evaluates these against the live exporter snapshot.
+#
+# Metric-name notes (honest wiring, no aspirational producers):
+#   kill_switch_state   <- delta_os.safety kill auto-detect (0/1)
+#   risk_latency_ns_p99 <- task's "risk_eval_latency"; telemetry risk_latency_ns
+#                          histogram p99, or delta_risk_latency_ns_p99 scrape
+#   rejection_rate      <- task's "order_reject_rate"; rejects/orders
+#   feed_latency        <- INTENTIONALLY ABSENT: no producer emits it yet
+#                          (see ops_rules.py honesty note). Do not add until
+#                          a probe emits the series.
+contacts:
+  pagerduty_routing_key: "PLACEHOLDER-PAGERDUTY-ROUTING-KEY"
+  slack_webhook_url: "PLACEHOLDER-SLACK-WEBHOOK-URL"
+rules:
+  - name: kill-switch-engaged
+    metric: kill_switch_state
+    op: gt
+    threshold: 0
+    severity: critical
+    meaning: "Trading halted: kill switch active."
+    action: "Do NOT unlock to 'fix' alerts. Diagnose cause, resolve, then token + RISK_OFFICER+ role unlock per runbook."
+    owner: risk-officer
+  - name: risk-latency-p99-hot
+    metric: risk_latency_ns_p99
+    op: gt
+    threshold: 700000
+    severity: warning
+    meaning: "Pre-trade firewall p99 past 700us (~2x the measured baseline)."
+    action: "Check host load/Turbo Boost state; if sustained, halt new strategies and file a perf ticket (see bench artifact)."
+    owner: engineering
+  - name: risk-latency-p99-critical
+    metric: risk_latency_ns_p99
+    op: gt
+    threshold: 1400000
+    severity: critical
+    meaning: "Firewall p99 at 4x measured baseline — pre-trade safety is degraded."
+    action: "Engage kill switch (panic path needs no role), then diagnose."
+    owner: risk-officer
+  - name: reject-rate-high
+    metric: rejection_rate
+    op: gt
+    threshold: 0.05
+    severity: warning
+    meaning: "More than 5% of orders rejected (risk/fault)."
+    action: "Inspect reject reasons in the audit ledger; check limits + feed freshness."
+    owner: quant
+  - name: fill-ratio-low
+    metric: fill_ratio
+    op: lt
+    threshold: 0.5
+    severity: warning
+    meaning: "Fills below 50% of submitted — venue or simulation drift."
+    action: "Compare paper vs broker reports; run the DR drill if state is suspect."
+    owner: operations
+  - name: sequence-gaps
+    metric: gaps_total
+    op: gt
+    threshold: 0
+    severity: warning
+    meaning: "Market-data sequence gaps observed."
+    action: "Treat data as suspect: PIT gates should already block decisions; verify feed health before promoting any signal."
+    owner: operations
+  - name: queue-depth-high
+    metric: queue_depth
+    op: gt
+    threshold: 10000
+    severity: warning
+    meaning: "Internal queue backing up — consumer slower than producer."
+    action: "Check exporter/export lag and TUI event loop; shed non-critical load."
+    owner: engineering
+  - name: drawdown-breach
+    metric: drawdown
+    op: lt
+    threshold: -0.02
+    severity: critical
+    meaning: "Day drawdown past the 2% halt line."
+    action: "Kill switch should already be engaged by the sentinel; confirm HALTED, then review positions."
+    owner: risk-officer
