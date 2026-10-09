@@ -18,11 +18,65 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from decimal import Decimal
+from typing import Any
 
 SAFETY_VERSION = "safety-v1"
 MAX_POSITION_PCT = 0.05
 MAX_LEVERAGE = 1.5
 DAILY_HALT_DRAWDOWN = 0.02
+
+
+def _session_path():
+    """Existing session file (shared with delta_os.repl persistence)."""
+    from pathlib import Path
+    import os
+    return Path(os.path.expanduser("~")) / ".delta" / "session.json"
+
+
+def read_persisted_safety_mode() -> str | None:
+    """Best-effort HALT marker read. Missing -> None; corrupt -> warn + None."""
+    try:
+        import json
+        import warnings
+        p = _session_path()
+        if not p.exists():
+            return None
+        try:
+            d = json.loads(p.read_text(encoding="utf-8"))
+        except Exception as exc:
+            warnings.warn(f"safety marker unreadable ({exc}); booting current defaults.",
+                          UserWarning, stacklevel=2)
+            return None
+        if not isinstance(d, dict):
+            warnings.warn("safety marker corrupt (not an object); booting current defaults.",
+                          UserWarning, stacklevel=2)
+            return None
+        v = d.get("safety_mode")
+        if isinstance(v, str) and v.strip():
+            return v.strip().upper()
+        return None
+    except Exception:
+        return None
+
+
+def persist_safety_mode(mode: str) -> None:
+    """Best-effort HALT marker write (merge, never raise, never wipe keys)."""
+    try:
+        import json
+        p = _session_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        cur: dict = {}
+        try:
+            if p.exists():
+                d = json.loads(p.read_text(encoding="utf-8"))
+                if isinstance(d, dict):
+                    cur = d
+        except Exception:
+            cur = {}
+        cur["safety_mode"] = mode
+        p.write_text(json.dumps(cur, indent=2), encoding="utf-8")
+    except Exception:
+        pass
 
 
 @dataclass
@@ -102,12 +156,30 @@ class SafetyState:
     kill = None
     compliance = None
     monitor = None
+    breaker: Any = None  # optional emergency breaker, bound to same board
 
     def __post_init__(self) -> None:
         if self.kill is None:
             from governance.kill_switch import KillSwitch
 
             self.kill = KillSwitch()
+        if self.compliance is None:
+            from governance.compliance import ComplianceLog
+
+            self.compliance = ComplianceLog()
+        # Fail-closed restart: a persisted HALTED marker skips the
+        # disarmed-boot release below. No marker -> current boot behavior.
+        if read_persisted_safety_mode() == "HALTED":
+            self.mode = "HALTED"
+            # P-1.1 loud: a broken halt linkage must fail boot, never boot
+            # "HALTED" on an unverifiable switch.
+            try:
+                self.kill.activate()
+            except Exception as exc:
+                raise SafetyError(f"boot FAILED: cannot arm kill switch ({exc}) — still HALTED") from exc
+            if not self.kill.active:
+                raise SafetyError("boot FAILED: kill switch not active after arm — still HALTED")
+            return
         # Terminal boots disarmed (orders possible after explicit confirm);
         # /kill arms. The kernel KillSwitch defaults active, so release it once.
         # P-1.1: failure here must NEVER pass silently — verify post-condition.
@@ -117,10 +189,13 @@ class SafetyState:
             raise SafetyError(f"boot FAILED: cannot release kill switch ({exc})") from exc
         if self.kill.active:
             raise SafetyError("boot FAILED: kill switch still active after release")
-        if self.compliance is None:
-            from governance.compliance import ComplianceLog
 
-            self.compliance = ComplianceLog()
+    def bind_board(self, board) -> None:
+        """Bind the safety kill shim (and breaker, if present) to a board."""
+        self.kill.bind_to_board(board)
+        br = getattr(self, "breaker", None)
+        if br is not None and hasattr(br, "bind_to_kill_board"):
+            br.bind_to_kill_board(board)
 
     def set_mode(self, mode: str) -> str:
         if mode not in ("MANUAL", "AUTO"):
@@ -185,7 +260,24 @@ class SafetyState:
             # P-1.1: record, don't swallow. Mode still freezes below (fail-safe),
             # but the receipt must say the kill activation itself failed.
             errors.append(f"kill.activate FAILED: {exc}")
+        # Kill-board binding: the shim propagates on activate, but verify the
+        # board GLOBAL actually reflects the halt (firewall checks the board).
+        try:
+            board = getattr(self.kill, "_board", None)
+            if board is not None:
+                try:
+                    board_active = bool(board.any_active())
+                except Exception:
+                    board_active = True
+                if not board_active:
+                    try:
+                        board.glob.activate(actor=f"safety:{actor[:64]}")
+                    except Exception as exc:
+                        errors.append(f"board.activate FAILED: {exc}")
+        except Exception:
+            pass
         self.mode = "HALTED"
+        persist_safety_mode("HALTED")
         if not self.kill.active:
             errors.append("kill verification FAILED: switch not active after freeze")
         ms = (time.perf_counter() - t0) * 1000
@@ -200,9 +292,22 @@ class SafetyState:
             receipt["audit"] = "COMPLIANCE-WRITE-FAILED"
         return receipt
 
-    def unlock(self, actor: str, reason: str) -> str:
+    def unlock(self, actor: str, reason: str, token: str | None = None) -> str:
         if not actor.strip() or not reason.strip():
             raise SafetyError("unlock requires actor + reason.")
+        # Core token gate: only enforced when a token is passed. Direct
+        # no-token calls keep legacy behavior (callers enforce); REPL/bridge
+        # pass the token through so the core enforces too. Denials are
+        # audit-logged and stay HALTED.
+        if token is not None:
+            import os as _os
+            expected = _os.environ.get("DELTA_UNLOCK_TOKEN", "")
+            if not expected or token != expected:
+                try:
+                    self.compliance.append("unlock_denied", {"actor": actor})
+                except Exception:
+                    pass
+                raise SafetyError("unlock DENIED: missing or invalid auth token — still HALTED.")
         # P-1.1: unlock is the sensitive path — verify the release actually
         # happened BEFORE leaving HALTED. A failed release keeps HALTED loud.
         try:
@@ -221,10 +326,13 @@ class SafetyState:
                 self.kill.activate()
             except Exception:
                 pass
+            persist_safety_mode("HALTED")
             raise SafetyError(f"unlock FAILED: audit write failed ({exc}) — re-frozen HALTED") from exc
         self.mode = "MANUAL"
+        persist_safety_mode("MANUAL")
         return "MANUAL"
 
 
 __all__ = ["SAFETY_VERSION", "OrderTicket", "SafetyError", "AntiTiltGovernor",
-           "SafetyState", "MAX_POSITION_PCT", "MAX_LEVERAGE", "DAILY_HALT_DRAWDOWN"]
+           "SafetyState", "MAX_POSITION_PCT", "MAX_LEVERAGE", "DAILY_HALT_DRAWDOWN",
+           "read_persisted_safety_mode", "persist_safety_mode"]

@@ -47,6 +47,17 @@ def _load_session(term) -> None:
                   "effort", "thinking"):
             if isinstance(d.get(k), str) and d[k]:
                 setattr(term, k, d[k])
+        # Fail-closed restart: a persisted HALTED marker re-freezes safety.
+        # Never auto-clears (only /unlock with a valid token leaves HALTED).
+        try:
+            if isinstance(d.get("safety_mode"), str) and d["safety_mode"].upper() == "HALTED":
+                term.safety.mode = "HALTED"
+                try:
+                    term.safety.kill.activate()
+                except Exception:
+                    pass
+        except Exception:
+            pass
     except Exception:
         pass
 
@@ -56,13 +67,18 @@ def _save_session(term) -> None:
         import json
         p = _session_path()
         p.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            safety_mode = str(term.safety.mode)
+        except Exception:
+            safety_mode = "MANUAL"
         p.write_text(json.dumps({"watchlist": term.watchlist,
                                  "theme": term.theme,
                                  "workspace": term.workspace,
                                  "model_name": term.model_name,
                                  "effort": getattr(term, "effort", "AUTO"),
                                  "thinking": getattr(term, "thinking", "SUMMARY"),
-                                 "broker_name": term.broker_name}),
+                                 "broker_name": term.broker_name,
+                                 "safety_mode": safety_mode}),
                      encoding="utf-8")
     except Exception:
         pass
@@ -608,7 +624,9 @@ class Terminal:
             return "unlock DENIED: missing or invalid auth token — still HALTED."
         actor, reason = (args[1] if len(args) > 1 else "operator"), \
             (" ".join(args[2:]) if len(args) > 2 else "manual")
-        return "mode -> " + self.safety.unlock(actor, reason)
+        # Pass the token through so the safety core enforces it too
+        # (defense in depth: REPL gate + core gate must both agree).
+        return "mode -> " + self.safety.unlock(actor, reason, token=args[0])
 
     def _c_flatten(self, args: list) -> str:
         return ("flatten submits market orders — route via preview: "

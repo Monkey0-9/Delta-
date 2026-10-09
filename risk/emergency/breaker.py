@@ -120,21 +120,53 @@ class CircuitBreaker:
 
         return event
     
-    def reset(self, reason: str = "Manual reset") -> BreakerEvent:
+    def _check_resume_token(self, token: str | None, op: str) -> None:
+        """Fail-closed token gate: only enforced when a token is passed.
+
+        Direct no-token calls keep legacy behavior (callers enforce); a
+        passed token must match DELTA_UNLOCK_TOKEN exactly or resume is
+        denied with no state change.
+        """
+        if token is None:
+            return
+        import os as _os
+
+        expected = _os.environ.get("DELTA_UNLOCK_TOKEN", "")
+        if not expected or token != expected:
+            raise RuntimeError(
+                f"breaker {op} DENIED: missing or invalid auth token — still halted."
+            )
+
+    def reset(self, reason: str = "Manual reset", *, confirm: bool = False,
+              token: str | None = None) -> BreakerEvent:
         """
         Reset the circuit breaker (manual override).
-        
-        Requires explicit manual authorization to prevent accidental
-        reopening during genuine emergencies.
+
+        Requires explicit ``confirm=True`` (keyword-only, so positional
+        ``reset(True)`` cannot accidentally resume) plus an optional token
+        check against DELTA_UNLOCK_TOKEN when ``token`` is passed. Refusals
+        raise with NO state change (never a silent resume).
+
+        MANUALLY_OVERRIDDEN semantics: reset() moves OPEN -> MANUALLY_OVERRIDDEN,
+        NOT -> CLOSED. ``is_open()`` is False in MANUALLY_OVERRIDDEN, but that
+        does NOT mean safe-to-trade — only ``is_closed()`` (CLOSED) permits
+        normal operation; ``close()`` (equally gated) is still required to
+        resume. A bound kill board (if any) is deliberately NOT cleared here:
+        re-arm each board layer with its owning actor separately.
         """
         if self._state == BreakerState.CLOSED:
-            # Already closed
+            # Already closed: no-op, no auth needed (no state change).
             return BreakerEvent(
                 previous_state=self._state,
                 new_state=self._state,
                 reason="Already closed",
                 details={}
             )
+        if confirm is not True:
+            raise RuntimeError(
+                "breaker reset REFUSED: explicit confirm=True required — still halted."
+            )
+        self._check_resume_token(token, "reset")
         
         previous_state = self._state
         self._state = BreakerState.MANUALLY_OVERRIDDEN
@@ -150,11 +182,16 @@ class CircuitBreaker:
         self._events.append(event)
         return event
     
-    def close(self, reason: str = "Normal operation resumed") -> BreakerEvent:
+    def close(self, reason: str = "Normal operation resumed", *,
+              confirm: bool = False, token: str | None = None) -> BreakerEvent:
         """
         Close the circuit breaker (return to normal operation).
-        
-        Called after manual override when conditions are safe.
+
+        Called after manual override when conditions are safe. Requires
+        explicit ``confirm=True`` (keyword-only) plus an optional token
+        check against DELTA_UNLOCK_TOKEN when ``token`` is passed. Refusals
+        raise with NO state change. A bound kill board (if any) is NOT
+        cleared here — re-arm it with its owning actor separately.
         """
         if self._state == BreakerState.CLOSED:
             return BreakerEvent(
@@ -163,6 +200,11 @@ class CircuitBreaker:
                 reason="Already closed",
                 details={}
             )
+        if confirm is not True:
+            raise RuntimeError(
+                "breaker close REFUSED: explicit confirm=True required — still halted."
+            )
+        self._check_resume_token(token, "close")
         
         previous_state = self._state
         self._state = BreakerState.CLOSED

@@ -5,6 +5,16 @@ Each test pins one P-1.x bug: if the bug returns, the test fails loudly.
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _isolate_halt_marker(monkeypatch, tmp_path):
+    """A2: kill/unlock now persist a HALT marker — keep these unit tests
+    hermetic (no ~/.delta/session.json reads/writes)."""
+    import delta_os.safety as _safety
+
+    monkeypatch.setattr(_safety, "_session_path",
+                        lambda: tmp_path / "session.json")
+
+
 class _DeadKill:
     """Kill switch whose controls always raise (simulates broken linkage)."""
     active = True
