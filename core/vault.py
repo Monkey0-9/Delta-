@@ -8,18 +8,19 @@ API below (rewrap) is shaped so a KMS envelope key can replace the
 password-derived key without changing callers.
 """
 
-import os
 import json
+import logging
+import os
 import time
 import warnings
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Dict, Optional, Any
-from dataclasses import dataclass, asdict
+from typing import Any, Dict, Optional
+
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.backends import default_backend
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -73,21 +74,21 @@ class CredentialEntry:
     metadata: Dict[str, Any] = None
     created_at: str = None
     updated_at: str = None
-    
+
     def __post_init__(self):
         if self.metadata is None:
             self.metadata = {}
         if self.created_at is None:
-            from datetime import datetime
-            self.created_at = datetime.utcnow().isoformat()
+            from datetime import datetime, timezone
+            self.created_at = datetime.now(timezone.utc).isoformat()
         if self.updated_at is None:
-            from datetime import datetime
-            self.updated_at = datetime.utcnow().isoformat()
+            from datetime import datetime, timezone
+            self.updated_at = datetime.now(timezone.utc).isoformat()
 
 
 class Vault:
     """AES-256-GCM encrypted credential vault"""
-    
+
     def __init__(self, vault_path: Optional[Path] = None, password: Optional[str] = None):
         self.vault_path = vault_path or Path.home() / ".delta" / "vault.bin"
         self.salt_path = self.vault_path.with_suffix('.salt')
@@ -116,7 +117,7 @@ class Vault:
 
     def _write_version(self, version: int) -> None:
         _atomic_write_bytes(self.version_path, str(version).encode("utf-8"))
-    
+
     def _generate_salt(self) -> bytes:
         """Generate a random salt for key derivation"""
         return os.urandom(16)
@@ -131,14 +132,14 @@ class Vault:
             backend=default_backend()
         )
         return kdf.derive(password.encode())
-    
+
     def _encrypt(self, plaintext: str, key: bytes) -> bytes:
         """Encrypt plaintext using AES-256-GCM"""
         aesgcm = AESGCM(key)
         nonce = os.urandom(12)  # 96-bit nonce for GCM
         ciphertext = aesgcm.encrypt(nonce, plaintext.encode(), None)
         return nonce + ciphertext
-    
+
     def _decrypt(self, ciphertext: bytes, key: bytes) -> str:
         """Decrypt ciphertext using AES-256-GCM"""
         aesgcm = AESGCM(key)
@@ -146,7 +147,7 @@ class Vault:
         actual_ciphertext = ciphertext[12:]
         plaintext = aesgcm.decrypt(nonce, actual_ciphertext, None)
         return plaintext.decode()
-    
+
     def init(self, password: str) -> None:
         """Initialize a new vault with password"""
         _warn_windows_acl(stacklevel=2)
@@ -164,7 +165,7 @@ class Vault:
         # Save empty vault
         self._save_vault()
         logger.info("Vault initialized")
-    
+
     def unlock(self, password: str) -> bool:
         """Unlock the vault with password"""
         try:
@@ -266,7 +267,7 @@ class Vault:
         self._restore_backups()
         self._clear_backups()
         return {"salt": salt, "key": key, "credentials": credentials}
-    
+
     def lock(self) -> None:
         """Lock the vault and wipe secrets from memory.
 
@@ -403,7 +404,7 @@ class Vault:
     def version(self) -> int:
         """Current wrap version (1 for legacy vaults without a sidecar)."""
         return self._version
-    
+
     def _save_vault(self) -> None:
         """Save encrypted vault to disk (0600, atomic tmp+replace + fsync)"""
         if not self._unlocked or self._key is None:
@@ -413,55 +414,55 @@ class Vault:
         encrypted_data = self._encrypt(plaintext, self._key)
 
         _atomic_write_bytes(self.vault_path, encrypted_data)
-    
-    def store_credential(self, provider: str, credentials: Dict[str, str], 
+
+    def store_credential(self, provider: str, credentials: Dict[str, str],
                         account_id: Optional[str] = None, environment: str = "production",
                         metadata: Optional[Dict[str, Any]] = None) -> None:
         """Store encrypted credentials for a provider"""
         if not self._unlocked:
             raise RuntimeError("Vault is not unlocked")
-        
+
         entry = CredentialEntry(
             provider=provider,
             account_id=account_id,
             environment=environment,
             metadata=metadata or {}
         )
-        
+
         # Encrypt the actual credentials
         credentials_json = json.dumps(credentials)
         encrypted_creds = self._encrypt(credentials_json, self._key).hex()
-        
+
         self._credentials[provider] = {
             "entry": asdict(entry),
             "credentials": encrypted_creds
         }
-        
+
         self._save_vault()
         logger.info(f"Stored credentials for provider: {provider}")
-    
+
     def get_credential(self, provider: str) -> Optional[Dict[str, str]]:
         """Retrieve and decrypt credentials for a provider"""
         if not self._unlocked:
             raise RuntimeError("Vault is not unlocked")
-        
+
         if provider not in self._credentials:
             logger.warning(f"Credential not found for provider: {provider}")
             return None
-        
+
         encrypted_creds_hex = self._credentials[provider]["credentials"]
         encrypted_creds = bytes.fromhex(encrypted_creds_hex)
         credentials_json = self._decrypt(encrypted_creds, self._key)
         credentials = json.loads(credentials_json)
-        
+
         logger.info(f"Retrieved credentials for provider: {provider}")
         return credentials
-    
+
     def list_providers(self) -> list:
         """List all providers with stored credentials"""
         if not self._unlocked:
             raise RuntimeError("Vault is not unlocked")
-        
+
         providers = []
         for provider, data in self._credentials.items():
             entry = data["entry"]
@@ -471,26 +472,26 @@ class Vault:
                 "environment": entry.get("environment"),
                 "created_at": entry.get("created_at")
             })
-        
+
         return providers
-    
+
     def delete_credential(self, provider: str) -> bool:
         """Delete credentials for a provider"""
         if not self._unlocked:
             raise RuntimeError("Vault is not unlocked")
-        
+
         if provider in self._credentials:
             del self._credentials[provider]
             self._save_vault()
             logger.info(f"Deleted credentials for provider: {provider}")
             return True
-        
+
         return False
-    
+
     def is_unlocked(self) -> bool:
         """Check if vault is unlocked"""
         return self._unlocked
-    
+
     def exists(self) -> bool:
         """Check if vault file exists"""
         return self.vault_path.exists() and self.salt_path.exists()

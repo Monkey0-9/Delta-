@@ -2,35 +2,33 @@
 Fail-soft data router with tri-tier fallback architecture
 """
 
-import asyncio
 import logging
-from typing import Dict, Any, Optional, List
-from datetime import datetime
-from delta.data.base_provider import (
-    BaseDataProvider, Quote, Bar, NewsItem, DataType, DataQuality
-)
-from delta.data.cache import QuoteCache, BarsCache, NewsCache, MacroCache
-from delta.core.registry import data_provider_registry
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+
 from delta.core.config import Config, DataProviderConfig
+from delta.core.registry import data_provider_registry
+from delta.data.base_provider import Bar, BaseDataProvider, DataQuality, DataType, NewsItem, Quote
+from delta.data.cache import BarsCache, MacroCache, NewsCache, QuoteCache
 
 logger = logging.getLogger(__name__)
 
 
 class DataRouter:
     """Fail-soft data router with automatic fallback"""
-    
+
     def __init__(self, config: Config):
         self.config = config
         self.providers: Dict[str, BaseDataProvider] = {}
         self.primary_provider: Optional[BaseDataProvider] = None
         self.fallback_providers: List[BaseDataProvider] = []
-        
+
         # Caches
         self.quote_cache = QuoteCache()
         self.bars_cache = BarsCache()
         self.news_cache = NewsCache()
         self.macro_cache = MacroCache()
-        
+
         # Synthetic offline generator: OFF by default. Producing fake quotes
         # labeled SYNTHETIC without explicit opt-in is a trading-integrity
         # violation — call enable_synthetic_offline() only for offline
@@ -40,13 +38,13 @@ class DataRouter:
     def enable_synthetic_offline(self) -> None:
         """Explicit opt-in to labeled synthetic fallback (research/sim only)."""
         self.synthetic_enabled = True
-    
+
     async def initialize(self) -> None:
         """Initialize all configured data providers"""
         for provider_config in self.config.data_providers:
             if not provider_config.enabled:
                 continue
-            
+
             try:
                 provider = await self._create_provider(provider_config)
                 if provider:
@@ -54,7 +52,7 @@ class DataRouter:
                     logger.info(f"Initialized data provider: {provider_config.name}")
             except Exception as e:
                 logger.error(f"Failed to initialize provider {provider_config.name}: {e}")
-        
+
         # Set primary provider
         if self.config.data_providers:
             primary_name = self.config.data_providers[0].name
@@ -65,27 +63,27 @@ class DataRouter:
                     self.providers[name] for name in self.config.data_providers[1:].name
                     if name in self.providers
                 ]
-    
+
     async def _create_provider(self, provider_config: DataProviderConfig) -> Optional[BaseDataProvider]:
         """Create a provider instance from configuration"""
         provider_type = provider_config.provider
-        
+
         provider_class = data_provider_registry.get_provider_class(provider_type)
         if not provider_class:
             logger.error(f"Provider class not found: {provider_type}")
             return None
-        
+
         provider_config_dict = {
             "name": provider_config.name,
             **provider_config.params
         }
-        
+
         provider = provider_class(provider_config_dict)
         if await provider.initialize():
             return provider
-        
+
         return None
-    
+
     async def get_quote(self, symbol: str, force_refresh: bool = False) -> Optional[Quote]:
         """Get quote with automatic fallback and caching"""
         # Check cache first
@@ -93,7 +91,7 @@ class DataRouter:
             cached = self.quote_cache.get_quote(symbol)
             if cached:
                 return cached
-        
+
         # Try primary provider
         if self.primary_provider:
             try:
@@ -103,7 +101,7 @@ class DataRouter:
                     return quote
             except Exception as e:
                 logger.warning(f"Primary provider failed for quote {symbol}: {e}")
-        
+
         # Try fallback providers
         for provider in self.fallback_providers:
             try:
@@ -114,25 +112,28 @@ class DataRouter:
                         return quote
             except Exception as e:
                 logger.warning(f"Fallback provider failed for quote {symbol}: {e}")
-        
+
         # Fallback to synthetic data if enabled
         if self.synthetic_enabled:
             return self._generate_synthetic_quote(symbol)
-        
+
         return None
-    
-    async def get_bars(self, symbol: str, timeframe: str, 
+
+    async def get_bars(self, symbol: str, timeframe: str,
                       start: datetime, end: datetime,
                       force_refresh: bool = False) -> List[Bar]:
         """Get historical bars with automatic fallback and caching"""
-        cache_key = f"{symbol}_{timeframe}_{start.isoformat()}_{end.isoformat()}"
-        
-        # Check cache first
+        # Check cache first (symbol+timeframe scoped; range-filtered below)
         if not force_refresh:
             cached = self.bars_cache.get_bars(symbol, timeframe)
             if cached:
-                return cached
-        
+                try:
+                    ranged = [b for b in cached if start <= b.timestamp <= end]
+                    if ranged:
+                        return ranged
+                except (AttributeError, TypeError):
+                    return cached
+
         # Try primary provider
         if self.primary_provider:
             try:
@@ -142,7 +143,7 @@ class DataRouter:
                     return bars
             except Exception as e:
                 logger.warning(f"Primary provider failed for bars {symbol}: {e}")
-        
+
         # Try fallback providers
         for provider in self.fallback_providers:
             try:
@@ -153,13 +154,13 @@ class DataRouter:
                         return bars
             except Exception as e:
                 logger.warning(f"Fallback provider failed for bars {symbol}: {e}")
-        
+
         # Fallback to synthetic data if enabled
         if self.synthetic_enabled:
             return self._generate_synthetic_bars(symbol, timeframe, start, end)
-        
+
         return []
-    
+
     async def get_news(self, symbol: str, limit: int = 10,
                       force_refresh: bool = False) -> List[NewsItem]:
         """Get news with automatic fallback and caching"""
@@ -168,7 +169,7 @@ class DataRouter:
             cached = self.news_cache.get_news(symbol)
             if cached:
                 return cached[:limit]
-        
+
         # Try primary provider
         if self.primary_provider:
             try:
@@ -178,7 +179,7 @@ class DataRouter:
                     return news[:limit]
             except Exception as e:
                 logger.warning(f"Primary provider failed for news {symbol}: {e}")
-        
+
         # Try fallback providers
         for provider in self.fallback_providers:
             try:
@@ -189,15 +190,15 @@ class DataRouter:
                         return news[:limit]
             except Exception as e:
                 logger.warning(f"Fallback provider failed for news {symbol}: {e}")
-        
+
         return []
-    
+
     def _generate_synthetic_quote(self, symbol: str) -> Quote:
         """Generate synthetic quote for offline mode"""
         import random
         base_price = random.uniform(50, 200)
         spread = base_price * 0.001
-        
+
         return Quote(
             symbol=symbol,
             bid=base_price - spread,
@@ -206,27 +207,27 @@ class DataRouter:
             ask_size=random.randint(100, 1000),
             last=base_price,
             volume=random.randint(10000, 1000000),
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             quality=DataQuality.SYNTHETIC
         )
-    
+
     def _generate_synthetic_bars(self, symbol: str, timeframe: str,
                                  start: datetime, end: datetime) -> List[Bar]:
         """Generate synthetic bars for offline mode"""
         import random
         from datetime import timedelta
-        
+
         bars = []
         current_time = start
         base_price = random.uniform(50, 200)
-        
+
         while current_time < end:
             volatility = base_price * 0.02
             open_price = base_price + random.uniform(-volatility, volatility)
             close_price = base_price + random.uniform(-volatility, volatility)
             high_price = max(open_price, close_price) + random.uniform(0, volatility * 0.5)
             low_price = min(open_price, close_price) - random.uniform(0, volatility * 0.5)
-            
+
             bar = Bar(
                 symbol=symbol,
                 timestamp=current_time,
@@ -238,12 +239,12 @@ class DataRouter:
                 quality=DataQuality.SYNTHETIC
             )
             bars.append(bar)
-            
+
             base_price = close_price
             current_time += timedelta(hours=1)  # 1-hour bars
-        
+
         return bars
-    
+
     def get_cache_stats(self) -> Dict[str, Any]:
         """Get statistics for all caches"""
         return {
@@ -252,7 +253,7 @@ class DataRouter:
             "news_cache": self.news_cache.get_stats(),
             "macro_cache": self.macro_cache.get_stats()
         }
-    
+
     def clear_caches(self) -> None:
         """Clear all caches"""
         self.quote_cache.clear()
@@ -260,7 +261,7 @@ class DataRouter:
         self.news_cache.clear()
         self.macro_cache.clear()
         logger.info("All data caches cleared")
-    
+
     def cleanup_expired_cache_entries(self) -> int:
         """Clean up expired cache entries"""
         total = 0
@@ -269,7 +270,7 @@ class DataRouter:
         total += self.news_cache.cleanup_expired()
         total += self.macro_cache.cleanup_expired()
         return total
-    
+
     async def health_check(self) -> Dict[str, bool]:
         """Health check on all providers"""
         results = {}

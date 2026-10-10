@@ -3,21 +3,66 @@
 One test per group family; deterministic; no fake live data.
 """
 from core.plan_completion import (
-    ALPHA_FAMILIES, OMS_STATES, R_GATES, SHOCKS, VALID_MODES,
-    adjust_split, almgren_chriss, bad_tick, black_litterman, branch_compare,
-    breach_watch, calibrated_gate, capacity_curve, certify_ladder,
-    classify_regime_full, concentration_report, deflated_sharpe,
-    diagnose_failure, ensemble_combine, expected_shortfall, fix_lifecycle,
-    gate_signoff, half_life, ibkr_contract, information_coefficient,
-    journal_replay, lake_path, mandate_hash_fn, max_diversification,
-    mean_variance, neutralize, new_session_id, oms_transition, parse_intent,
-    participation_cost, pit_join, pit_universe, purge_embargo_split,
-    quarantine, rank_opportunities, reference_release, register_feature,
-    register_model, reverse_stress_threshold, risk_parity, scenario_replay,
-    session_diff, shadow_soak_ok, sor_expected_shortfall, sqrt_impact,
-    sre_alerts, tail, tca_loop, transition_matrix, tri_tier_source,
-    twap_schedule, value_at_risk, vwap_schedule, what_if,
+    ALPHA_FAMILIES,
+    OMS_STATES,
+    R_GATES,
+    SHOCKS,
+    VALID_MODES,
+    adjust_split,
+    almgren_chriss,
+    bad_tick,
+    black_litterman,
+    branch_compare,
+    breach_watch,
+    calibrated_gate,
+    capacity_curve,
+    certify_ladder,
+    classify_regime_full,
     compounding_pbo_proxy,
+    concentration_report,
+    deflated_sharpe,
+    diagnose_failure,
+    ensemble_combine,
+    expected_shortfall,
+    fix_lifecycle,
+    gate_signoff,
+    half_life,
+    ibkr_contract,
+    information_coefficient,
+    journal_replay,
+    lake_path,
+    mandate_hash_fn,
+    max_diversification,
+    mean_variance,
+    neutralize,
+    new_session_id,
+    oms_transition,
+    parse_intent,
+    participation_cost,
+    pit_join,
+    pit_universe,
+    purge_embargo_split,
+    quarantine,
+    rank_opportunities,
+    reference_release,
+    register_feature,
+    register_model,
+    reverse_stress_threshold,
+    risk_parity,
+    scenario_replay,
+    session_diff,
+    shadow_soak_ok,
+    sor_expected_shortfall,
+    sqrt_impact,
+    sre_alerts,
+    tail,
+    tca_loop,
+    transition_matrix,
+    tri_tier_source,
+    twap_schedule,
+    value_at_risk,
+    vwap_schedule,
+    what_if,
 )
 
 
@@ -30,8 +75,9 @@ def test_g01_arch_rules():
 
 def test_g02_hygiene_guards():
     import pathlib
-    assert pathlib.Path("C:/Delta/.gitignore").exists()
-    assert pathlib.Path("C:/Delta/docs/adr/0002-bounded-contexts.md").exists()
+    repo_root = pathlib.Path(__file__).resolve().parents[1]
+    assert (repo_root / ".gitignore").exists()
+    assert (repo_root / "docs/adr/0002-bounded-contexts.md").exists()
 
 
 def test_g03_profiles_hashing():
@@ -61,9 +107,9 @@ def test_g04_session_event_permission():
 
 
 def test_g0506_modal_toast_a11y():
+    from delta_tui.a11y import plain_text, to_ascii_safe
     from delta_tui.widgets.modal import ModalManager
     from delta_tui.widgets.toast import ToastManager
-    from delta_tui.a11y import plain_text, to_ascii_safe
     mm = ModalManager()
     mm.confirm_kill()
     assert mm.resolve("CONFIRM") and mm.current() is None

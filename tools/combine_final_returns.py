@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 
-ROOT = Path(r"C:\Delta")
+ROOT = Path(__file__).resolve().parents[1]
 
 baseline_file = (
     ROOT

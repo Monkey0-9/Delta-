@@ -19,7 +19,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
       - run: pip install -e ".[dev]"
+      - run: mkdir -p execution/java_gateway/bin && javac -d execution/java_gateway/bin execution/java_gateway/src/delta/execution/*.java
+      - run: mkdir -p native/build && g++ -std=c++17 -shared -fPIC -O2 -I. native/cpp/lob.cpp -o native/build/lob.dll
       - run: python -m pytest -q
   rust:
     runs-on: ubuntu-latest

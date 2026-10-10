@@ -8,16 +8,19 @@ import socket
 
 import pytest
 
+from execution.adapters import java_gateway_adapter as adapter_mod
 from execution.adapters.java_gateway_adapter import (
     JavaGatewayAdapter,
     LaneHalted,
     LiveProhibited,
 )
-from execution.adapters import java_gateway_adapter as adapter_mod
 
 
 @pytest.fixture(scope="module")
 def gw():
+    import shutil
+    if shutil.which("java") is None:
+        pytest.skip("java not available in this environment — Java lane UNAVAILABLE (PAPER/SIM Python OMS remains authoritative).")
     a = JavaGatewayAdapter(port=9011, auto_spawn=True)
     a.start()
     yield a

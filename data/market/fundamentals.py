@@ -13,7 +13,7 @@ behavior required by STUB_AUDIT #3.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -84,7 +84,7 @@ class FundamentalsProvider:
         raw = info.get(keymap.get(metric.lower(), metric))
         if raw is None:
             return None
-        today = datetime.utcnow().date().isoformat()
+        today = datetime.now(timezone.utc).date().isoformat()
         return FundamentalPoint(symbol.upper(), metric.lower(), float(raw),
                                today, today, "yfinance_snapshot")
 

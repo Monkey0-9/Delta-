@@ -1,12 +1,16 @@
 """Institutional test suite for DELTA Java LMAX Disruptor Execution Gateway."""
+import uuid
+
 import pytest
+
 from execution.adapters.java_gateway_adapter import JavaGatewayAdapter
 
 
-import uuid
-
 @pytest.fixture(scope="module")
 def java_gateway():
+    import shutil
+    if shutil.which("java") is None:
+        pytest.skip("java not available in this environment — Java lane UNAVAILABLE (PAPER/SIM Python OMS remains authoritative).")
     adapter = JavaGatewayAdapter(port=9005, auto_spawn=True)
     adapter.start()
     yield adapter
@@ -42,7 +46,7 @@ def test_java_disruptor_order_matching_and_fifo_fill(java_gateway):
         quantity=60,
     )
     assert len(agg_buy) == 2  # Match fills both buyer and resting seller
-    
+
     # Verify Buyer Fill
     buyer_fill = next(r for r in agg_buy if r["cl_ord_id"] == buy_id)
     assert buyer_fill["fill_qty"] == 60
