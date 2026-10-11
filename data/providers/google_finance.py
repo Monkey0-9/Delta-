@@ -4,9 +4,10 @@ Google Finance and News RSS scraper (zero-browser HTTP/2)
 
 import logging
 import re
-import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+
+from defusedxml.ElementTree import fromstring as _safe_fromstring
 
 import httpx
 from delta.data.base_provider import DataType, MarketDataProvider, NewsItem
@@ -65,8 +66,11 @@ class GoogleFinanceNewsProvider(MarketDataProvider):
             response = await self.client.get(url, params=params)
             response.raise_for_status()
 
-            # Parse XML
-            root = ET.fromstring(response.content)
+            # B314 triage (P0-6): untrusted provider XML parsed with
+            # defusedxml (entity-expansion/XXE hardened) + size cap.
+            if len(response.content) > 2_000_000:
+                raise ValueError("news RSS payload exceeds 2MB safety cap")
+            root = _safe_fromstring(response.content)
 
             news_items = []
             seen_hashes = set()

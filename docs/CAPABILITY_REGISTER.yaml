@@ -1,0 +1,219 @@
+# DELTA Capability Register (§6) — machine-readable, single source.
+# Rule: tests-passed never promotes past `tested`. `validated` requires the
+# listed gate evidence; `paper`/`shadow`/`production` require the release
+# gates in docs/RELEASE_GATES.md + sign-off matrix. STATUS.md counts and
+# SYSTEM_STATUS.yaml booleans must agree with this file, not the reverse.
+version: "1.0"
+date: "2026-10-11"
+status_ladder: [designed, implemented, tested, validated, paper, shadow, production]
+capabilities:
+  - id: pit_store_persistence
+    canonical_impl: data/tick_pit/pit_store.py (PITStore)
+    integration_path: "research/real_loop + direct PITStore(db_path=...)"
+    tests: [tests/test_p0_pit_persistence.py]
+    evidence: {type: pytest, commit: HEAD, note: "close/reopen + version + backup round-trip"}
+    performance: null
+    known_limitations: ["snapshot lineage timestamps coarse (query.as_of fallback)"]
+    release_status: tested
+    owner: data
+    blocker: null
+
+  - id: oms_journal_integrity
+    canonical_impl: core/oms/journal.py (OmsJournal)
+    integration_path: "core/oms/gateway.py decisions + scripts/dr_drill.py recovery"
+    tests: [tests/test_p0_journal_integrity.py, tests/test_dr_drill.py]
+    evidence: {type: pytest, commit: HEAD, note: "tamper/gap/transition/torn-tail/concurrency/kill-9 + DR drill RPO=0"}
+    performance: null
+    known_limitations: ["pre-P0-5 truncated-hash journals verify as legacy (flagged, not trusted silently)"]
+    release_status: validated
+    owner: execution
+    blocker: null
+
+  - id: oms_gateway_truth
+    canonical_impl: core/oms/gateway.py (OrderGateway, require_role=True)
+    integration_path: "delta_os REPL /trade + paper lifecycle + drills"
+    tests: [tests/test_p0_gateway_truth.py, tests/test_institutional_hardening.py, tests/test_p1_paper_lifecycle.py]
+    evidence: {type: pytest, commit: HEAD, note: "submitted flag; ack->ACKNOWLEDGED; reject->REJECTED; missing_role refused"}
+    performance:
+      measured: {gateway_submit_p50_us: 163, gateway_submit_p99_us: 343}
+      threshold: {note: "aspirational 7us target UNMET — see bench.json FAIL"}
+    known_limitations: ["execution/oms/state_machine.py retired (wave-test-only)"]
+    release_status: validated
+    owner: execution
+    blocker: null
+
+  - id: kill_unlock_auth
+    canonical_impl: delta_os/safety.py (SafetyState, require_auth=True)
+    integration_path: "REPL /unlock + bridge unlock + drills"
+    tests: [tests/test_kill_binding.py, tests/test_bridge_unlock.py, tests/test_vault_rbac_ledger.py]
+    evidence: {type: pytest, commit: HEAD, note: "no-credential unlock DENIED + audited; compat path explicit"}
+    performance: null
+    known_limitations: ["MFA/per-operator identity expiry out of scope (documented next step)"]
+    release_status: validated
+    owner: risk
+    blocker: null
+
+  - id: tui_order_truth
+    canonical_impl: tui/src/app.rs (ConfirmOrderTicket -> bridge /trade --yes)
+    integration_path: "Rust TUI ticket -> JSON-RPC dispatch -> Terminal._c_trade"
+    tests: [tui/tests/integration_tests.rs::test_order_ticket_lifecycle_and_safety]
+    evidence: {type: cargo-test, commit: HEAD, note: "PENDING until CommandCompleted; no-bridge renders NOT SUBMITTED"}
+    performance: null
+    known_limitations: ["Rust tests require cargo toolchain (CI); not compilable in all dev envs"]
+    release_status: tested
+    owner: terminal
+    blocker: "CI cargo test confirmation"
+
+  - id: sast_dependency_gates
+    canonical_impl: .github/workflows/security.yml
+    integration_path: "CI on push + PR"
+    tests: [tests/test_ci_security_gates.py, tests/test_p0_security_gates.py]
+    evidence: {type: bandit-local, commit: HEAD, note: "bandit -ll zero findings 2026-10-11; semgrep/cargo-audit/pip-audit blocking (CI-verified)"}
+    performance: null
+    known_limitations: ["DAST + independent pentest still open (P4)"]
+    release_status: tested
+    owner: infosec
+    blocker: "first green CI run on blocking config"
+
+  - id: compliance_durability
+    canonical_impl: governance/compliance.py (ComplianceLog, file-backed)
+    integration_path: "delta_os/safety.py compliance ledger at ~/.delta/compliance.jsonl"
+    tests: [tests/test_p1_compliance_durability.py]
+    evidence: {type: pytest, commit: HEAD, note: "restart reload + tamper-refuse-with-backup + torn-tail refuse"}
+    performance: null
+    known_limitations: ["order->fill->snapshot lineage join not yet queryable (P1 remainder)"]
+    release_status: tested
+    owner: audit
+    blocker: null
+
+  - id: label_embargo
+    canonical_impl: data/labels/engine.py (primitive-level embargo defaults)
+    integration_path: "research/real_loop datasets + build_label_frame"
+    tests: [tests/test_p2_label_embargo.py, tests/test_stage1_foundation.py]
+    evidence: {type: pytest, commit: HEAD, note: "tail unusability per house convention; non-vacuous heads"}
+    performance: null
+    known_limitations: ["split-time purge/embargo owned by walk-forward splitter (verified separately)"]
+    release_status: tested
+    owner: data
+    blocker: null
+
+  - id: research_stats_honesty
+    canonical_impl: research/real_loop/validate.py (ic_permutation_pvalue)
+    integration_path: "research_statistics bundle -> model_lifecycle gate"
+    tests: [tests/test_p2_label_embargo.py::test_ic_pvalue_is_real_inference]
+    evidence: {type: pytest, commit: HEAD, note: "signal/noise separation, seeded determinism"}
+    performance: null
+    known_limitations: ["family-wise BH lives at multi-strategy callers, not single-name level"]
+    release_status: tested
+    owner: research
+    blocker: null
+
+  - id: alpha_promotion_gates
+    canonical_impl: research/alpha_contract.py (AlphaRegistry._evidence_gaps)
+    integration_path: "research promotion flows"
+    tests: [tests/test_p2_institutional.py]
+    evidence: {type: pytest, commit: HEAD, note: "hash-only/sharpe-only refused; sign-flip refused; cumulative CERTIFIED"}
+    performance: null
+    known_limitations: []
+    release_status: tested
+    owner: research
+    blocker: null
+
+  - id: forecast_abstention
+    canonical_impl: delta_os/brain.py (forecast_direction)
+    integration_path: "chat ticker fallback + /forecast + automation gate"
+    tests: [tests/test_brain_forecast_honesty.py]
+    evidence: {type: pytest, commit: HEAD, note: "stale-tier ABSTAIN error; coin-flip edge ABSTAIN direction"}
+    performance: null
+    known_limitations: ["confidence still fixed 0.35 heuristic (labeled uncalibrated); calibration wiring is P3 remainder"]
+    release_status: tested
+    owner: research
+    blocker: null
+
+  - id: agent_budgets
+    canonical_impl: agent/runtime/runtime.py + agent/runtime/budgets.py
+    integration_path: "agent runtime execute() loop"
+    tests: [tests/test_p3_agent_budgets.py, tests/test_p2_institutional.py::test_agent_budget_enforced]
+    evidence: {type: pytest, commit: HEAD, note: "steps/retries enforced; tokens/cost accrue when reported; role keys"}
+    performance: null
+    known_limitations: ["tokens/cost depend on executor reporting; human-approval workflow still open (P3 remainder)"]
+    release_status: tested
+    owner: agents
+    blocker: null
+
+  - id: cost_centralization
+    canonical_impl: execution/cost_engine.py (TransactionCostEngine)
+    integration_path: "research/real_loop backtest series path + research_statistics producer + promotion gate consumer"
+    tests: [tests/test_p2_cost_central.py, tests/test_backtest_shadow.py, tests/institutional/test_w124_w150_reality.py]
+    evidence: {type: pytest, commit: HEAD, note: "engine/backtest bit-parity; proxy lineage stamped; engine-produced cost_adjusted_sharpe"}
+    performance: null
+    known_limitations: ["engine uncalibrated (proxy=True labeled); Stream C fill-calibration open; event-driven fill-contingent path still unwired to promotion"]
+    release_status: tested
+    owner: execution
+    blocker: null
+
+  - id: command_truth
+    canonical_impl: delta_os/repl.py (_c_fetch/_c_fork/_c_init/_c_sessions)
+    integration_path: "REPL slash dispatch + bridge dispatch"
+    tests: [tests/test_p3_command_truth.py, tests/test_command_wiring.py]
+    evidence: {type: pytest, commit: HEAD, note: "real fetch/sessions/fork/init; file-scheme BLOCKED"}
+    performance: null
+    known_limitations: ["_c_plan remains a read-only template (labeled, no external claims)"]
+    release_status: tested
+    owner: terminal
+    blocker: null
+
+  - id: model_validation
+    canonical_impl: delta_os/model_catalogue.py (probe_key/validation_status)
+    integration_path: "catalogue + /model flows + doctor probes"
+    tests: [tests/test_p3_model_validation.py, tests/test_model_switch.py]
+    evidence: {type: pytest, commit: HEAD, note: "valid/invalid/unreachable distinct; keyless skipped"}
+    performance: null
+    known_limitations: ["provider initialize() still client-setup only; per-model capability discovery open"]
+    release_status: tested
+    owner: models
+    blocker: null
+
+  - id: sentinel_persistence
+    canonical_impl: delta_os/brain.py (DeltaSentinel state_path)
+    integration_path: "REPL /sentinel + ~/.delta/sentinel.json"
+    tests: [tests/test_p4_sentinel_persistence.py, tests/test_sentinel_contract.py]
+    evidence: {type: pytest, commit: HEAD, note: "restart keeps peak; post-restart breach trips; dup collapse; corrupt discarded loudly"}
+    performance: null
+    known_limitations: ["real paging delivery still open (P4); persistence is best-effort atomic write"]
+    release_status: tested
+    owner: operations
+    blocker: null
+
+  - id: forecast_calibration
+    canonical_impl: delta_os/brain.py (log_forecast/forecast_calibration)
+    integration_path: "/forecast output track-record line + automation gate reads"
+    tests: [tests/test_brain_forecast_honesty.py]
+    evidence: {type: pytest, commit: HEAD, note: "stale-tier ABSTAIN; noise ABSTAIN; log/resolve/ECE math; /forecast shows record"}
+    performance: null
+    known_limitations: ["single-bin ECE only; per-bin curves need larger N; outcome resolution needs router history"]
+    release_status: tested
+    owner: research
+    blocker: null
+
+  - id: escalation_paging
+    canonical_impl: observability/escalation.py + scripts/sre_check.py
+    integration_path: "sre_check run() -> escalation.json -> sre.json escalation block -> operator/pager delivery"
+    tests: [tests/test_p4_escalation.py, tests/test_sre_wiring.py]
+    evidence: {type: pytest, commit: HEAD, note: "schedule/ack/refire/restart; sre artifact carries open+due_now"}
+    performance: null
+    known_limitations: ["delivery needs vault-configured channel; contacts are PLACEHOLDER; no on-call roster — no on-call coverage claimed"]
+    release_status: tested
+    owner: operations
+    blocker: "channel credentials + roster (P4 remainder)"
+
+  - id: live_release
+    canonical_impl: execution/live_engine.py + config/profiles.py + JavaGatewayAdapter
+    integration_path: "gated production path (BLOCKED by default)"
+    tests: [tests/test_live_readiness.py, tests/test_ibkr_certification.py]
+    evidence: {type: signoff-matrix, commit: HEAD, note: "NO-GO-LIVE: soak wall-clock + hardware benches + pentest + 5 signatures outstanding"}
+    performance: null
+    known_limitations: ["mock-certified only; no testnet session-recovery/parity evidence"]
+    release_status: implemented
+    owner: execution
+    blocker: "10-gate checklist (§8): all items"

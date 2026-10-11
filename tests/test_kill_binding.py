@@ -44,13 +44,22 @@ def test_direct_unlock_wrong_token_denied(monkeypatch, _isolated_session):
 
 
 def test_direct_unlock_no_token_keeps_legacy_behavior(_isolated_session):
-    from delta_os.safety import SafetyState
+    from delta_os.safety import SafetyError, SafetyState
 
+    # Production default: no credentials -> DENIED, stays HALTED.
     s = SafetyState()
     s.kill_all([], actor="test")
     assert s.mode == "HALTED"
-    # No token passed -> callers enforce (legacy behavior preserved).
-    assert s.unlock("op", "reason") == "MANUAL"
+    with pytest.raises(SafetyError, match="DENIED"):
+        s.unlock("op", "reason")
+    assert s.mode == "HALTED"
+    # Explicit non-production escape hatch preserves the old warn path.
+    import warnings
+
+    compat = SafetyState(require_auth=False)
+    compat.kill_all([], actor="test")
+    with pytest.warns(FutureWarning):
+        assert compat.unlock("op", "reason") == "MANUAL"
 
 
 def test_board_reflects_kill_activate_deactivate(_isolated_session):

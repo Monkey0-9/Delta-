@@ -15,22 +15,57 @@ import pandas as pd
 
 FEATURE_VERSION = "features-v2"
 
+def _asof_utc(as_of) -> "pd.Timestamp":
+    """Normalize as_of to tz-aware UTC; refuse naive (fail closed)."""
+    import pandas as _pd
+    ts = _pd.Timestamp(as_of)
+    if ts.tzinfo is None:
+        raise ValueError(f"as_of must be tz-aware (got naive {as_of!r})")
+    return ts.tz_convert("UTC")
+
+
+
 _cache: dict[tuple[str, str, str], pd.DataFrame] = {}
 
 
-def compute_features(frame: pd.DataFrame, symbol: str, data_hash: str) -> pd.DataFrame:
-    """PIT-safe features: every row t uses only data <= t (rolling, shift(1))."""
+def compute_features(frame: pd.DataFrame, symbol: str, data_hash: str,
+                     *, as_of: pd.Timestamp | None = None) -> pd.DataFrame:
+    """PIT-safe features: every row t uses only data <= t (rolling, shift(1)).
+
+    as_of (C-gate, P2): truncate the frame to bars at/before as_of BEFORE any
+    computation, so fit statistics (winsorize bounds, rolling norms) can never
+    see future bars. Walk-forward and research gates must pass the fold's
+    train-end. Naive as_of is refused (fail closed on ambiguous time).
+    """
+    if as_of is not None:
+        frame = _truncate_as_of(frame, as_of)
+    cache_asof = "" if as_of is None else _asof_utc(as_of).isoformat()
     if os.environ.get("DELTA_FAST", "1") != "0":
         try:
             from research.real_loop.features_fast import compute_features_fast
 
-            fast = compute_features_fast(frame, symbol, data_hash)
+            fast = compute_features_fast(frame, symbol, data_hash,
+                                         as_of=as_of)
             # publish under this module's version/key so callers are unaffected
-            _cache[(symbol, data_hash, FEATURE_VERSION)] = fast
+            _cache[(symbol, data_hash, FEATURE_VERSION, cache_asof)] = fast
             return fast
         except Exception:
             pass
-    return _compute_features_pandas(frame, symbol, data_hash)
+    return _compute_features_pandas(frame, symbol, data_hash, as_of=as_of)
+
+
+def _truncate_as_of(frame: pd.DataFrame,
+                    as_of: pd.Timestamp) -> pd.DataFrame:
+    ts = _asof_utc(as_of)
+    idx = frame.index
+    try:
+        mask = idx.tz_convert("UTC") <= ts.tz_convert("UTC")
+    except Exception:
+        mask = idx <= ts.tz_localize(None) if idx.tz is None else idx <= ts
+    out = frame.loc[mask]
+    if len(out) == 0:
+        raise ValueError(f"as_of {ts.isoformat()} precedes all bars")
+    return out
 
 
 def _winsorize(s: pd.Series, lo: float = 0.01, hi: float = 0.99) -> pd.Series:
@@ -38,8 +73,10 @@ def _winsorize(s: pd.Series, lo: float = 0.01, hi: float = 0.99) -> pd.Series:
     return s.clip(q.iloc[0], q.iloc[1])
 
 
-def _compute_features_pandas(frame: pd.DataFrame, symbol: str, data_hash: str) -> pd.DataFrame:
-    key = (symbol, data_hash, FEATURE_VERSION)
+def _compute_features_pandas(frame: pd.DataFrame, symbol: str, data_hash: str,
+                             *, as_of: pd.Timestamp | None = None) -> pd.DataFrame:
+    asof_key = "" if as_of is None else _asof_utc(as_of).isoformat()
+    key = (symbol, data_hash, FEATURE_VERSION, asof_key)
     if key in _cache:
         return _cache[key]
     px = frame["close"].astype(float)

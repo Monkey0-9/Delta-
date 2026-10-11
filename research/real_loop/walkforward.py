@@ -78,4 +78,52 @@ def walk_forward(price: pd.Series, feat: pd.DataFrame, fwd_days: int = 5,
                      "rule": "majority of folds OOS-positive and total OOS net > 0"}}
 
 
-__all__ = ["WF_VERSION", "purged_splits", "walk_forward"]
+__all__ = ["WF_VERSION", "WF_PIT_VERSION", "purged_splits", "walk_forward",
+           "walk_forward_pit"]
+
+WF_PIT_VERSION = "wf-v2-pit"
+
+
+def walk_forward_pit(price: pd.Series, frame: pd.DataFrame, symbol: str,
+                     data_hash: str, fwd_days: int = 5, n_folds: int = 5,
+                     costs_bps: float = 8.0) -> dict:
+    """PIT-gated walk-forward (C-gate, P2): features for each fold are built
+    ONLY from bars at/before the fold's train-end (as_of truncation), so fit
+    statistics (winsorize bounds, rolling norms) can never see test bars.
+
+    Same fold geometry, signal, costs, and gate as walk_forward; the ONLY
+    difference is per-fold feature isolation. Deterministic.
+    """
+    from research.real_loop import features as F
+
+    px = price.astype(float)
+    fwd = px.pct_change(fwd_days).shift(-fwd_days)
+    folds = []
+    for tr, te in purged_splits(len(px), n_folds, fwd_days):
+        train_end_ts = px.index[tr[-1]]
+        feat = F.compute_features(frame, symbol, data_hash, as_of=train_end_ts)
+        sig_cols = [c for c in feat.columns
+                    if c.startswith(("mom_", "mr_z_", "trend_"))]
+        sig = feat[sig_cols].mean(axis=1).fillna(0) if sig_cols else pd.Series(
+            0.0, index=feat.index)
+        pos = ((sig > 0.5).astype(float) - (sig < -0.5).astype(float))
+        pos = pos.shift(2).fillna(0)
+        idx = px.index[te]
+        r = (pos.reindex(idx).fillna(0) * fwd.reindex(idx).fillna(0))
+        churn = pos.reindex(idx).fillna(0).diff().abs().fillna(0)
+        net = r - churn * costs_bps / 1e4
+        folds.append({"n": len(idx),
+                      "gross": round(float(r.sum()), 5),
+                      "net": round(float(net.sum()), 5),
+                      "hit": round(float((net > 0).mean()) if len(net) else 0.0, 3),
+                      "sharpe": round(float(net.mean() / (net.std() or 1e-9)
+                                            * np.sqrt(252 / fwd_days)) if len(net) > 3 else 0.0, 3)})
+    nets = np.array([f["net"] for f in folds])
+    agree = bool((nets > 0).sum() >= len(nets) / 2)
+    all_net = float(nets.sum())
+    return {"version": WF_PIT_VERSION, "n_folds": len(folds), "fwd_days": fwd_days,
+            "costs_bps": costs_bps, "folds": folds,
+            "oos_total_net": round(all_net, 5),
+            "oos_majority_positive": agree,
+            "gate": {"pass": bool(agree and all_net > 0),
+                     "rule": "majority of folds OOS-positive and total OOS net > 0"}}

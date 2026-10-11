@@ -27,17 +27,17 @@ rules:
   - name: risk-latency-p99-hot
     metric: risk_latency_ns_p99
     op: gt
-    threshold: 700000
+    threshold: 400000
     severity: warning
-    meaning: "Pre-trade firewall p99 past 700us (~2x the measured baseline)."
+    meaning: "Pre-trade firewall p99 past 400us (~2x the approved baseline, ADR-0009)."
     action: "Check host load/Turbo Boost state; if sustained, halt new strategies and file a perf ticket (see bench artifact)."
     owner: engineering
   - name: risk-latency-p99-critical
     metric: risk_latency_ns_p99
     op: gt
-    threshold: 1400000
+    threshold: 800000
     severity: critical
-    meaning: "Firewall p99 at 4x measured baseline — pre-trade safety is degraded."
+    meaning: "Firewall p99 at 4x approved baseline — pre-trade safety is degraded."
     action: "Engage kill switch (panic path needs no role), then diagnose."
     owner: risk-officer
   - name: reject-rate-high

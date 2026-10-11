@@ -696,31 +696,52 @@ impl App {
                             "✗ ORDER REJECTED BY RUST-NATIVE RISK CIRCUIT: Execution engine is HALTED.".to_string(),
                         ));
                         self.state.ui.order_ticket.is_open = false;
+                        self.state.ui.order_ticket.confirmed = false;
                         return;
                     }
 
+                    // P0-2: order truth lives in the backend. The ticket is a
+                    // confirmation UI only — it must never render execution
+                    // success itself. We dispatch /trade (with --yes: the
+                    // ticket IS the confirmation) and render PENDING; the
+                    // CommandCompleted handler replaces this turn with the
+                    // backend's real verdict (order_id / BLOCKED / ERROR).
                     let t = self.state.ui.order_ticket.clone();
+                    let Some(bridge) = &self.bridge else {
+                        self.state.add_log("ERROR", "EXEC", "ORDER NOT SUBMITTED: no backend connection");
+                        self.state.research.turns.push((
+                            format!("Execute {} {} {}", t.side, t.qty, t.symbol),
+                            "✗ ORDER NOT SUBMITTED: no backend connection. Nothing was sent; no order exists.".to_string(),
+                        ));
+                        self.state.ui.order_ticket.is_open = false;
+                        self.state.ui.order_ticket.confirmed = false;
+                        return;
+                    };
                     let notional = t.qty * t.limit_price;
-                    let order_log = format!("ORDER ROUTED: {} {} {} @ ${:.2} [Notional: ${:.2}]", t.side, t.qty, t.symbol, t.limit_price, notional);
-                    self.state.add_log("INFO", "EXEC", &order_log);
+                    let cmd = format!(
+                        "/trade {} {} {} --limit {:.2} --yes",
+                        t.symbol, t.side.to_lowercase(), t.qty, t.limit_price
+                    );
+                    self.state.add_log("INFO", "EXEC", &format!("ORDER SUBMITTED: {cmd}"));
                     self.state.research.turns.push((
                         format!("Execute {} {} {}", t.side, t.qty, t.symbol),
-                        format!("✓ INSTITUTIONAL ORDER ROUTED & CONFIRMED\n\n\
+                        format!("… ORDER PENDING — submitted to backend, awaiting acknowledgement.\n\n\
                         ● Symbol       : {}\n\
                         ● Side         : {}\n\
                         ● Quantity     : {:.0}\n\
-                        ● Order Type   : {}\n\
                         ● Limit Price  : ${:.2}\n\
                         ● Notional     : ${:.2}\n\
-                        ● Time-In-Force: {}\n\
-                        ● Venue        : {}\n\
-                        ● Mode         : {}\n\
-                        ● Pre-Risk     : PASS (Exposure, Buying Power, Price Band, KillSwitch)\n\
-                        ● Execution    : ACKNOWLEDGED (Broker Latency: 2.4ms)",
-                        t.symbol, t.side, t.qty, t.order_type, t.limit_price, notional, t.tif, t.venue, if t.is_live { "LIVE DMA" } else { "PAPER DMA" }),
+                        The backend verdict (order_id / BLOCKED / ERROR) will replace this message. Nothing is executed until it arrives.",
+                        t.symbol, t.side, t.qty, t.limit_price, notional),
                     ));
                     self.state.ui.order_ticket.is_open = false;
+                    // confirmed = dispatched to backend, NOT executed.
+                    // Execution truth arrives via CommandCompleted.
                     self.state.ui.order_ticket.confirmed = true;
+                    let b = bridge.clone();
+                    tokio::spawn(async move {
+                        b.dispatch_command(&cmd).await;
+                    });
                 }
             }
             Action::CloseOrderTicket => {

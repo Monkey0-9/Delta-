@@ -3,6 +3,8 @@ from __future__ import annotations
 import time
 import urllib.request
 
+from core.net import urlopen_checked
+
 
 def measure_http(
     url: str,
@@ -19,7 +21,7 @@ def measure_http(
 
         try:
 
-            with urllib.request.urlopen(
+            with urlopen_checked(
                 url,
                 timeout=timeout,
             ) as response:

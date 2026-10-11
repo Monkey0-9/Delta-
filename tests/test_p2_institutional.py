@@ -78,3 +78,40 @@ def test_alpha_registry_requires_dataset_for_validated():
     reg.register(c)
     with pytest.raises(ValueError):
         reg.promote("A1", ResearchGrade.VALIDATED)
+
+
+def test_alpha_promotion_requires_cumulative_evidence():
+    """P2: Sharpe-only / hash-only alphas cannot promote; OOS sign-flip
+    refuses; full evidence promotes through every grade."""
+    from research.alpha_contract import AlphaContract, AlphaMetadata, AlphaRegistry
+    from core.domain.canonical import ResearchGrade
+    import pytest
+
+    def _meta(**kw):
+        base = dict(factor_id="mom", formula="ret_20", hypothesis="h",
+                    data_dependencies=("bars",), pit_requirement="avail<=asof",
+                    universe="US", frequency="daily")
+        base.update(kw)
+        return AlphaMetadata(**base)
+
+    # Hash-only, no stats: refused.
+    reg = AlphaRegistry()
+    reg.register(AlphaContract(alpha_id="H", metadata=_meta(), dataset_hash="d" * 16))
+    with pytest.raises(ValueError, match="ic_is"):
+        reg.promote("H", ResearchGrade.VALIDATED)
+    # Stats but negative cost-adjusted Sharpe: refused.
+    reg.register(AlphaContract(alpha_id="N", metadata=_meta(ic_is=0.05, cost_adjusted_sharpe=-0.2), dataset_hash="d" * 16))
+    with pytest.raises(ValueError, match="cost_adjusted_sharpe"):
+        reg.promote("N", ResearchGrade.VALIDATED)
+    # Validated but OOS sign-flipped: VALIDATED ok, OOS promotion refused.
+    reg.register(AlphaContract(alpha_id="F", metadata=_meta(ic_is=0.05, cost_adjusted_sharpe=0.8, ic_oos=-0.01), dataset_hash="d" * 16))
+    assert reg.promote("F", ResearchGrade.VALIDATED).grade == ResearchGrade.VALIDATED
+    with pytest.raises(ValueError, match="sign-flip"):
+        reg.promote("F", ResearchGrade.OOS_VALIDATED)
+    # Full evidence promotes cumulatively to CERTIFIED (grade-skip allowed).
+    reg.register(AlphaContract(
+        alpha_id="G", metadata=_meta(ic_is=0.05, cost_adjusted_sharpe=0.8,
+                                     ic_oos=0.03, turnover=0.5, capacity_usd=1e6),
+        dataset_hash="d" * 16))
+    assert reg.promote("G", ResearchGrade.CERTIFIED).grade == ResearchGrade.CERTIFIED
+    assert {a.alpha_id for a in reg.certified()} == {"G"}

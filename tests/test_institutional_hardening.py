@@ -34,6 +34,7 @@ def test_gateway_blocks_when_kill_active():
     kill.activate(actor="ops")
     gw = OrderGateway(firewall=RiskFirewall(kill_switch=kill))
     d = gw.submit(_order(), ref_price=Decimal("100"), authorized=True,
+                  role="risk_officer",
                   current_position=Decimal("0"))
     assert not d.approved and "kill_switch_active" in d.reasons
     assert gw.audit_log and gw.audit_log[0]["verdict"] == "block"
@@ -42,11 +43,14 @@ def test_gateway_blocks_when_kill_active():
 def test_gateway_blocks_unauthorized_and_duplicates():
     gw = OrderGateway(firewall=RiskFirewall())
     o = _order()
-    d1 = gw.submit(o, ref_price=Decimal("100"), authorized=False)
+    d1 = gw.submit(o, ref_price=Decimal("100"), authorized=False,
+                   role="risk_officer")
     assert not d1.approved  # missing authorization -> fail closed
-    d2 = gw.submit(o, ref_price=Decimal("100"), authorized=True)
+    d2 = gw.submit(o, ref_price=Decimal("100"), authorized=True,
+                   role="risk_officer")
     assert d2.approved
-    d3 = gw.submit(o, ref_price=Decimal("100"), authorized=True)
+    d3 = gw.submit(o, ref_price=Decimal("100"), authorized=True,
+                   role="risk_officer")
     assert not d3.approved and "duplicate_idempotency_key" in d3.reasons
 
 
@@ -55,7 +59,8 @@ def test_gateway_broker_exception_fails_closed():
     gw = OrderGateway(firewall=RiskFirewall())
     def boom(order):
         raise ConnectionError("broker down")
-    d = gw.submit(_order(), ref_price=Decimal("100"), authorized=True, broker=boom)
+    d = gw.submit(_order(), ref_price=Decimal("100"), authorized=True,
+                  role="risk_officer", broker=boom)
     assert not d.approved and "broker_submit_failed" in d.reasons
     assert d.order.status == OrderStatus.FAILED  # never a RISK_APPROVED lie
 
@@ -64,8 +69,10 @@ def test_gateway_approved_reaches_submitted():
     from core.domain.order import OrderStatus
     gw = OrderGateway(firewall=RiskFirewall())
     d = gw.submit(_order(), ref_price=Decimal("100"), authorized=True,
+                  role="risk_officer",
                   broker=lambda o: {"ack": "ok"})
-    assert d.approved and d.order.status == OrderStatus.SUBMITTED
+    assert d.approved and d.order.status == OrderStatus.ACKNOWLEDGED
+    assert d.submitted is True
     assert d.audit_entry["broker_ack"] == {"ack": "ok"}
 
 
@@ -98,7 +105,8 @@ def test_kill_board_wired_into_firewall():
     b.broker.activate(actor="ops")
     fw = RiskFirewall(kill_switch=b)
     o = _order()
-    d = OrderGateway(firewall=fw).submit(o, ref_price=Decimal("100"), authorized=True)
+    d = OrderGateway(firewall=fw).submit(o, ref_price=Decimal("100"), authorized=True,
+                                             role="risk_officer")
     assert not d.approved and "kill_switch_active" in d.reasons
 
 

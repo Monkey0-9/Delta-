@@ -4,6 +4,8 @@ import json
 import urllib.request
 from dataclasses import dataclass
 
+from core.net import urlopen_checked
+
 
 @dataclass(frozen=True)
 class LocalLLM:
@@ -67,7 +69,7 @@ class LocalLLMRouter:
             method="POST",
         )
 
-        with urllib.request.urlopen(
+        with urlopen_checked(
             request,
             timeout=selected.timeout_seconds,
         ) as response:

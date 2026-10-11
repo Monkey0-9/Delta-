@@ -5,6 +5,8 @@ import urllib.request
 from decimal import Decimal
 from typing import Any
 
+from core.net import urlopen_checked
+
 from broker.contracts import (
     BrokerAccount,
     BrokerAdapter,
@@ -61,7 +63,7 @@ class GenericRESTBroker(BrokerAdapter):
             },
         )
 
-        with urllib.request.urlopen(
+        with urlopen_checked(
             request,
             timeout=self.timeout,
         ) as response:

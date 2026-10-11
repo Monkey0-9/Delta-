@@ -55,6 +55,31 @@ def oos_stability(frame: pd.DataFrame, feat: pd.DataFrame, fwd_days: int = 5) ->
             "sign_agreement": bool(agree)}
 
 
+def ic_permutation_pvalue(scores: pd.Series, fwds: pd.Series,
+                          n_perm: int = 999, seed: int = 7) -> float:
+    """Two-sided permutation p-value for rank-IC: fraction of shuffled
+    (score, forward) alignments with |IC| >= observed |IC|.
+
+    Real inference, not a transform of the point estimate: under the null of
+    no association, any alignment is equally likely, so reshuffling fwds
+    builds the exact null distribution. Deterministic given seed.
+    """
+    s = pd.concat([scores, fwds], axis=1).dropna()
+    if len(s) < 10:
+        return 1.0
+    from research.real_loop.alpha_stats import rank_ic
+
+    rng = np.random.default_rng(seed)
+    obs = abs(rank_ic(s.iloc[:, 0], s.iloc[:, 1]))
+    fwd = s.iloc[:, 1].to_numpy()
+    n_ge = 0
+    for _ in range(n_perm):
+        perm = pd.Series(rng.permutation(fwd), index=s.index)
+        if abs(rank_ic(s.iloc[:, 0], perm)) >= obs:
+            n_ge += 1
+    return (n_ge + 1) / (n_perm + 1)
+
+
 def research_statistics(frame: pd.DataFrame, feat: pd.DataFrame,
                         fwd_days: int = 5, n_trials: int = 10) -> dict:
     """Full W106/W122 research-statistics bundle for one name."""
@@ -70,12 +95,40 @@ def research_statistics(frame: pd.DataFrame, feat: pd.DataFrame,
     stats = AS.summarize_alpha(scores, fwd.reindex(strat.index).fillna(0),
                                pos.reindex(strat.index).fillna(0), strat,
                                n_trials=n_trials)
-    # multiple-testing across the 5 factor groups (proxy p-values from |IC|)
-    pvals = [max(1e-6, 2 * (1 - min(0.999, abs(stats["ic"]) * 4 + 0.5))) for _ in range(5)]
-    stats["fdr_bh_q10"] = AS.benjamini_hochberg(pvals, q=0.10)
+    # P2/I centralization: cost-adjusted Sharpe is produced HERE by the ONE
+    # sanctioned engine (not a side formula). Assumptions, documented:
+    # full-capital deployment (turnover fraction ~= participation rate),
+    # scalar horizon vol, v3 cost config (spread 5/fee 1/slip 2). The engine
+    # is uncalibrated, so the quote stamps proxy=True and the bundle carries
+    # cost_proxy=True — labeled, never hidden. This is the evidence the
+    # AlphaRegistry promotion gate consumes.
+    from execution.cost_engine import TransactionCostEngine
+
+    _pos = pos.reindex(strat.index).fillna(0)
+    _churn = _pos.diff().abs().fillna(0)
+    _turnover = float(_churn.mean())
+    _sigma = float(fwd.reindex(strat.index).fillna(0).std() or 0.0)
+    _per_trade = TransactionCostEngine().quote_participation(
+        _turnover, _sigma, spread_bps=5.0, fee_bps=1.0, slippage_bps=2.0)
+    _net = strat - _churn * _per_trade.total_bps / 1e4
+    _sd = float(_net.std() or 0.0)
+    stats["cost_adjusted_sharpe"] = round(
+        float(_net.mean() / _sd * (252 / fwd_days) ** 0.5), 4) if _sd > 0 else 0.0
+    stats["cost_proxy"] = bool(_per_trade.proxy)
+    stats["cost_bps_per_trade"] = round(_per_trade.total_bps, 2)
+    # Multiple-testing honesty (P2): the old code fabricated "proxy p-values"
+    # from |IC| and ran BH on fiction. Only ONE hypothesis is actually tested
+    # here (strategy IC != 0), so report its permutation p-value directly.
+    # Family-wise BH belongs at the caller that tests a real family of
+    # strategies — fabricating a 5-group family here would repeat the lie.
+    p_ic = ic_permutation_pvalue(scores.reindex(strat.index).fillna(0),
+                                 fwd.reindex(strat.index).fillna(0))
+    stats["ic_pvalue"] = round(float(p_ic), 4)
+    stats["fdr_bh_q10"] = None  # no real family tested at this level
     stats["gate"] = {
         "pass": bool(abs(stats["ic"]) > 0.02 and stats["dsr"] > 0.5
+                     and p_ic < 0.10
                      and (stats["pbo"] is None or stats["pbo"] < 0.6)),
-        "rule": "require |IC|>0.02, DSR>0.5, PBO<0.6",
+        "rule": "require |IC|>0.02, DSR>0.5, permutation p<0.10, PBO<0.6",
     }
     return stats

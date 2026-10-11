@@ -7,7 +7,10 @@ Benches (all production code paths, wall-clock timed):
   * native LOB (NativeMatcher add/top) when the native bridge is available,
     else UNMEASURED with reason (never a fabricated number).
 Targets come from the P0 plan (firewall <7µs/check; LOB 10M ops/s). A missed
-target is FAIL/UNMEASURED in the artifact — never adjusted. Machine context
+target is FAIL/UNMEASURED in the artifact — never adjusted. Per ADR-0009 the
+P0 targets are LIVE-gate aspirations for isolated hardware; the approved
+PAPER/RESEARCH requirement is the measured baseline + SRE regression guard.
+Machine context
 (OS/CPU/Python) is recorded so numbers are reproducible-or-explained.
 Emits hash-chained artifacts/bench/bench.json.
 """

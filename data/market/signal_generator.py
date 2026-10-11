@@ -55,7 +55,7 @@ class Signal:
         if not self.signal_id:
             signal_str = f"{self.symbol}_{self.timestamp.isoformat()}_{self.signal_type.value}"
             import hashlib
-            hash_obj = hashlib.md5(signal_str.encode())
+            hash_obj = hashlib.md5(signal_str.encode(), usedforsecurity=False)
             object.__setattr__(self, 'signal_id', hash_obj.hexdigest()[:12])
 
 

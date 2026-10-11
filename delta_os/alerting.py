@@ -10,6 +10,8 @@ import json
 import urllib.request
 from dataclasses import dataclass, field
 
+from core.net import urlopen_checked
+
 
 @dataclass
 class FanoutResult:
@@ -28,7 +30,7 @@ def _post_json(url: str, payload: dict, token: str = "",
         method="POST")
     if token:
         req.add_header("Authorization", f"Bearer {token}")
-    with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+    with urlopen_checked(req, timeout=timeout_s) as resp:
         return {"http": resp.status, "body": resp.read(512).decode("utf-8", "replace")}
 
 

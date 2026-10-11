@@ -19,7 +19,7 @@ import os
 import threading
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -524,6 +524,14 @@ class DeltaBrain:
         analysis = self.analyze_stock(symbol)
         if "error" in analysis:
             return analysis
+        # F-item (P3): refuse on stale/synthetic inputs — a forecast built on
+        # non-fresh data is fabrication, not prediction. Callers already
+        # render "error" honestly (chat, /forecast, gate).
+        if analysis.get("data_tier") not in ("TIER1", "TIER2"):
+            return {"symbol": symbol.upper(), "horizon_days": horizon_days,
+                    "error": (f"ABSTAIN: {symbol.upper()} inputs are "
+                              f"{analysis.get('data_tier')}; forecast requires "
+                              f"fresh TIER1/TIER2 data")}
 
         price = analysis["price"]
         rsi = analysis["indicators"]["rsi_14"]
@@ -550,15 +558,29 @@ class DeltaBrain:
         prob_positive = _norm_cdf(expected_return_pct / (h_vol * 100.0 + 1e-6))
 
         direction = "BULLISH (UP)" if expected_return_pct > 0.5 else ("BEARISH (DOWN)" if expected_return_pct < -0.5 else "NEUTRAL")
+        # F-item (P3): edge below noise -> abstain, never a confident call.
+        # |z| < 0.25 means P(positive) sits inside [40%, 60%]: a coin flip
+        # dressed as analysis. Direction and action say so explicitly.
+        abstained = abs(prob_positive - 0.5) <= 0.10
+        if abstained:
+            direction = "ABSTAIN (edge below noise)"
+            action_recommendation = (
+                "NO ACTION: expected edge is inside noise bounds — "
+                "no position without stronger evidence")
+        else:
+            action_recommendation = (
+                "BUY BEFORE LOW: Accumulate near oversold support with tight stop"
+                if rsi < 35
+                else ("TAKE PROFIT / SELL: Trim into resistance before reversal" if rsi > 68 else "HOLD: Trend confirmed")
+            )
+            # P3 calibration wiring: every directional call enters the
+            # forecast log; forecast_calibration() resolves elapsed horizons
+            # against realized prices. ABSTAIN calls carry no claim to score.
+            self.log_forecast(symbol.upper(), horizon_days, direction,
+                              round(prob_positive, 4))
         target_price = round(price * (1.0 + expected_return_pct / 100.0), 2)
         ci_lower = round(price * (1.0 + (expected_return_pct / 100.0 - 1.96 * h_vol)), 2)
         ci_upper = round(price * (1.0 + (expected_return_pct / 100.0 + 1.96 * h_vol)), 2)
-
-        action_recommendation = (
-            "BUY BEFORE LOW: Accumulate near oversold support with tight stop"
-            if rsi < 35
-            else ("TAKE PROFIT / SELL: Trim into resistance before reversal" if rsi > 68 else "HOLD: Trend confirmed")
-        )
 
         return {
             "symbol": symbol.upper(),
@@ -581,6 +603,98 @@ class DeltaBrain:
             "provenance": analysis.get("provenance"),
             "data_tier": analysis.get("data_tier"),
         }
+
+    # -- forecast track record (P3 calibration wiring) ----------------------
+    def _forecast_log_path(self) -> str:
+        from delta_os.safety import _session_path
+
+        return str(_session_path().parent / "forecast_log.jsonl")
+
+    def log_forecast(self, symbol: str, horizon_days: int, direction: str,
+                     prob_positive: float) -> None:
+        """Append a directional call to the forecast log (best-effort, capped).
+        Never raises: logging must not break forecasting."""
+        try:
+            import json as _json
+
+            entry = {"ts": datetime.now(timezone.utc).isoformat(),
+                     "symbol": symbol, "horizon_days": int(horizon_days),
+                     "direction": direction, "prob_positive": float(prob_positive)}
+            path = self._forecast_log_path()
+            parent = os.path.dirname(path)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+            if os.path.exists(path) and os.path.getsize(path) > 1_000_000:
+                return  # cap: stop growing rather than rewrite mid-session
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(_json.dumps(entry) + "\n")
+        except Exception:
+            pass
+
+    def forecast_calibration(self, price_lookup=None) -> Dict[str, Any]:
+        """Score resolved forecasts: horizons fully elapsed get outcomes from
+        realized prices. Single-bin ECE = |accuracy - mean prob| (labeled as
+        such). Unresolvable entries are skipped, never fabricated."""
+        import json as _json
+
+        path = self._forecast_log_path()
+        try:
+            with open(path, encoding="utf-8") as f:
+                entries = [_json.loads(line) for line in f if line.strip()]
+        except FileNotFoundError:
+            entries = []
+        except Exception:
+            return {"n_logged": 0, "n_resolved": 0, "accuracy": None,
+                    "mean_prob": None, "ece_single_bin": None,
+                    "note": "log unreadable"}
+        now = datetime.now(timezone.utc)
+        lookup = price_lookup or self._router_close_at
+        hits, probs = 0, []
+        for e in entries[-500:]:
+            try:
+                ts = datetime.fromisoformat(e["ts"])
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                horizon = int(e.get("horizon_days", 5))
+                if (now - ts).days < horizon:
+                    continue  # not yet resolvable
+                p0 = lookup(e["symbol"], ts.date().isoformat())
+                p1 = lookup(e["symbol"], (ts + timedelta(days=horizon)).date().isoformat())
+                if p0 is None or p1 is None or p0 <= 0:
+                    continue
+                realized_up = p1 > p0
+                predicted_up = "BEARISH" not in str(e.get("direction", ""))
+                hits += predicted_up == realized_up
+                probs.append(float(e.get("prob_positive", 0.5)))
+            except Exception:
+                continue
+        n = len(probs)
+        if not n:
+            return {"n_logged": len(entries), "n_resolved": 0,
+                    "accuracy": None, "mean_prob": None,
+                    "ece_single_bin": None,
+                    "note": "no resolved forecasts yet"}
+        acc = hits / n
+        mean_p = sum(probs) / n
+        return {"n_logged": len(entries), "n_resolved": n,
+                "accuracy": round(acc, 4), "mean_prob": round(mean_p, 4),
+                "ece_single_bin": round(abs(acc - mean_p), 4),
+                "note": "single-bin ECE; per-bin curves need larger N"}
+
+    def _router_close_at(self, symbol: str, day: str):
+        """Realized close on/before a calendar day via the data router."""
+        try:
+            frame = self.data_router.quote(symbol, days=400).frame
+            if frame is None or len(frame) == 0:
+                return None
+            idx = frame.index
+            target = pd.Timestamp(day, tz="UTC")
+            mask = idx <= target
+            if not bool(mask.any()):
+                return None
+            return float(frame["close"][mask].iloc[-1])
+        except Exception:
+            return None
 
     # ------------------------------------------------------------------------
     # Regime-Aware Crash Warning & Rebalance Decisions
@@ -1013,6 +1127,7 @@ class DeltaSentinel:
         positions_fn: Optional[Callable[[], Dict[str, float]]] = None,
         alert_sink: Optional[Callable[[Dict[str, Any]], Any]] = None,
         alert_cap: int = 200,
+        state_path: Optional[str] = None,
     ):
         self.brain = brain
         self.safety = safety_state
@@ -1022,6 +1137,7 @@ class DeltaSentinel:
         self.positions_fn = positions_fn
         self.alert_sink = alert_sink
         self.alert_cap = alert_cap
+        self.state_path = state_path
         self.running = False
         self.thread: Optional[threading.Thread] = None
         self.alerts: List[Dict[str, Any]] = []
@@ -1030,6 +1146,56 @@ class DeltaSentinel:
         self.current_equity: Optional[float] = None
         self.last_tick_utc: Optional[str] = None
         self._halt_announced = False
+        if state_path is not None:
+            self._restore_state()
+
+    def _state_snapshot(self) -> Dict[str, Any]:
+        return {"peak_equity": self.peak_equity,
+                "current_equity": self.current_equity,
+                "last_tick_utc": self.last_tick_utc,
+                "alerts": self.alerts[-self.alert_cap:]}
+
+    def _persist_state(self) -> None:
+        """Best-effort atomic persistence (O-item). A failed write only
+        affects restart recovery — the running process keeps authoritative
+        in-memory state and the next tick retries. Never raises."""
+        if not self.state_path:
+            return
+        try:
+            import json as _json
+
+            tmp = self.state_path + f".{os.getpid()}.tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                _json.dump(self._state_snapshot(), f)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, self.state_path)
+        except Exception:
+            pass
+
+    def _restore_state(self) -> None:
+        """Reload persisted watcher state so a restart keeps the drawdown
+        window, alert history, and freshness marker. Corrupt state is
+        discarded loudly (alert), never trusted."""
+        try:
+            import json as _json
+
+            with open(self.state_path, encoding="utf-8") as f:
+                snap = _json.load(f)
+            if not isinstance(snap, dict):
+                raise ValueError("not an object")
+            self.peak_equity = snap.get("peak_equity")
+            self.current_equity = snap.get("current_equity")
+            self.last_tick_utc = snap.get("last_tick_utc")
+            alerts = snap.get("alerts", [])
+            if isinstance(alerts, list):
+                self.alerts = [a for a in alerts if isinstance(a, dict)][-self.alert_cap:]
+        except FileNotFoundError:
+            pass
+        except Exception as exc:
+            self._emit("WARNING", "SENTINEL_STATE_UNREADABLE",
+                       f"Persisted watcher state discarded ({type(exc).__name__}); "
+                       f"drawdown window restarts.")
 
     @property
     def halted(self) -> bool:
@@ -1040,6 +1206,17 @@ class DeltaSentinel:
             return True  # unreadable safety -> fail-closed
 
     def _emit(self, level: str, event: str, message: str) -> Dict[str, Any]:
+        # O-item duplicate suppression: an alert identical to the
+        # immediately previous one is a crash-loop echo, not new
+        # information. Collapse it (counted, not stored twice).
+        if self.alerts:
+            prev = self.alerts[-1]
+            if (prev.get("level") == level and prev.get("event") == event
+                    and prev.get("message") == message):
+                prev["duplicates_suppressed"] = int(
+                    prev.get("duplicates_suppressed", 0)) + 1
+                self._persist_state()
+                return prev
         alert = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "level": level,
@@ -1059,6 +1236,7 @@ class DeltaSentinel:
                     "event": "ALERT_SINK_FAILED",
                     "message": f"alert sink raised {type(exc).__name__}: {exc}",
                 })
+        self._persist_state()
         return alert
 
     def start(self) -> str:
@@ -1114,6 +1292,7 @@ class DeltaSentinel:
                        "Ledger equity unreadable: monitoring only, no automated action.")
             self.last_tick_utc = datetime.now(timezone.utc).isoformat()
             outcome["actions"].append("monitor-only (equity unavailable)")
+            self._persist_state()
             return outcome
         equity = float(equity)
         self.current_equity = equity
@@ -1121,6 +1300,7 @@ class DeltaSentinel:
             self.peak_equity = equity  # first live read initialises the peak
             self.last_tick_utc = datetime.now(timezone.utc).isoformat()
             outcome["actions"].append("peak initialised")
+            self._persist_state()
             return outcome
         self.peak_equity = max(self.peak_equity, equity)
         drawdown_pct = ((self.peak_equity - equity) / self.peak_equity) * 100.0
@@ -1164,6 +1344,7 @@ class DeltaSentinel:
             outcome["actions"].append("no positions: crash scan skipped (never demo tickers)")
 
         self.last_tick_utc = datetime.now(timezone.utc).isoformat()
+        self._persist_state()
         return outcome
 
     def _sentinel_loop(self) -> None:

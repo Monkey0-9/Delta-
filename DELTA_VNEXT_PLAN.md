@@ -5,8 +5,13 @@ for sequencing. Prior docs remain as history; this file decides order.
 
 ## Decision freeze
 
+> SUPERSEDED (2026-10-11, ADR-0008): item 1 below named `delta_tui/`/Textual
+> the ONE frontend. The canonical interactive terminal is now Rust
+> Ratatui/Crossterm (`tui/`); `delta_tui/` is the headless/Python fallback
+> behind `apps/cli/delta.py`. Items 2–5 stand unless noted.
+
 1. ONE interactive frontend: `delta_tui/` (Textual + Rich). Bare `delta`
-   boots `apps/cli/delta.py -> delta_tui.app`.
+   boots `apps/cli/delta.py -> delta_tui.app`. [SUPERSEDED by ADR-0008]
 2. `cli/app.py` is RETIRED to `archive/legacy_cli/`. The active shim warns.
 3. `trader/opencode_terminal.py` + `delta_os/repl.py` are fallback rails only.
 4. Modes are explicit everywhere: LIVE | PAPER | SIMULATION | RESEARCH | DEMO.
@@ -131,7 +136,7 @@ Group 29 = P2. Group 30 = P3/P4.
 - [x] Delete duplicate command implementations (audit Typer vs registry)
 
 ### GROUP 05 — TUI framework [P0-done, harden]
-- [x] Adopt Textual as primary TUI (+ Rich fallback)
+- [x] Adopt Textual as primary TUI (+ Rich fallback) [SUPERSEDED by ADR-0008: Rust Ratatui (`tui/`) is the primary terminal; Textual is fallback]
 - [x] Create `delta_tui/app.py` controller
 - [x] Create screen registry (14 ids incl. book alias)
 - [x] Create widget registry (`delta_tui/widgets/`)

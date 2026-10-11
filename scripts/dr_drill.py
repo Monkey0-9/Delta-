@@ -120,11 +120,14 @@ def run(workdir: Path, n_orders: int = 25) -> dict:
     rto_s = time.perf_counter() - t0
 
     # Phase 4 — tamper negative: a corrupted journal must refuse replay loudly.
+    from core.oms.journal import JournalCorruption
+
     tpath.write_bytes(jpath.read_bytes() + b'{"seq": 9999, "order_id": "EVIL", "state": "FILLED"}\n')
     tamper_raised = False
     try:
         OmsJournal(tpath).snapshot()
-    except (AssertionError, ValueError, KeyError, json.JSONDecodeError):
+    except (AssertionError, ValueError, KeyError, json.JSONDecodeError,
+            JournalCorruption):
         tamper_raised = True
 
     rpo_lost = lines_before - lines_after

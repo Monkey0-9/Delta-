@@ -52,9 +52,13 @@ def test_bar_pit_stamps():
 def test_label_frame_embargo_and_triple_barrier():
     from data.labels.engine import build_label_frame, triple_barrier, LabelSpec, LabelKind
     idx = pd.date_range("2026-01-01", periods=60, freq="D", tz="UTC")
-    close = pd.Series(100 + pd.Series(range(60)).apply(float) * 0.5, index=idx)
+    import numpy as np
+
+    close = pd.Series(100.0 + np.arange(60, dtype=float) * 0.5, index=idx)
     frame = build_label_frame(close)
     assert "future_return_5d" in frame.columns and "triple_barrier" in frame.columns
+    # Non-vacuous: heads carry real labels (guards all-NaN input theater).
+    assert frame["future_return_5d"].iloc[0] > 0
     # embargo tail must be NA
     assert frame["future_return_5d"].iloc[-1] is pd.NA or pd.isna(frame["future_return_5d"].iloc[-1])
     tb = triple_barrier(close, LabelSpec(kind=LabelKind.TRIPLE_BARRIER, horizon=5))
@@ -100,3 +104,20 @@ def test_system_status_yaml_and_arch_docs():
               "ML_ARCHITECTURE.md", "RESEARCH_ARCHITECTURE.md",
               "EXECUTION_ARCHITECTURE.md", "RISK_ARCHITECTURE.md", "MODEL_LIFECYCLE.md"):
         assert (root / "docs" / f).exists(), f
+
+
+def test_tick_usability_compares_availability_not_truthiness():
+    """P2: Tick.is_usable_at had an operator-precedence bug returning a float
+    (always truthy) whenever t_avail/t_pub was nonzero — future data read as
+    usable. It must compare the earliest usable instant against as_of."""
+    from data.market.canonical import Tick
+
+    t = Tick(symbol="AAPL", price=150.0, qty=10.0, t_event=1000.0,
+             t_pub=1005.0, t_avail=1010.0)
+    assert t.is_usable_at(1010.0) is True or t.is_usable_at(1010.0)
+    assert not t.is_usable_at(1009.0), "avail@t=1010 must be unusable at t=1009"
+    assert not t.is_usable_at(1000.0)
+    # Falls back through pub -> event when later stamps are absent.
+    t2 = Tick(symbol="AAPL", price=150.0, qty=10.0, t_event=1000.0)
+    assert t2.is_usable_at(1000.0)
+    assert not t2.is_usable_at(999.0)

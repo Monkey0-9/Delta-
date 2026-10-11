@@ -264,15 +264,19 @@ fn test_order_ticket_lifecycle_and_safety() {
     assert_eq!(app.state.ui.order_ticket.side, "BUY");
     assert_eq!(app.state.ui.order_ticket.limit_price, 135.5);
 
-    // Confirm order
+    // Confirm order with NO backend connected: P0-2 forbids rendering
+    // execution success. The ticket must report NOT SUBMITTED, and the
+    // success wording must never appear without a backend verdict.
     app.update(Action::ConfirmOrderTicket);
     assert!(!app.state.ui.order_ticket.is_open);
-    assert!(app.state.ui.order_ticket.confirmed);
+    assert!(!app.state.ui.order_ticket.confirmed);
 
-    // Verify turn was logged with full provenance
+    // Verify turn reports the honest failure — never success-shaped text.
     let last_turn = app.state.research.turns.last().unwrap();
-    assert!(last_turn.1.contains("INSTITUTIONAL ORDER ROUTED & CONFIRMED"));
+    assert!(last_turn.1.contains("NOT SUBMITTED"));
     assert!(last_turn.1.contains("NVDA"));
+    assert!(!last_turn.1.contains("ROUTED & CONFIRMED"));
+    assert!(!last_turn.1.contains("ACKNOWLEDGED"));
 }
 
 #[test]

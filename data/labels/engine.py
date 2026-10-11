@@ -40,27 +40,44 @@ def _embargo_cut(n: int, horizon: int, embargo: int) -> int:
     return max(0, n - horizon - embargo)
 
 
-def future_returns(close: pd.Series, horizons: tuple[int, ...] = (1, 5, 20)) -> pd.DataFrame:
+def future_returns(close: pd.Series, horizons: tuple[int, ...] = (1, 5, 20),
+                   embargo_bars: int = 1) -> pd.DataFrame:
+    """Forward returns per horizon. P2: each column's last h+embargo rows are
+    NaN — the horizon extends past available data there, so no consumer can
+    train or evaluate on unknowable labels. Pass embargo_bars=0 only when the
+    caller enforces purge/embargo itself (documented, audited)."""
     out = pd.DataFrame(index=close.index)
+    n = len(close)
     for h in horizons:
-        out[f"future_return_{h}d"] = close.shift(-h) / close - 1.0
+        col = close.shift(-h) / close - 1.0
+        cut = _embargo_cut(n, h, embargo_bars)
+        col.iloc[cut + 1:] = np.nan
+        out[f"future_return_{h}d"] = col
     return out
 
 
-def future_volatility(close: pd.Series, horizon: int = 5) -> pd.Series:
+def future_volatility(close: pd.Series, horizon: int = 5,
+                      embargo_bars: int = 1) -> pd.Series:
     rets = np.log(close / close.shift(1))
-    return rets.shift(-horizon).rolling(horizon).std() * np.sqrt(252.0)
+    out = rets.shift(-horizon).rolling(horizon).std() * np.sqrt(252.0)
+    out.iloc[_embargo_cut(len(close), horizon, embargo_bars) + 1:] = np.nan
+    return out
 
 
-def direction_labels(close: pd.Series, horizon: int = 5) -> pd.Series:
+def direction_labels(close: pd.Series, horizon: int = 5,
+                     embargo_bars: int = 1) -> pd.Series:
     fr = close.shift(-horizon) / close - 1.0
-    return fr.apply(lambda x: 1 if x > 0 else (-1 if x < 0 else 0)).astype("Int64")
+    out = fr.apply(lambda x: 1 if x > 0 else (-1 if x < 0 else 0)).astype("Int64")
+    out.iloc[_embargo_cut(len(close), horizon, embargo_bars) + 1:] = pd.NA
+    return out
 
 
-def drawdown_labels(close: pd.Series, horizon: int = 20) -> pd.Series:
+def drawdown_labels(close: pd.Series, horizon: int = 20,
+                    embargo_bars: int = 1) -> pd.Series:
     out = pd.Series(np.nan, index=close.index, dtype=float)
     vals = close.to_numpy()
-    for i in range(len(vals) - horizon):
+    # P2: stop embargo rows early — the window would run past usable data.
+    for i in range(_embargo_cut(len(vals), horizon, embargo_bars) + 1):
         window = vals[i + 1: i + 1 + horizon]
         peak = np.maximum.accumulate(np.concatenate([[vals[i]], window]))
         dd = (window / peak[1:] - 1.0).min()

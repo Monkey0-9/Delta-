@@ -6,12 +6,13 @@ threshold, severity, runbook action, and owner. Aspirational Sprint-5 names
 (feed_latency_nanoseconds, llm_ttft_ms, …) are NOT rules until a producer
 emits them — claiming otherwise would be fake monitoring.
 
-BASELINE NOTE (2026-10-09, this box): firewall check measures p50 ~163µs /
-p99 ~343µs (see artifacts/bench/bench.json), NOT the 7µs P0-plan target —
-the plan target is recorded as a bench FAIL, and these thresholds guard
-against REGRESSION from the measured baseline instead of asserting an
-unmet target (which would page constantly and teach operators to ignore
-the pager).
+BASELINE NOTE (2026-10-11, this box; ADR-0009): firewall check measures
+p50 ~97µs / p99 ~193µs (see artifacts/bench/bench.json), NOT the 7µs P0-plan
+target — the plan target is recorded as a bench FAIL and is a LIVE-gate
+aspiration for isolated hardware only. These thresholds guard against
+REGRESSION from the approved baseline (~2x warning / ~4x critical) instead
+of asserting an unmet target (which would page constantly and teach
+operators to ignore the pager).
 """
 from __future__ import annotations
 
@@ -34,13 +35,13 @@ OPS_RULES: tuple[OpsRule, ...] = (
             "Do NOT unlock to 'fix' alerts. Diagnose cause, resolve, then "
             "token + RISK_OFFICER+ role unlock per runbook.",
             "risk-officer"),
-    OpsRule(AlertRule("risk-latency-p99-hot", "risk_latency_ns_p99", "gt", 700000, "warning"),
-            "Pre-trade firewall p99 past 700µs (~2x the measured baseline).",
+    OpsRule(AlertRule("risk-latency-p99-hot", "risk_latency_ns_p99", "gt", 400000, "warning"),
+            "Pre-trade firewall p99 past 400µs (~2x the approved baseline).",
             "Check host load/Turbo Boost state; if sustained, halt new "
             "strategies and file a perf ticket (see bench artifact).",
             "engineering"),
-    OpsRule(AlertRule("risk-latency-p99-critical", "risk_latency_ns_p99", "gt", 1400000, "critical"),
-            "Firewall p99 past 1.4ms (~4x baseline) — pre-trade safety is degraded.",
+    OpsRule(AlertRule("risk-latency-p99-critical", "risk_latency_ns_p99", "gt", 800000, "critical"),
+            "Firewall p99 past 800µs (~4x baseline) — pre-trade safety is degraded.",
             "Engage kill switch (panic path needs no role), then diagnose.",
             "risk-officer"),
     OpsRule(AlertRule("reject-rate-high", "rejection_rate", "gt", 0.05, "warning"),

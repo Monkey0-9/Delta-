@@ -62,7 +62,7 @@ class FeatureDefinition:
         """Generate feature ID"""
         if not self.feature_id:
             feature_str = f"{self.name}_{self.version}_{self.feature_type.value}"
-            hash_obj = hashlib.md5(feature_str.encode())
+            hash_obj = hashlib.md5(feature_str.encode(), usedforsecurity=False)
             self.feature_id = hash_obj.hexdigest()[:12]
 
 

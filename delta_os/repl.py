@@ -143,7 +143,7 @@ HELP = {
     "kill": "— EMERGENCY: cancel all + freeze",
     "flatten": "[ticker|ALL] — market-close positions",
     "backtest": "[ticker] [days] — walk-forward backtest w/ Sharpe & Drawdown",
-    "trade": "[sym] [buy|sell] [qty] [--limit P] [--stop S] [--target T] [--twap N] [--post-only]",
+    "trade": "[sym] [buy|sell] [qty] [--limit P] [--stop S] [--target T] [--twap N] [--post-only] [--yes]",
     "quote": "[ticker] — last, day range, RVOL (no fabricated bid/ask)",
     "india": "[symbol] [exchange=AUTO] — NSE/BSE quote + IST session (RELIANCE->RELIANCE.NS)",
     "indicators": "[symbol] — RSI/MACD/Bollinger/Stoch/ATR/ADX/VWAP card",
@@ -264,8 +264,8 @@ class Terminal:
             "protect": self._c_protect, "dipbuy": self._c_dipbuy,
             "doctor": self._c_doctor, "status": self._c_status, "data": self._c_data,
             "ask": self._c_ask, "key": self._c_key, "crash": self._c_crash,
-            "fdata": self._c_quote, "fetch": lambda a: "Fetched URL content via standard bridge",
-            "fork": lambda a: "Session forked to isolated branch", "init": lambda a: "Workspace initialized (AGENTS.md active)",
+            "fdata": self._c_quote, "fetch": self._c_fetch,
+            "fork": self._c_fork, "init": self._c_init,
             "quit": lambda a: "bye", "exit": lambda a: "bye"
         }
         if cmd in ("quit", "exit"):
@@ -430,7 +430,64 @@ class Terminal:
         return f"PLANNING MODE (Read-only):\n1. Resolve context for: {intent}\n2. Fetch market evidence & portfolio exposure\n3. Calculate risk impact & scenario tests\n4. Produce candidate order preview\n(NO ORDERS SUBMITTED)"
 
     def _c_sessions(self, args: list) -> str:
-        return f"Active Workspace: {self.workspace}\nAvailable Sessions:\n  ● default\n  ● equities-alpha\n  ● macro-rates\n  ● risk-review"
+        # B-item (P3): real tab inventory, never a hardcoded list.
+        from delta_tui.session_tabs import SessionTabs
+
+        tabs = self.__dict__.setdefault("_sessions", SessionTabs())
+        snap = tabs.snapshot()["tabs"]
+        if not snap:
+            return (f"Active Workspace: {self.workspace}\nSessions: none — "
+                    f"use /fork [title] to open one.")
+        lines = [f"Active Workspace: {self.workspace}", "Sessions:"]
+        for tab_id, info in snap.items():
+            mark = "●" if tab_id == tabs.active else "○"
+            lines.append(f"  {mark} {tab_id}: {info.get('title', '?')} "
+                         f"[{info.get('mode', '?')}]")
+        return "\n".join(lines)
+
+    def _c_fork(self, args: list) -> str:
+        # B-item (P3): real tab creation through the session backend.
+        from delta_tui.session_tabs import SessionTabs
+
+        tabs = self.__dict__.setdefault("_sessions", SessionTabs())
+        title = " ".join(args) if args else f"fork-{len(tabs.snapshot()['tabs']) + 1}"
+        tab = tabs.new(title)
+        return f"Session forked: {tab.tab_id} ({tab.title}) — active."
+
+    def _c_fetch(self, args: list) -> str:
+        # B-item (P3): real scheme-checked fetch, byte-capped. Refusals and
+        # failures are reported, never a canned success string.
+        if not args:
+            return "usage: /fetch [url] (http/https only, 512KB cap)"
+        import json as _json
+
+        from core.net import urlopen_checked
+
+        url = args[0]
+        try:
+            with urlopen_checked(url, timeout=15) as resp:
+                body = resp.read(524288)
+                text = body.decode("utf-8", errors="replace")
+        except ValueError as exc:
+            return f"BLOCKED: {exc} — nothing fetched."
+        except Exception as exc:
+            return f"ERROR: fetch failed ({exc}) — nothing fetched."
+        snippet = text[:600].replace("\n", " ")
+        return (f"Fetched {url} [HTTP {resp.status}, {len(body)} bytes"
+                + (" — TRUNCATED at 512KB" if len(body) >= 524288 else "")
+                + f"]: {snippet}")
+
+    def _c_init(self, args: list) -> str:
+        # B-item (P3): real workspace verification, not a success slogan.
+        import os as _os
+
+        root = _os.getcwd()
+        agents = _os.path.join(root, "AGENTS.md")
+        if not _os.path.isfile(agents):
+            return (f"Workspace {self.workspace} at {root}: AGENTS.md NOT FOUND "
+                    f"— workspace NOT initialized.")
+        return (f"Workspace initialized: {self.workspace} at {root} "
+                f"(AGENTS.md active, {_os.path.getsize(agents)} bytes).")
 
     def _c_broker(self, args: list) -> str:
         if not args or args[0] == "status":
@@ -867,6 +924,17 @@ class Terminal:
         if "error" in res:
             return f"Forecast failed: {res['error']}"
         ci = res["confidence_interval_95"]
+        try:
+            cal = self.brain.forecast_calibration()
+            if cal["n_resolved"]:
+                track = (f"Track record: {cal['n_resolved']} resolved, "
+                         f"accuracy {cal['accuracy']:.0%}, single-bin ECE "
+                         f"{cal['ece_single_bin']:.3f}")
+            else:
+                track = (f"Track record: {cal['n_logged']} logged, "
+                         f"0 resolved yet — treat confidence as unvalidated")
+        except Exception:
+            track = "Track record: unavailable"
         return (
             f"=== PROBABILISTIC RETURN FORECAST: {sym} ({days}-DAY HORIZON) ===\n"
             f"● Direction: {res['direction']} | Target Price: ${res['target_price']:,.2f}\n"
@@ -876,7 +944,8 @@ class Terminal:
             f"● Confidence: {res.get('confidence', '?')} ({res.get('calibration', 'n/a')}) "
             f"| Evidence RSI {res.get('evidence', {}).get('rsi_14', '?')} / MACD-h {res.get('evidence', {}).get('macd_hist', '?')}\n"
             f"───────────────────────────────────────────────────────────\n"
-            f"(Model: {res.get('model', '?')} {res.get('model_version', '')} · heuristic, not backtested · [{res.get('data_tier', '?')}] · Zero lookahead bias)"
+            f"(Model: {res.get('model', '?')} {res.get('model_version', '')} · heuristic, not backtested · [{res.get('data_tier', '?')}] · Zero lookahead bias)\n"
+            f"● {track}"
         )
 
     def _ledger_equity(self) -> float | None:
@@ -938,11 +1007,14 @@ class Terminal:
 
             fanout = AlertFanout(vault=self.vault,
                                  compliance=self.safety.compliance)
+            from delta_os.safety import _session_path
+
             self.sentinel = DeltaSentinel(
                 brain=self.brain, safety_state=self.safety,
                 equity_fn=self._ledger_equity,
                 positions_fn=self._ledger_positions,
                 alert_sink=lambda a: fanout.broadcast(a),
+                state_path=str(_session_path().parent / "sentinel.json"),
             )
         sub = args[0].lower() if args else "status"
         if sub == "start":
@@ -1333,10 +1405,10 @@ class Terminal:
         return "\n".join(lines)
 
     def _c_trade(self, args: list) -> str:
-        """ /trade sym side qty [--limit P] [--stop S] [--target T] [--twap N] [--post-only] """
+        """ /trade sym side qty [--limit P] [--stop S] [--target T] [--twap N] [--post-only] [--yes] """
         if len(args) < 3:
             return ("usage: /trade [sym] [buy|sell] [qty] [--limit P] [--stop S] "
-                    "[--target T] [--twap N] [--post-only]")
+                    "[--target T] [--twap N] [--post-only] [--yes]")
         from delta_os import quantkit as Q
 
         sym, side, qty = args[0].upper(), args[1].lower(), float(args[2])
@@ -1463,6 +1535,10 @@ class Terminal:
                 ref_price=_D(str(px)),
                 current_position=_D(str(self._ledger_positions().get(sym, 0.0))),
                 data_age_s=0.0,
+                # H-item (P2): portfolio ceilings evaluated on every trade —
+                # gross from live positions, equity from the ledger.
+                portfolio_gross=_D(str(positions_value)),
+                portfolio_equity=_D(str(eq)),
             )
         except Exception as exc:
             raise SafetyError(f"firewall error: {exc}")
@@ -1478,7 +1554,15 @@ class Terminal:
                 + (f" | R:R 1:{rr:.2f}" if rr is not None else " | R:R n/a (add --stop/--target)")
                 + f" | {qf.provenance.tier}")
         try:
-            ans = input(f"{card}\nExecute on [{self.broker_name}]? [y/N]: ").strip().lower()
+            # --yes skips the interactive prompt. It is accepted ONLY from
+            # callers that already confirmed through their own UI (the Rust
+            # order ticket). Interactive terminals should omit it and answer
+            # the prompt. Over a non-tty bridge without --yes, input()
+            # raises EOFError -> "cancelled." (never an accidental submit).
+            if kw.get("yes"):
+                ans = "y"
+            else:
+                ans = input(f"{card}\nExecute on [{self.broker_name}]? [y/N]: ").strip().lower()
         except (EOFError, KeyboardInterrupt):
             fw._seen_keys.discard(idem)
             return "cancelled."

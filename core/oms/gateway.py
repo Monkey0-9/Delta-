@@ -54,6 +54,23 @@ class GatewayDecision:
     reasons: tuple[str, ...] = ()
     risk_decision_id: str = ""
     audit_entry: dict[str, Any] = field(default_factory=dict)
+    # P0-3: approval and submission are distinct facts. approved=True with
+    # submitted=False means risk approval ONLY (order sits at RISK_APPROVED);
+    # submitted=True means the broker path ran and the ack was accepted.
+    submitted: bool = False
+
+
+def _ack_rejected(ack: Any) -> bool:
+    """Explicit broker-rejection signals. Anything else counts as accepted —
+    the ack must affirmatively refuse to land REJECTED."""
+    if not isinstance(ack, dict):
+        return False
+    if ack.get("accepted") is False or ack.get("ack") is False:
+        return True
+    if ack.get("rejected") is True:
+        return True
+    return str(ack.get("status", "")).lower() in {
+        "rejected", "expired", "cancelled"}
 
 
 @dataclass
@@ -62,6 +79,11 @@ class OrderGateway:
 
     firewall: RiskFirewall
     audit_log: list[dict[str, Any]] = field(default_factory=list)
+    # P0-4: production gateways require a verified role on every mutating
+    # order call. require_role=False is an explicit non-production escape
+    # hatch (perf harnesses, drills); it warns loudly and stamps the audit
+    # trail. There is no silent legacy path.
+    require_role: bool = True
 
     def submit(
         self,
@@ -76,22 +98,14 @@ class OrderGateway:
         now: datetime | None = None,
         actor: str | None = None,
         role: Any | None = None,
+        portfolio_gross: Decimal | None = None,
+        portfolio_equity: Decimal | None = None,
     ) -> GatewayDecision:
         ts = now or datetime.now(timezone.utc)
-        # Legacy no-role path: still routes for existing callers, but LOUD —
-        # warn and stamp every audit entry with the legacy_bypass marker.
-        # REMOVAL TRIGGER: delete the legacy branch once roles are bound to
-        # authenticated expiring operator identities — then role is required.
-        _legacy = role is None
-        if _legacy:
-            import warnings as _warnings
-
-            _warnings.warn(
-                "gateway.submit() without role= is legacy and will be removed "
-                "once identity-bound roles land — pass role= explicitly.",
-                FutureWarning, stacklevel=2)
-        # Scrub before logging/returning: a token pasted as the role (or
-        # inside the actor string) must never land at rest.
+        # P0-4: missing role on the production path is a refusal, not a
+        # warning. The legacy warn-and-route branch survives ONLY behind
+        # explicit require_role=False (non-production). Scrubbing still
+        # applies on every path so a pasted token never lands at rest.
         import os as _os
 
         _secret = _os.environ.get("DELTA_UNLOCK_TOKEN", "") or None
@@ -100,6 +114,30 @@ class OrderGateway:
             if _secret and isinstance(text, str) and _secret in text:
                 return text.replace(_secret, "[REDACTED]")
             return text
+
+        _legacy = role is None and not self.require_role
+        if role is None and self.require_role:
+            entry = {
+                "ts": ts.isoformat(),
+                "order_id": str(order.order_id),
+                "idempotency_key": order.idempotency_key,
+                "verdict": "block",
+                "reasons": ["missing_role:role_required"],
+                "risk_decision_id": "",
+                "broker_ack": None,
+                "submitted": False,
+                "actor": _scrub(actor),
+            }
+            self.audit_log.append(entry)
+            return GatewayDecision(False, order, ("missing_role:role_required",),
+                                   "", entry, submitted=False)
+        if _legacy:
+            import warnings as _warnings
+
+            _warnings.warn(
+                "gateway.submit() without role= is legacy (require_role=False) "
+                "and must never be used on the production execution path.",
+                FutureWarning, stacklevel=2)
 
         # RBAC gate (optional: None preserves legacy behavior for existing
         # callers). Order routing requires RISK_OFFICER+; unknown or
@@ -155,6 +193,8 @@ class OrderGateway:
             current_position=current_position,
             data_age_s=data_age_s,
             now=ts,
+            portfolio_gross=portfolio_gross,
+            portfolio_equity=portfolio_equity,
         )
         entry: dict[str, Any] = {
             "ts": ts.isoformat(),
@@ -164,6 +204,7 @@ class OrderGateway:
             "reasons": list(decision.reasons),
             "risk_decision_id": decision.risk_decision_id,
             "legacy_bypass": _legacy,
+            "submitted": False,
         }
         if decision.verdict != RiskVerdict.APPROVE:
             entry["broker_ack"] = None
@@ -205,13 +246,29 @@ class OrderGateway:
                 entry["broker_ack"] = {"error": str(exc)}
                 self.audit_log.append(entry)
                 return GatewayDecision(False, failed, ("broker_submit_failed",),
-                                       decision.risk_decision_id, entry)
+                                       decision.risk_decision_id, entry,
+                                       submitted=False)
+            # P0-3: the ack decides the landing state. Explicit rejection ->
+            # REJECTED (refused, never approved). Any non-rejecting ack ->
+            # ACKNOWLEDGED. Returning a bare SUBMITTED order as "approved"
+            # is forbidden: approval without ack state is a state lie.
+            if _ack_rejected(ack):
+                rejected = submitted.transition(OrderStatus.REJECTED, timestamp=ts)
+                entry["broker_ack"] = ack
+                self.audit_log.append(entry)
+                return GatewayDecision(False, rejected, ("broker_rejected",),
+                                       decision.risk_decision_id, entry,
+                                       submitted=False)
+            acked = submitted.transition(OrderStatus.ACKNOWLEDGED, timestamp=ts)
             entry["broker_ack"] = ack
+            entry["submitted"] = True
             self.audit_log.append(entry)
-            return GatewayDecision(True, submitted, (), decision.risk_decision_id, entry)
+            return GatewayDecision(True, acked, (), decision.risk_decision_id,
+                                   entry, submitted=True)
         entry["broker_ack"] = ack
         self.audit_log.append(entry)
-        return GatewayDecision(True, o2, (), decision.risk_decision_id, entry)
+        return GatewayDecision(True, o2, (), decision.risk_decision_id, entry,
+                               submitted=False)
 
 
 def canonical_to_legacy_kwargs(order: Order, *, symbol: str) -> dict[str, Any]:

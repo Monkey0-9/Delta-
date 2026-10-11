@@ -51,7 +51,8 @@ class AlphaContract:
 
 
 class AlphaRegistry:
-    """Single registry. Only VALIDATED+ grades with dataset_hash are promotable."""
+    """Single registry. VALIDATED+ grades require dataset_hash PLUS cumulative
+    statistical evidence (P2: promotability is never hash-only)."""
 
     def __init__(self) -> None:
         self._items: dict[str, AlphaContract] = {}
@@ -61,14 +62,55 @@ class AlphaRegistry:
             raise ValueError(f"duplicate alpha {contract.alpha_id}")
         self._items[contract.alpha_id] = contract
 
+    @staticmethod
+    def _evidence_gaps(contract: AlphaContract,
+                       grade: ResearchGrade) -> list[str]:
+        """Unmet promotion requirements for grade (cumulative: higher grades
+        must satisfy every lower gate too, so grade-skipping stays honest)."""
+        m = contract.metadata
+        gaps: list[str] = []
+        needs_validated = grade in (ResearchGrade.VALIDATED,
+                                    ResearchGrade.OOS_VALIDATED,
+                                    ResearchGrade.SHADOW_VALIDATED,
+                                    ResearchGrade.CERTIFIED)
+        needs_oos = grade in (ResearchGrade.OOS_VALIDATED,
+                              ResearchGrade.SHADOW_VALIDATED,
+                              ResearchGrade.CERTIFIED)
+        needs_shadow = grade in (ResearchGrade.SHADOW_VALIDATED,
+                                 ResearchGrade.CERTIFIED)
+        if needs_validated:
+            if not contract.dataset_hash:
+                gaps.append("dataset_hash required for VALIDATED+")
+            if m.ic_is is None:
+                gaps.append("ic_is (in-sample IC) required for VALIDATED")
+            if m.cost_adjusted_sharpe is None:
+                gaps.append("cost_adjusted_sharpe required for VALIDATED")
+            elif m.cost_adjusted_sharpe <= 0:
+                gaps.append("cost_adjusted_sharpe must be > 0 for VALIDATED")
+            if m.n_trials < 1:
+                gaps.append("n_trials (trial accounting for DSR) required")
+        if needs_oos:
+            if m.ic_oos is None:
+                gaps.append("ic_oos (out-of-sample IC) required for OOS_VALIDATED")
+            elif m.ic_is is not None and (m.ic_oos == 0 or
+                                          (m.ic_oos > 0) != (m.ic_is > 0)):
+                gaps.append("ic_oos sign-flipped or zero vs ic_is: OOS failed")
+        if needs_shadow:
+            if m.turnover is None or m.turnover <= 0:
+                gaps.append("turnover evidence required for SHADOW_VALIDATED")
+            if m.capacity_usd is None or m.capacity_usd <= 0:
+                gaps.append("capacity_usd evidence required for SHADOW_VALIDATED")
+        return gaps
+
     def promote(self, alpha_id: str, grade: ResearchGrade) -> AlphaContract:
         cur = self._items[alpha_id]
         order = list(ResearchGrade)
         if order.index(grade) < order.index(cur.grade):
             raise ValueError("no demotion via promote()")
-        if grade in (ResearchGrade.VALIDATED, ResearchGrade.OOS_VALIDATED,
-                     ResearchGrade.SHADOW_VALIDATED, ResearchGrade.CERTIFIED) and not cur.dataset_hash:
-            raise ValueError("dataset_hash required for VALIDATED+")
+        gaps = self._evidence_gaps(cur, grade)
+        if gaps:
+            raise ValueError(f"promotion to {grade.value} refused: "
+                             + "; ".join(gaps))
         nxt = AlphaContract(alpha_id=cur.alpha_id, metadata=cur.metadata,
                             grade=grade, dataset_hash=cur.dataset_hash,
                             seed=cur.seed, created_at=cur.created_at)

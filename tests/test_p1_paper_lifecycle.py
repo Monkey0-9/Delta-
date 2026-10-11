@@ -29,6 +29,7 @@ def _order(**kw):
 
 
 def test_paper_lifecycle_approve_ack_fill_reconcile():
+    from core.domain.order import OrderStatus
     from execution.ems.adapter import ExecutionRequest
     from execution.paper.broker import PaperBroker
     from broker.reconciliation import reconcile_oms_vs_broker
@@ -46,8 +47,10 @@ def test_paper_lifecycle_approve_ack_fill_reconcile():
 
     order = _order()
     dec = gw.submit(order, ref_price=Decimal("100"), authorized=True,
-                    price_source="real", broker=to_paper)
+                    price_source="real", broker=to_paper, role="risk_officer")
     assert dec.approved, dec.reasons
+    assert dec.submitted is True
+    assert dec.order.status == OrderStatus.ACKNOWLEDGED
     assert submitted == [dec.order.order_id]
     rep = paper.execution_report(str(dec.order.order_id))
     assert rep.get("exec_model_version") == "exec-sim-v1", rep
@@ -63,7 +66,8 @@ def test_paper_lifecycle_kill_blocks_before_submit():
     order = _order()
     calls: list = []
     dec = gw.submit(order, ref_price=Decimal("100"), authorized=True,
-                    price_source="real", broker=lambda o: calls.append(o))
+                    price_source="real", broker=lambda o: calls.append(o),
+                    role="risk_officer")
     assert not dec.approved
     assert calls == []
     assert "kill_switch_active" in dec.reasons

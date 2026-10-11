@@ -49,7 +49,13 @@ def load_alert_rules(path: Path | None = None) -> tuple[dict, tuple]:
 
 def scrape_exporter(addr: str, timeout_s: float = 2.0) -> dict[str, float]:
     """Scrape http://<addr>/metrics, return {delta_series: value} floats."""
-    with urllib.request.urlopen(f"http://{addr}/metrics", timeout=timeout_s) as resp:
+    import re
+
+    from core.net import urlopen_checked
+
+    if not re.fullmatch(r"[A-Za-z0-9._-]+(:\d+)?", addr):
+        raise ValueError(f"refusing suspicious metrics address: {addr!r}")
+    with urlopen_checked(f"http://{addr}/metrics", timeout=timeout_s) as resp:
         body = resp.read().decode("utf-8", errors="ignore")
     vals: dict[str, float] = {}
     for line in body.splitlines():
@@ -198,6 +204,21 @@ def run(workdir: Path, kill_state: int | None = None,
     ev = evaluate(snap, tuple(risk_us))
     critical = [f for f in ev["fired"] if f["severity"] == "critical"]
     verdict = "ALERT" if critical else ("WARN" if ev["fired"] else "CLEAR")
+    # P4 paging: every firing rule enters persistent escalation (report is
+    # idempotent per rule+severity); due pages are listed for the operator/
+    # pager to deliver. State lives beside the artifact (survives restarts).
+    try:
+        from observability.escalation import EscalationTracker
+
+        tracker = EscalationTracker(Path(workdir) / "escalation.json")
+        for f in ev["fired"]:
+            tracker.report(str(f.get("rule", "?")), str(f.get("severity", "warning")),
+                           str(f.get("reason", f.get("rule", "?"))))
+        due = tracker.due_pages()
+        escalation = {"open": len(tracker.open_events()),
+                      "due_now": [d.event_id for d in due]}
+    except Exception as exc:
+        escalation = {"open": 0, "due_now": [], "error": str(exc)}
     artifact = {
         "check": "sre-wiring",
         "source_note": source_note,
@@ -205,6 +226,7 @@ def run(workdir: Path, kill_state: int | None = None,
         "blindness_notes": notes,
         **ev,
         "verdict": verdict,
+        "escalation": escalation,
         "wall_s": round(time.perf_counter() - t0, 4),
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }

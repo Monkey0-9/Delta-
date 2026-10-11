@@ -80,14 +80,15 @@ def _tool_features(symbol: str, days: int = 180) -> dict:
 
 
 def _tool_backtest(symbol: str, days: int = 365, costs_bps: float = 8.0) -> dict:
+    # P2/C: research decisions use the PIT-gated walk-forward (per-fold
+    # feature isolation), never the legacy full-frame variant.
     from research.real_loop.market_data import fetch_bars
-    from research.real_loop.features import compute_features
-    from research.real_loop.walkforward import walk_forward
+    from research.real_loop.walkforward import walk_forward_pit
     bars = fetch_bars([symbol], int(days))
     bs = bars[symbol]
-    feat = compute_features(bs.frame, symbol, bs.data_hash)
     px = bs.frame["close"].astype(float)
-    return walk_forward(px, feat, costs_bps=float(costs_bps))
+    return walk_forward_pit(px, bs.frame, symbol, bs.data_hash,
+                            costs_bps=float(costs_bps))
 
 
 def _tool_validate(symbol: str, days: int = 365) -> dict:

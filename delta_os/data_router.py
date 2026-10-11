@@ -248,7 +248,8 @@ def news_sentiment(query: str, timeout_s: float = 10.0, limit: int = 10) -> dict
     """Google News RSS -> dedup -> lexicon polarity [-1,1] + $TICKER entities.
     Raises FredUnavailable-style Unavailable on network failure (no fake news)."""
     import re
-    import xml.etree.ElementTree as ET
+
+    from defusedxml.ElementTree import fromstring as _safe_fromstring
 
     import httpx
 
@@ -258,7 +259,11 @@ def news_sentiment(query: str, timeout_s: float = 10.0, limit: int = 10) -> dict
                       headers={"User-Agent": "DELTA-OS/1.0"}, timeout=timeout_s)
         if r.status_code != 200:
             raise RuntimeError(f"HTTP {r.status_code}")
-        root = ET.fromstring(r.content)
+        # B314 triage (P0-6): untrusted provider XML parsed with defusedxml
+        # (entity-expansion/XXE hardened) + size cap.
+        if len(r.content) > 2_000_000:
+            raise RuntimeError("news RSS payload exceeds 2MB safety cap")
+        root = _safe_fromstring(r.content)
     except Exception as exc:
         raise RuntimeError(f"news unavailable: {exc}") from exc
     seen, items = set(), []

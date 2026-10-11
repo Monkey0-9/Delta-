@@ -119,17 +119,91 @@ class PITStore:
         # Initialize database
         self._init_database()
     
+    # Current schema version. Bump when the schema changes and add a
+    # migration function _migrate_<n>_to_<n+1> below.
+    SCHEMA_VERSION = 1
+
     def _init_database(self) -> None:
-        """Initialize database schema."""
+        """Initialize database schema without destroying existing data.
+
+        Non-destructive startup contract (P0-1):
+        - Never DROP existing tables. Schema objects use IF NOT EXISTS.
+        - A schema_version table tracks the applied version; pending
+          migrations run inside explicit transactions.
+        - A database with a NEWER unknown version is refused (never
+          auto-migrated forward blindly).
+        """
         if self.storage_type == PITStorageType.SQLITE:
             self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
-            # Drop existing table to ensure clean schema
-            cursor = self.conn.cursor()
-            cursor.execute("DROP TABLE IF EXISTS ticks")
-            cursor.execute("DROP TABLE IF EXISTS snapshots")
-            self.conn.commit()
-            self._create_schema()
+            with self.lock:
+                self._ensure_version_table()
+                current = self._current_version()
+                if current > self.SCHEMA_VERSION:
+                    self.conn.close()
+                    raise RuntimeError(
+                        f"PIT store schema v{current} is newer than supported "
+                        f"v{self.SCHEMA_VERSION}; refusing to open "
+                        f"{self.db_path}")
+                self._apply_migrations(current)
+                self._create_schema()
     
+    def _ensure_version_table(self) -> None:
+        """Create the schema_version tracker if absent (version 0 = legacy)."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS schema_version (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                version INTEGER NOT NULL,
+                upgraded_at TEXT NOT NULL
+            )
+        """)
+        cursor.execute("SELECT version FROM schema_version WHERE id = 1")
+        if cursor.fetchone() is None:
+            # Legacy databases created before versioning: the tables below
+            # already exist at v1 shape, so record v1 without migrating.
+            has_ticks = cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' "
+                "AND name='ticks'").fetchone() is not None
+            version = 1 if has_ticks else 0
+            cursor.execute(
+                "INSERT INTO schema_version (id, version, upgraded_at) "
+                "VALUES (1, ?, ?)",
+                (version, datetime.now(timezone.utc).isoformat()))
+        self.conn.commit()
+
+    def _current_version(self) -> int:
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT version FROM schema_version WHERE id = 1")
+        row = cursor.fetchone()
+        return int(row[0]) if row else 0
+
+    def _apply_migrations(self, current: int) -> None:
+        """Run pending migrations inside explicit transactions."""
+        migrations = {
+            # (from_version, to_version): migration_sql_or_callable
+            (0, 1): None,  # v1 is the base schema created by _create_schema
+        }
+        version = current
+        while version < self.SCHEMA_VERSION:
+            nxt = version + 1
+            step = migrations.get((version, nxt))
+            if step is None and (version, nxt) not in migrations:
+                raise RuntimeError(
+                    f"No migration path from schema v{version} to v{nxt}")
+            try:
+                self.conn.execute("BEGIN IMMEDIATE")
+                if callable(step):
+                    step(self.conn)
+                self.conn.execute(
+                    "UPDATE schema_version SET version = ?, upgraded_at = ? "
+                    "WHERE id = 1",
+                    (nxt, datetime.now(timezone.utc).isoformat()))
+                self.conn.commit()
+            except Exception:
+                self.conn.rollback()
+                raise
+            version = nxt
+
     def _create_schema(self) -> None:
         """Create database schema."""
         cursor = self.conn.cursor()
@@ -265,8 +339,9 @@ class PITStore:
             
             # Build query
             sql = """
-                SELECT tick_id, data_json, event_time, publication_timestamp,
-                       available_timestamp,
+                SELECT tick_id, data_json, event_time, source_timestamp,
+                       publication_timestamp, available_timestamp,
+                       ingestion_timestamp, source, sequence_number,
                        quality_score, timestamp_hash, data_hash
                 FROM ticks
                 WHERE symbol = ?
@@ -303,8 +378,10 @@ class PITStore:
             timestamps_list = []
             
             for row in rows:
-                (tick_id, data_json, event_time, publication_time,
-                 available_time, quality_score, ts_hash, data_hash) = row
+                (tick_id, data_json, event_time, source_time,
+                 publication_time, available_time, ingestion_time,
+                 source_name, seq_no, quality_score, ts_hash,
+                 data_hash) = row
                 
                 # Parse tick data
                 tick_dict = json.loads(data_json)
@@ -326,10 +403,10 @@ class PITStore:
                 # reconstructed as event_time (which faked instant availability).
                 timestamps = DataTimestamps(
                     event_time=datetime.fromisoformat(event_time),
-                    source_timestamp=datetime.fromisoformat(event_time),
+                    source_timestamp=datetime.fromisoformat(source_time),
                     publication_timestamp=datetime.fromisoformat(publication_time),
                     available_timestamp=datetime.fromisoformat(available_time),
-                    ingestion_timestamp=datetime.now(timezone.utc)
+                    ingestion_timestamp=datetime.fromisoformat(ingestion_time)
                 )
                 
                 timestamps_list.append(timestamps)
@@ -353,9 +430,9 @@ class PITStore:
                 ticks=ticks,
                 timestamps=latest_timestamps,
                 metadata={
-                    "quality_scores": [row[5] for row in rows],
-                    "timestamp_hashes": [row[6] for row in rows],
-                    "data_hashes": [row[7] for row in rows]
+                    "quality_scores": [row[9] for row in rows],
+                    "timestamp_hashes": [row[10] for row in rows],
+                    "data_hashes": [row[11] for row in rows]
                 }
             )
             
@@ -440,35 +517,45 @@ class PITStore:
             # passes while containing nothing). Rebuild from stored tick_ids.
             tick_ids = json.loads(tick_ids) if isinstance(tick_ids, str) else (tick_ids or [])
             snap_ticks = []
+            latest_evt: str | None = None
+            latest_avail: str | None = None
             for tid in tick_ids:
                 cursor.execute(
                     "SELECT tick_id, data_json, event_time, available_timestamp,"
-                    " tick_type, exchange, symbol, sequence_number"
+                    " tick_type, symbol, sequence_number"
                     " FROM ticks WHERE tick_id = ?",
                     (tid,),
                 )
                 trow = cursor.fetchone()
                 if not trow:
                     continue
-                _, tdata, tevt, _tavail, ttype, texch, tsym, tseq = trow
+                _, tdata, tevt, tavail, ttype, tsym, tseq = trow
+                if latest_evt is None or tevt > latest_evt:
+                    latest_evt = tevt
+                if latest_avail is None or tavail > latest_avail:
+                    latest_avail = tavail
                 tdict = json.loads(tdata)
                 snap_ticks.append(TickData(
                     tick_id=tdict.get("tick_id", tid),
                     tick_type=TickType(tdict.get("tick_type", ttype or "QUOTE")),
                     timestamp=datetime.fromisoformat(tdict.get("timestamp", tevt)),
-                    exchange=tdict.get("exchange", texch or ""),
+                    exchange=tdict.get("exchange", ""),
                     symbol=tdict.get("symbol", tsym or ""),
                     sequence_number=int(tdict.get("sequence_number", tseq or 0)),
                 ))
+            # P2: snapshot lineage comes from the stored ticks (latest
+            # event/available stamps), never fabricated as query.as_of.
+            _evt = datetime.fromisoformat(latest_evt) if latest_evt else query.as_of
+            _avl = datetime.fromisoformat(latest_avail) if latest_avail else query.as_of
             return PITSnapshot(
                 snapshot_id=snapshot_id,
                 query=query,
                 ticks=snap_ticks,
                 timestamps=DataTimestamps(
-                    event_time=query.as_of,
-                    source_timestamp=query.as_of,
-                    publication_timestamp=query.as_of,
-                    available_timestamp=query.as_of
+                    event_time=_evt,
+                    source_timestamp=_evt,
+                    publication_timestamp=_evt,
+                    available_timestamp=_avl
                 ),
                 snapshot_timestamp=datetime.fromisoformat(snapshot_time),
                 metadata=json.loads(metadata_json)

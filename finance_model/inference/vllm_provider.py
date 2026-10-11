@@ -4,6 +4,8 @@ import json
 import time
 from urllib.request import Request, urlopen
 
+from core.net import urlopen_checked
+
 from .provider import GenerationRequest, GenerationResult, ModelProvider
 
 
@@ -48,7 +50,7 @@ class VLLMProvider(ModelProvider):
 
         started = time.perf_counter()
 
-        with urlopen(http_request, timeout=self.timeout_s) as response:
+        with urlopen_checked(http_request, timeout=self.timeout_s) as response:
             result = json.loads(response.read().decode("utf-8"))
 
         latency_ms = (time.perf_counter() - started) * 1000.0

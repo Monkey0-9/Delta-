@@ -55,8 +55,16 @@ def _rsi_simple(px: np.ndarray, w: int = 14) -> np.ndarray:
     return rsi / 100.0 - 0.5
 
 
-def compute_features_fast(frame: pd.DataFrame, symbol: str, data_hash: str) -> pd.DataFrame:
-    key = (symbol, data_hash, FEATURE_VERSION)
+def compute_features_fast(frame: pd.DataFrame, symbol: str, data_hash: str,
+                          *, as_of=None) -> pd.DataFrame:
+    if as_of is None:
+        asof_key = ""
+    else:
+        _ts = pd.Timestamp(as_of)
+        if _ts.tzinfo is None:
+            raise ValueError(f"as_of must be tz-aware (got naive {as_of!r})")
+        asof_key = _ts.tz_convert("UTC").isoformat()
+    key = (symbol, data_hash, FEATURE_VERSION, asof_key)
     if key in _cache:
         return _cache[key]
     px = frame["close"].to_numpy(dtype=np.float64)

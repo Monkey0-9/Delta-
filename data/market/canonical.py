@@ -39,7 +39,10 @@ class Tick:
             raise ValueError("PIT violation in Tick: t_event<=t_pub<=t_avail")
 
     def is_usable_at(self, asof: float | datetime) -> bool:
-        return self.t_avail or self.t_pub or self.t_event <= _utc_ts(asof)
+        # P2: parenthesization is load-bearing — `a or b or c <= x` parses as
+        # `a or b or (c <= x)` and returns a float (always truthy) whenever
+        # t_avail/t_pub is nonzero. Earliest usable instant compares <= asof.
+        return (self.t_avail or self.t_pub or self.t_event) <= _utc_ts(asof)
 
 
 @dataclass(frozen=True)

@@ -183,6 +183,8 @@ class RiskFirewall:
         now: datetime | None = None,
         portfolio_var: Decimal | None = None,
         symbol: str | None = None,
+        portfolio_gross: Decimal | None = None,
+        portfolio_equity: Decimal | None = None,
     ) -> RiskDecision:
         reasons: list[str] = []
         now = now or datetime.now(timezone.utc)
@@ -299,6 +301,27 @@ class RiskFirewall:
             new_notional = current_notional + intent.quantity * ref_price
             if new_notional > self._limits.max_position_notional:
                 reasons.append("position_notional_breach")
+
+        # ---------------------------------------------------------------
+        # 5b. Portfolio ceilings: gross exposure + leverage (H-item, P2).
+        # Enforced when the caller supplies portfolio context; without it
+        # the decision CANNOT evaluate these ceilings (noted in reasons
+        # namespace below via evaluated_ceilings in the audit entry —
+        # callers must prefer passing context; see gateway.submit).
+        # ---------------------------------------------------------------
+        if portfolio_gross is not None or portfolio_equity is not None:
+            if ref_price is None or ref_price <= 0:
+                reasons.append("portfolio_ceiling_unevaluable_no_ref_price")
+            elif portfolio_gross is None or portfolio_equity is None:
+                reasons.append("portfolio_ceiling_unevaluable_missing_input")
+            elif portfolio_equity <= 0:
+                reasons.append("portfolio_ceiling_unevaluable_no_equity")
+            else:
+                new_gross = portfolio_gross + intent.quantity * ref_price
+                if new_gross > self._limits.max_gross_exposure:
+                    reasons.append("gross_exposure_breach")
+                if new_gross / portfolio_equity > self._limits.max_leverage:
+                    reasons.append("leverage_breach")
 
         # ---------------------------------------------------------------
         # 6. Price tolerance

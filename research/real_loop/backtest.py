@@ -37,14 +37,25 @@ class BacktestResult:
 
 def _dynamic_costs(frame: pd.DataFrame, churn: pd.Series,
                    costs: CostModel) -> tuple[pd.Series, float]:
+    # P2 centralization: the formula lives in TransactionCostEngine
+    # (single sanctioned implementation); this adapter maps the backtest's
+    # per-run CostModel config onto it. Behavior identical to costs-v3.
+    from execution.cost_engine import TransactionCostEngine
+
     adv = frame["volume"].astype(float).rolling(20).mean().fillna(1e6)
-    # participation-scaled temporary impact: sqrt(participation * churn)
     part = costs.participation * (1 + churn.fillna(0))
-    impact = costs.impact_coef * np.sqrt(part.clip(lower=0))
-    # spread widens in high-vol regimes
     vol = frame["close"].astype(float).pct_change().rolling(20).std().fillna(0.015)
-    spread = costs.spread_bps * (1 + costs.spread_vol_sensitivity * (vol / 0.015 - 1).clip(lower=0))
-    per_trade = spread / 2 + costs.fee_bps + costs.slippage_bps + impact
+    # Exact v3 mapping: engine impact = sigma*gamma*sqrt(p)*1e4 bps. v3's
+    # impact_coef is "bps per sqrt(participation)" with sigma folded in, so
+    # gamma = coef/10000 reproduces 8*sqrt(p) bps bit-for-bit at sigma=1.
+    eng = TransactionCostEngine(gamma=costs.impact_coef / 10000.0)
+    per_trade_list = eng.series_costs(
+        part.clip(lower=0),
+        1.0, spread_bps=costs.spread_bps, fee_bps=costs.fee_bps,
+        slippage_bps=costs.slippage_bps,
+        spread_vol_ratio=(vol / 0.015),
+        spread_vol_sensitivity=costs.spread_vol_sensitivity)
+    per_trade = pd.Series(per_trade_list, index=frame.index)
     avg = float(per_trade.mean())
     return churn * per_trade / 1e4, avg
 

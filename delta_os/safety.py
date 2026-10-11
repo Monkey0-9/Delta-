@@ -298,6 +298,12 @@ class AntiTiltGovernor:
         return True, f"ok (size x{self.size_scale})"
 
 
+def _compliance_path():
+    """Compliance ledger path: sibling of the session file (test-isolated)."""
+    from pathlib import Path
+    return _session_path().parent / "compliance.jsonl"
+
+
 @dataclass
 class SafetyState:
     mode: str = "MANUAL"  # MANUAL|AUTO|HALTED
@@ -309,6 +315,10 @@ class SafetyState:
     compliance = None
     monitor = None
     breaker: Any = None  # optional emergency breaker, bound to same board
+    # P0-4 (kill-switch half): production states require authentication on
+    # unlock. require_auth=False is an explicit non-production escape hatch
+    # (unit drills); it warns loudly and stamps unlock_legacy. No silent path.
+    require_auth: bool = True
 
     def __post_init__(self) -> None:
         if self.kill is None:
@@ -318,7 +328,17 @@ class SafetyState:
         if self.compliance is None:
             from governance.compliance import ComplianceLog
 
-            self.compliance = ComplianceLog()
+            # P1 durability: file-backed ledger (restart-surviving). Path
+            # derives from the session path so test isolation covers it.
+            # A tampered ledger refuses boot (fail closed) via the raise below.
+            from governance.compliance import ComplianceTamperError
+
+            try:
+                self.compliance = ComplianceLog(_compliance_path())
+            except ComplianceTamperError as exc:
+                raise SafetyError(
+                    f"boot FAILED: compliance ledger failed verification "
+                    f"({exc}) — restore from backup, refusing to boot") from exc
         # Fail-closed restart: a persisted HALTED marker skips the
         # disarmed-boot release below. No marker -> current boot behavior.
         if read_persisted_safety_mode() == "HALTED":
@@ -470,14 +490,21 @@ class SafetyState:
                role: str | None = None) -> str:
         if not actor.strip() or not reason.strip():
             raise SafetyError("unlock requires actor + reason.")
-        # Legacy no-credential path (token=None + role=None): still succeeds
-        # for existing direct callers, but LOUD — warn and leave a distinct
-        # unlock_legacy record (with best-effort caller frame) so the bypass
-        # is visible in the ledger.
-        # REMOVAL TRIGGER: delete this branch once roles are bound to
-        # authenticated expiring operator identities (MFA) — then every
-        # unlock carries token+identity-bound role.
-        _legacy = token is None and role is None
+        # Legacy no-credential path (token=None + role=None): REFUSED on
+        # production states (require_auth=True). It survives ONLY behind
+        # explicit require_auth=False for non-production callers, where it
+        # warns and leaves a distinct unlock_legacy record (with best-effort
+        # caller frame) so the bypass is visible in the ledger.
+        _legacy = token is None and role is None and not self.require_auth
+        if token is None and role is None and self.require_auth:
+            try:
+                self.compliance.append(
+                    "unlock_denied",
+                    {"actor": actor, "reason": "missing_auth:token_and_role_required"})
+            except Exception:
+                pass
+            raise SafetyError(
+                "unlock DENIED: missing authentication (token+role required) — still HALTED.")
         if _legacy:
             import warnings as _warnings
 

@@ -210,9 +210,22 @@ def test_gateway_role_refusal_matrix():
     bogus = gw.submit(_gateway_order(), authorized=True, actor="op",
                       role="bogus-role")
     assert bogus.approved is False
-    # Legacy default (no role) preserves behavior: no RBAC refusal.
+    # Missing role is refused on the production path (P0-4): no silent
+    # legacy routing. Explicit require_role=False preserves the old
+    # warn-and-route behavior for non-production callers only.
     legacy = gw.submit(_gateway_order(), authorized=True)
-    assert not any("unauthorized" in r.lower() for r in legacy.reasons)
+    assert legacy.approved is False
+    assert any("missing_role" in r for r in legacy.reasons)
+    assert legacy.audit_entry["verdict"] == "block"
+    import warnings
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        compat = OrderGateway(firewall=RiskFirewall(), require_role=False)
+        routed = compat.submit(_gateway_order(), authorized=True)
+    assert routed.approved is True
+    assert routed.audit_entry.get("legacy_bypass") is True
+    assert any(issubclass(w.category, FutureWarning) for w in caught)
 
 
 def test_token_never_lands_in_audit(_isolated_session, monkeypatch):
@@ -396,23 +409,33 @@ def test_rewrap_bumps_version_and_salt(tmp_path):
 
 
 def test_legacy_unlock_warns_and_marks(_isolated_session):
-    """Legacy unlock(token=None, role=None) succeeds but warns + leaves a marker."""
-    from delta_os.safety import SafetyState
+    """Production states refuse unlock(token=None, role=None); explicit
+    require_auth=False preserves the legacy warn-and-mark path."""
+    from delta_os.safety import SafetyError, SafetyState
 
     s = SafetyState()
     s.kill_all([], actor="test")
     assert s.mode == "HALTED"
-    with pytest.warns(FutureWarning, match="legacy"):
-        assert s.unlock("op", "reason") == "MANUAL"
+    with pytest.raises(SafetyError, match="DENIED"):
+        s.unlock("op", "reason")
+    assert s.mode == "HALTED"
     kinds = [r.kind for r in s.compliance._records]
+    assert "unlock_denied" in kinds
+
+    compat = SafetyState(require_auth=False)
+    compat.kill_all([], actor="test")
+    with pytest.warns(FutureWarning, match="legacy"):
+        assert compat.unlock("op", "reason") == "MANUAL"
+    kinds = [r.kind for r in compat.compliance._records]
     assert "reset" in kinds and "unlock_legacy" in kinds
-    marker = next(r for r in s.compliance._records if r.kind == "unlock_legacy")
+    marker = next(r for r in compat.compliance._records if r.kind == "unlock_legacy")
     assert marker.payload.get("caller")  # best-effort caller frame info
-    assert s.compliance.verify()
+    assert compat.compliance.verify()
 
 
 def test_gateway_legacy_warns_and_marks():
-    """Legacy submit(role=None) succeeds but warns + stamps legacy_bypass."""
+    """Production gateways refuse role=None; explicit require_role=False
+    preserves the legacy warn-and-route path for non-production callers."""
     import warnings
 
     from risk.firewall.firewall import RiskFirewall
@@ -420,8 +443,13 @@ def test_gateway_legacy_warns_and_marks():
     from core.oms.gateway import OrderGateway
 
     gw = OrderGateway(firewall=RiskFirewall())
+    refused = gw.submit(_gateway_order(), authorized=True)
+    assert refused.approved is False
+    assert any("missing_role" in r for r in refused.reasons)
+    compat = OrderGateway(firewall=RiskFirewall(), require_role=False)
     with pytest.warns(FutureWarning, match="legacy"):
-        decision = gw.submit(_gateway_order(), authorized=True)
+        decision = compat.submit(_gateway_order(), authorized=True)
+    assert decision.approved is True
     assert decision.audit_entry.get("legacy_bypass") is True
     # Explicit role: no legacy warning, no bypass marker.
     gw2 = OrderGateway(firewall=RiskFirewall())

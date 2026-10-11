@@ -1,0 +1,42 @@
+# DELTA Supported Scope (§5) — what the system may claim, by domain.
+# A module existing never implies support. Statuses:
+#   supported      — data + risk + execution coverage, paper-proven
+#   analytics-only — math exists, no tradable coverage (must not route orders)
+#   partial        — works within stated limits; limits listed
+#   experimental   — unproven benefit, research use only
+#   unsupported    — no coverage; claims are a defect
+version: "1.0"
+date: "2026-10-11"
+domains:
+  - domain: equities
+    status: supported
+    evidence: "providers + NYSE/NASDAQ calendar + corporate actions + cost engine + paper lifecycle"
+    limits: ["paper venue only; live gated (§8)"]
+  - domain: options
+    status: analytics-only
+    evidence: "quant/derivatives/bsm.py (price + Greeks + margin math)"
+    limits: ["no contract master", "no expiry/exercise/assignment handling", "no vol surfaces", "no options stress tests", "must not route option orders"]
+  - domain: futures
+    status: analytics-only
+    evidence: "futures_margin + roll_decision helpers in quant/derivatives/bsm.py"
+    limits: ["no settlement handling", "no continuous-contract bias control", "no margin-call workflow", "must not route futures orders"]
+  - domain: fx-rates
+    status: unsupported
+    evidence: "factor/signal mentions only; no calendars, curves, conventions, or financing"
+    limits: ["any FX/rates claim is a defect until covered"]
+  - domain: portfolio-attribution
+    status: unsupported
+    evidence: "single trade-outcome hook only; no decomposition or benchmark attribution"
+    limits: ["no return decomposition", "no factor exposure vs benchmark"]
+  - domain: market-regimes
+    status: experimental
+    evidence: "quant/regime detector + heuristic fallback with labeled provenance"
+    limits: ["no OOS proof that regime conditioning improves results", "research use only"]
+  - domain: alternative-data
+    status: partial
+    evidence: "Google RSS news (timestamps unverified); PIT fundamentals vintages (filing_date <= as_of)"
+    limits: ["news source trust/coverage unmeasured", "no filings/macro release coverage", "no prompt-injection hardening attested"]
+  - domain: strategy-capacity
+    status: partial
+    evidence: "capacity_check/capacity_ladder participation math; engine impact model"
+    limits: ["no borrow constraints", "no crowding model", "no capacity-degradation curve vs live fills"]

@@ -16,6 +16,8 @@ import time
 import urllib.request
 from dataclasses import dataclass, field
 
+from core.net import urlopen_checked
+
 PROMPT_VERSION = "prompts-v2"
 LLM_VERSION = "llm-layer-v2"
 
@@ -61,7 +63,7 @@ def _try_openai_compatible(prompt: str, timeout_s: float = 20.0) -> tuple[str | 
             headers={"Content-Type": "application/json",
                      **({"Authorization": f"Bearer {key}"} if key else {})},
         )
-        with urllib.request.urlopen(req, timeout=timeout_s) as r:
+        with urlopen_checked(req, timeout=timeout_s) as r:
             body = json.loads(r.read().decode())
         return body["choices"][0]["message"]["content"], f"openai-compatible:{model}"
     except Exception as exc:
@@ -78,7 +80,7 @@ def _try_ollama(prompt: str, timeout_s: float = 30.0) -> tuple[str | None, str]:
                              "stream": False}).encode(),
             headers={"Content-Type": "application/json"},
         )
-        with urllib.request.urlopen(req, timeout=timeout_s) as r:
+        with urlopen_checked(req, timeout=timeout_s) as r:
             body = json.loads(r.read().decode())
         return body.get("response"), f"ollama:{model}"
     except Exception as exc:

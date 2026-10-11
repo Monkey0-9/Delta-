@@ -4,6 +4,8 @@ import json
 import time
 from urllib.request import Request, urlopen
 
+from core.net import urlopen_checked
+
 from .inference.provider import GenerationRequest, GenerationResult, ModelProvider
 
 
@@ -35,7 +37,7 @@ class OllamaProvider(ModelProvider):
 
         started = time.perf_counter()
         try:
-            with urlopen(http_request, timeout=self.timeout_s) as response:
+            with urlopen_checked(http_request, timeout=self.timeout_s) as response:
                 result = json.loads(response.read().decode("utf-8"))
         except Exception as exc:
             raise RuntimeError(

@@ -1,3 +1,10 @@
+"""RETIRED legacy OMS state machine (ADR-0008).
+
+The canonical order lifecycle is `core/oms/` (gateway + journal). This module
+is preserved for historical wave tests only (test_all_waves_complete,
+test_java_promotion, w53_59) and MUST NOT be imported by any production path.
+New order-lifecycle work belongs in `core/oms/`.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass

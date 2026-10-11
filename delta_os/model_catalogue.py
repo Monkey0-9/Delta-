@@ -78,6 +78,85 @@ def has_key(slot: str, vault=None) -> bool:
     return _vault_has_key(vault, slot) or _env_has_key(slot)
 
 
+def _get_key(slot: str, vault=None) -> str | None:
+    """Return the raw key value (presence-checked first by callers)."""
+    try:
+        if vault is not None and not getattr(vault, "locked", True):
+            creds = vault.get(slot) or {}
+            if creds.get("api_key"):
+                return str(creds["api_key"])
+    except Exception:
+        pass
+    return os.environ.get(f"{slot.upper()}_API_KEY") or None
+
+
+# L-item (P3): presence is CONFIGURED, a live 200 on the provider's cheapest
+# auth-gated endpoint is VALIDATED. Only probed slots are measured; a bad key
+# must never render READY-with-confidence.
+SLOT_PROBES: dict[str, tuple[str, dict[str, str]]] = {
+    "openai": ("https://api.openai.com/v1/models", {}),
+    "groq": ("https://api.groq.com/openai/v1/models", {}),
+    "deepseek": ("https://api.deepseek.com/v1/models", {}),
+    "anthropic": ("https://api.anthropic.com/v1/models",
+                  {"anthropic-version": "2023-06-01"}),
+    "gemini": ("https://generativelanguage.googleapis.com/v1beta/models", {}),
+}
+
+
+def probe_key(slot: str, api_key: str, timeout_s: float = 8.0) -> dict:
+    """Validate one provider key against its models endpoint. Never raises:
+    unreachable/timeout/invalid are distinct verdicts, never exceptions."""
+    from core.net import checked_url
+
+    if slot not in SLOT_PROBES:
+        return {"slot": slot, "valid": False, "http": None,
+                "reason": "no probe endpoint for slot"}
+    base, extra = SLOT_PROBES[slot]
+    if slot == "gemini":
+        url = base + f"?key={api_key}"
+        headers = dict(extra)
+    else:
+        url = base
+        headers = {"Authorization": f"Bearer {api_key}", **extra}
+    try:
+        checked_url(url)
+    except ValueError as exc:
+        return {"slot": slot, "valid": False, "http": None,
+                "reason": f"refused: {exc}"}
+    import urllib.request
+
+    req = urllib.request.Request(url, headers=headers, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+            code = getattr(resp, "status", 200)
+            return {"slot": slot, "valid": 200 <= code < 300, "http": code,
+                    "reason": "ok" if 200 <= code < 300 else f"http_{code}"}
+    except Exception as exc:
+        code = getattr(exc, "code", None)
+        if code in (401, 403):
+            return {"slot": slot, "valid": False, "http": code,
+                    "reason": "invalid_key"}
+        msg = str(exc).lower()
+        reason = ("timeout" if "timed out" in msg or "timeout" in msg
+                  else "unreachable")
+        return {"slot": slot, "valid": False, "http": code,
+                "reason": reason}
+
+
+def validation_status(vault=None, slots: list[str] | None = None) -> dict:
+    """Probe every configured slot. Slots without keys are skipped (neither
+    valid nor invalid — absence is reported by catalogue_status)."""
+    targets = slots or [s for s in SLOT_PROBES
+                        if _vault_has_key(vault, s) or _env_has_key(s)]
+    out = {}
+    for slot in targets:
+        key = _get_key(slot, vault)
+        if not key:
+            continue
+        out[slot] = probe_key(slot, key)
+    return out
+
+
 def catalogue_status(vault=None, custom: dict | None = None) -> list[dict]:
     """Status rows for every catalogue entry. Never fake READY."""
     rows = []
@@ -140,4 +219,5 @@ def add_custom(name: str, base_url: str, model: str, vault) -> str:
 
 
 __all__ = ["BUILTIN", "CatalogueEntry", "catalogue_status", "load_custom",
-           "add_custom", "has_key"]
+           "add_custom", "has_key", "probe_key", "validation_status",
+           "SLOT_PROBES"]

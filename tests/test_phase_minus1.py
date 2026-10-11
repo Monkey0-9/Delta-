@@ -70,7 +70,7 @@ def test_kill_all_records_audit_failure():
 
 def test_unlock_refuses_when_release_fails():
     from delta_os.safety import SafetyError, SafetyState
-    s = SafetyState()
+    s = SafetyState(require_auth=False)
     s.mode = "HALTED"
     s.kill = _DeadKill()
     with pytest.raises(SafetyError, match="still HALTED"):
@@ -80,7 +80,7 @@ def test_unlock_refuses_when_release_fails():
 
 def test_unlock_refreezes_when_audit_fails():
     from delta_os.safety import SafetyError, SafetyState
-    s = SafetyState()
+    s = SafetyState(require_auth=False)
     s.mode = "HALTED"
     s.compliance = _DeadCompliance()
     with pytest.raises(SafetyError, match="re-frozen HALTED"):
