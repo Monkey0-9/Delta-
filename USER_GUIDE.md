@@ -196,11 +196,10 @@ Pressing `Ctrl+M` or executing `/models` opens the Quant AI Model Selector modal
 - **Local Institutional Brain (`delta-fm-research`)**: Runs 100% offline with zero cloud API keys required. Handles multi-factor analysis, Black-Scholes Greeks, crash detection, forecasting, and algo-trading code generation.
 - **Cloud / Custom Catalogue** (names match `delta_os/model_catalogue.py` BUILTIN exactly — use them verbatim with `/model switch <name>`):
     - `claude-3-7-sonnet` — Anthropic quant depth (key required)
-    - `claude-5-5` — Anthropic latest template (key required)
-    - `claude-opus-5-5` / `claude-sonnet-5-5` — Anthropic Opus / Sonnet 5.5 (key required)
+    - `claude-opus-5-5` / `claude-sonnet-5-5` — Anthropic Opus / Sonnet 5.5 (key required; generic `claude-5-5` retired)
     - `gpt-6-astra` / `gpt-6-1-sol` / `gpt-6-luna` — OpenAI Astra / Sol 6.1 / Luna (key required)
     - `gpt-4o` — OpenAI function-calling/tools (key required)
-    - `deepseek-r1` — DeepSeek reasoning (key required)
+    - `deepseek-r1` — DeepSeek V4 Pro reasoning (key required; `deepseek-chat`/`deepseek-reasoner` retired 2026-07-24)
     - `gemini-3-8-flash` / `gemini-2-5` — Google Gemini Flash 3.8 / long-context filings (key required)
     - `groq-free` — Groq fast inference (key required)
     - `astro-6-0` — Custom endpoint template · configure via `/models add <base-url>` (UNAVAILABLE until configured)

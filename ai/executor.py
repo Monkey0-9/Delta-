@@ -40,35 +40,79 @@ class _BudgetState:
         return True, "ok"
 
 
+def _check_type(val: Any, want: str, where: str) -> tuple[bool, str]:
+    # bool is a subclass of int: check boolean FIRST so integer rejects bools.
+    if want == "boolean":
+        return (True, "ok") if isinstance(val, bool) else (False, f"{where} must be boolean")
+    if want == "integer":
+        return (True, "ok") if isinstance(val, int) and not isinstance(val, bool) else (False, f"{where} must be integer")
+    if want == "number":
+        return (True, "ok") if isinstance(val, (int, float)) and not isinstance(val, bool) else (False, f"{where} must be number")
+    if want == "string":
+        return (True, "ok") if isinstance(val, str) else (False, f"{where} must be string")
+    if want == "array":
+        return (True, "ok") if isinstance(val, (list, tuple)) else (False, f"{where} must be array")
+    if want == "object":
+        return (True, "ok") if isinstance(val, Mapping) else (False, f"{where} must be object")
+    if want == "null":
+        return (True, "ok") if val is None else (False, f"{where} must be null")
+    return True, "ok"  # unknown type keyword: do not invent rejections
+
+
 def _check_schema(args: Mapping[str, Any], schema: Mapping[str, Any]) -> tuple[bool, str]:
-    """Minimal JSON-schema-subset validation (object/required/types/enum)."""
+    """JSON-schema-subset validation: object/required/types/enum/nested
+    objects/additionalProperties. Unknown type keywords never reject."""
+    return _check_object(args, schema, "$")
+
+
+def _check_object(args: Any, schema: Mapping[str, Any], where: str) -> tuple[bool, str]:
     if not schema:
         return True, "ok"
     if not isinstance(args, Mapping):
-        return False, "arguments must be an object"
+        return False, f"{where}: arguments must be an object"
     if schema.get("type", "object") != "object":
         return True, "ok"  # non-object schemas out of scope for this executor
     props = schema.get("properties", {})
     for req in schema.get("required", []):
         if req not in args:
             return False, f"missing required argument: {req}"
+    if schema.get("additionalProperties") is False:
+        for key in args:
+            if key not in props:
+                return False, f"{where}.{key}: prohibited extra field"
     for key, val in args.items():
         spec = props.get(key)
         if not spec:
             continue
+        if not isinstance(spec, Mapping):
+            continue
+        where_k = f"{where}.{key}"
         want = spec.get("type")
-        if want == "string" and not isinstance(val, str):
-            return False, f"{key} must be string"
-        if want == "number" and not isinstance(val, (int, float)):
-            return False, f"{key} must be number"
-        if want == "integer" and not isinstance(val, int):
-            return False, f"{key} must be integer"
-        if want == "boolean" and not isinstance(val, bool):
-            return False, f"{key} must be boolean"
-        if want == "array" and not isinstance(val, (list, tuple)):
-            return False, f"{key} must be array"
+        if want:
+            ok, msg = _check_type(val, want, where_k)
+            if not ok:
+                return False, msg
         if "enum" in spec and val not in spec["enum"]:
-            return False, f"{key} not in enum"
+            return False, f"{where_k} not in enum"
+        if want == "object" and isinstance(val, Mapping) and isinstance(spec.get("properties"), Mapping):
+            ok, msg = _check_object(val, spec, where_k)
+            if not ok:
+                return False, msg
+        if want == "array" and isinstance(val, (list, tuple)) and isinstance(spec.get("items"), Mapping):
+            items_spec = spec["items"]
+            for i, item in enumerate(val):
+                iw = items_spec.get("type")
+                if iw == "object":
+                    ok, msg = _check_object(
+                        item, items_spec, f"{where_k}[{i}]")
+                    if not ok:
+                        return False, msg
+                elif iw:
+                    ok, msg = _check_type(item, iw, f"{where_k}[{i}]")
+                    if not ok:
+                        return False, msg
+                if "enum" in items_spec and item not in items_spec["enum"]:
+                    return False, f"{where_k}[{i}] not in enum"
     return True, "ok"
 
 
@@ -90,13 +134,52 @@ class TypedToolExecutor:
         self,
         ledger: EvidenceLedger | None = None,
         authorize: Callable[[ToolCall, ToolDefinition], bool] | None = None,
+        idempotency_path: str | None = None,
     ) -> None:
         self._defs: dict[str, ToolDefinition] = {}
         self._fns: dict[str, Callable[..., Any]] = {}
         self._granted: set[tuple[str, str]] = set()  # (agent_id, tool_name)
         self._seen_keys: set[str] = set()
+        self._idempotency_path = idempotency_path
+        if idempotency_path is not None:
+            self._load_seen_keys()
         self.ledger = ledger or EvidenceLedger()
         self._authorize = authorize or (lambda _c, _d: False)
+
+    def _load_seen_keys(self) -> None:
+        """Reload idempotency keys so restarts cannot replay critical tools."""
+        import json as _json
+        import os as _os
+
+        try:
+            with open(str(self._idempotency_path), encoding="utf-8") as f:
+                data = _json.load(f)
+            if isinstance(data, list):
+                self._seen_keys = {str(k) for k in data}
+        except FileNotFoundError:
+            pass
+        except Exception:
+            pass  # corrupt file: fail open on load, keys re-accumulate
+
+    def _record_seen_key(self, key: str) -> None:
+        self._seen_keys.add(key)
+        if self._idempotency_path is None:
+            return
+        import json as _json
+        import os as _os
+
+        try:
+            parent = _os.path.dirname(str(self._idempotency_path))
+            if parent:
+                _os.makedirs(parent, exist_ok=True)
+            tmp = str(self._idempotency_path) + f".{_os.getpid()}.tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                _json.dump(sorted(self._seen_keys), f)
+                f.flush()
+                _os.fsync(f.fileno())
+            _os.replace(tmp, str(self._idempotency_path))
+        except Exception:
+            pass
 
     def register(self, definition: ToolDefinition, fn: Callable[..., Any],
                  overwrite: bool = False) -> None:
@@ -172,13 +255,20 @@ class TypedToolExecutor:
                 return self._deny(call, "critical: duplicate idempotency_key")
             if not auth_token or not self._authorize(call, definition):
                 return self._deny(call, "critical: authorization required")
-            self._seen_keys.add(call.idempotency_key)
+            self._record_seen_key(call.idempotency_key)
         try:
+            # P0: the pool is shut down WITHOUT waiting (wait=False,
+            # cancel_futures=True). The old `with` block called
+            # shutdown(wait=True) on timeout, hanging the caller until the
+            # stuck tool returned — a timeout that waits is not a timeout.
             import concurrent.futures as _cf
             timeout_s = max(0.001, definition.timeout_ms / 1000.0)
-            with _cf.ThreadPoolExecutor(max_workers=1) as pool:
+            pool = _cf.ThreadPoolExecutor(max_workers=1)
+            try:
                 future = pool.submit(self._fns[call.tool_name], **dict(call.arguments))
                 data = future.result(timeout=timeout_s)
+            finally:
+                pool.shutdown(wait=False, cancel_futures=True)
         except TimeoutError:
             return finish("timeout", None, f"tool timeout after {definition.timeout_ms}ms")
         except Exception as exc:

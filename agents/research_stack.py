@@ -1,6 +1,6 @@
 """W211-W230 (H) — Agentic research stack with explicit permission levels.
 
-LLM -> Research Planner -> Permission Layer -> Tool Registry -> Sandbox ->
+LLM -> Research Planner -> Permission Layer -> Tool Registry -> ExecutionRecorder ->
 Experiment -> Validator -> Registry. LLM proposes; deterministic software
 validates. Levels R0..R5; R1 can never jump to R5 without promotion gates.
 """
@@ -87,8 +87,11 @@ class ToolRegistry:
 
 
 @dataclass
-class Sandbox:
-    """Records tool executions; nothing escapes without validator approval."""
+class ExecutionRecorder:
+    """Records tool execution REQUESTS. This is NOT a sandbox: no container
+    is started, no process is isolated, no tool runs, no result is
+    validated. The returned message says so explicitly so this path can
+    never be mistaken for an executed workload (P0 false-success fix)."""
 
     runs: list[str] = field(default_factory=list)
 
@@ -102,4 +105,5 @@ class Sandbox:
         except KeyError:
             return False, f"blocked: {tool} not registered"
         self.runs.append(f"{image}:{tool}:{payload[:32]}")
-        return True, "executed in sandbox"
+        return True, ("recorded (NOT executed): no isolation backend; "
+                      "nothing ran, no result validated")

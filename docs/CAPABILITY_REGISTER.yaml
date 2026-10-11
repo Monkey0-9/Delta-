@@ -207,6 +207,39 @@ capabilities:
     owner: operations
     blocker: "channel credentials + roster (P4 remainder)"
 
+  - id: model_identity_ladder
+    canonical_impl: delta_os/model_catalogue.py + delta_os/llm_gateway.py + models/router.py
+    integration_path: "/model list/switch with live validation; gateway rails; router without silent fallback"
+    tests: [tests/test_brain_byok.py, tests/test_p3_model_validation.py, tests/test_p0_executor_gates.py]
+    evidence: {type: pytest, commit: HEAD, note: "CONFIGURED/INVALID ladder; deepseek-v4-pro; claude-5-5 removed; Gemini header auth; unknown-model ValueError"}
+    performance: null
+    known_limitations: ["live provider probes need keys; IDs verified docs-side; per-model capability discovery open"]
+    release_status: tested
+    owner: models
+    blocker: null
+
+  - id: agent_execution_truth
+    canonical_impl: agents/research_stack.py (ExecutionRecorder) + ai/executor.py + agent/planner + agent/runtime
+    integration_path: "research stack permission/record flow; typed executor; runtime budgets/approvals/traces"
+    tests: [tests/test_p1_boundary.py, tests/test_p0_executor_gates.py, tests/test_p1_retired_paths.py]
+    evidence: {type: pytest, commit: HEAD, note: "no Sandbox symbol; full schema+scope+nonblocking timeout+durable idempotency; heuristic planning_mode labeled; retired imports barred"}
+    performance: null
+    known_limitations: ["approvals payload-bound per task (MFA/expiry out of scope); standing approvals not supported by design"]
+    release_status: tested
+    owner: agents
+    blocker: null
+
+  - id: training_contract
+    canonical_impl: finance_model/training/sft.py (prepare_sft_dataset) + qlora path
+    integration_path: "sft.py JSON training entrypoint"
+    tests: [tests/test_p2_cost_central.py::test_sft_dataset_contract_enforced]
+    evidence: {type: pytest, commit: HEAD, note: "text|prompt+completion enforced; blanks/empty/wrong-schema refuse; trl lazy"}
+    performance: null
+    known_limitations: ["no end-to-end training run in CI (GPU/weights); determinism manifest covered by existing smoke path"]
+    release_status: tested
+    owner: models
+    blocker: null
+
   - id: live_release
     canonical_impl: execution/live_engine.py + config/profiles.py + JavaGatewayAdapter
     integration_path: "gated production path (BLOCKED by default)"

@@ -35,12 +35,11 @@ PROVIDERS = {
     "gemini-2.5": ("cloud", "gemini", "gemini-2.5-pro"),
     "claude-3.7": ("cloud", "anthropic", "claude-3-7-sonnet-20250219"),
     "gpt-4o": ("cloud", "openai", "gpt-4o"),
-    "deepseek-r1": ("cloud", "deepseek", "deepseek-reasoner"),
+    "deepseek-r1": ("cloud", "deepseek", "deepseek-v4-pro"),
     "groq-free": ("cloud", "groq", "llama-3.3-70b-versatile"),
     # Catalogue-wired cloud endpoints (same provider rails, per-model ids).
     # Added so /model switch pins a REAL inference route, never a label.
     "claude-3-7-sonnet": ("cloud", "anthropic", "claude-3-7-sonnet-20250219"),
-    "claude-5-5": ("cloud", "anthropic", "claude-5-5"),
     "claude-opus-5-5": ("cloud", "anthropic", "claude-opus-5-5"),
     "claude-sonnet-5-5": ("cloud", "anthropic", "claude-sonnet-5-5"),
     "gpt-6-astra": ("cloud", "openai", "gpt-6-astra"),
@@ -55,7 +54,6 @@ PROVIDERS = {
 # unwired until /models add configures its endpoint (refused honestly).
 CATALOGUE_TO_PROVIDER = {
     "claude-3-7-sonnet": "claude-3-7-sonnet",
-    "claude-5-5": "claude-5-5",
     "claude-opus-5-5": "claude-opus-5-5",
     "claude-sonnet-5-5": "claude-sonnet-5-5",
     "gpt-6-astra": "gpt-6-astra",

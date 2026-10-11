@@ -4,7 +4,35 @@ import argparse
 
 from datasets import load_dataset
 from peft import LoraConfig
-from trl import SFTConfig, SFTTrainer
+
+
+def prepare_sft_dataset(dataset):
+    """Training-correctness gate (P0): every row must format to non-empty
+    text via the `text` column or a prompt+completion pair (the contract
+    qlora._example_to_text enforces at tokenize time). Anything else fails
+    closed here instead of mis-training downstream. Returns row count."""
+    cols = set(getattr(dataset, "column_names", []) or [])
+    if "text" in cols:
+        blanks = sum(1 for row in dataset if not str(row.get("text", "")).strip())
+        if blanks:
+            raise ValueError(
+                f"SFT dataset has {blanks} blank `text` rows — refusing.")
+        if len(dataset) == 0:
+            raise ValueError("SFT dataset is empty — refusing.")
+        return len(dataset)
+    if "prompt" in cols and "completion" in cols:
+        bad = sum(1 for row in dataset
+                  if not (str(row.get("prompt", "")).strip()
+                          and str(row.get("completion", "")).strip()))
+        if bad:
+            raise ValueError(
+                f"SFT dataset has {bad} rows with blank prompt/completion.")
+        if len(dataset) == 0:
+            raise ValueError("SFT dataset is empty — refusing.")
+        return len(dataset)
+    raise ValueError(
+        f"SFT dataset schema {sorted(cols)} has no `text` column and no "
+        f"prompt+completion pair — refusing (would mis-train).")
 
 
 def train(
@@ -23,6 +51,10 @@ def train(
         data_files=dataset_path,
         split="train",
     )
+    prepare_sft_dataset(dataset)
+    # Heavy training deps import lazily: schema validation above must work
+    # without torch/trl installed.
+    from trl import SFTConfig, SFTTrainer
 
     peft_config = LoraConfig(
         r=16,

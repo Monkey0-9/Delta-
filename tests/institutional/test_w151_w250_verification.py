@@ -257,7 +257,7 @@ def test_reverse_stress_brackets_loss():
 from agents.research_stack import (
     PermissionLayer,
     ResearchPlanner,
-    Sandbox,
+    ExecutionRecorder,
     ToolRegistry,
 )
 
@@ -278,7 +278,7 @@ def test_sandbox_blocks_unregistered_and_unpermitted():
     perm = PermissionLayer("R2")
     reg = ToolRegistry()
     reg.register("run_backtest", "img-v1")
-    sb = Sandbox()
+    sb = ExecutionRecorder()
     assert sb.execute("run_backtest", "payload", permission=perm, registry=reg)[0] is True
     assert sb.execute("submit_live", "x", permission=perm, registry=reg)[0] is False
     assert sb.execute("run_experiment", "x", permission=perm, registry=reg)[0] is False

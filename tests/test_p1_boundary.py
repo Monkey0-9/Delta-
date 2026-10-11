@@ -11,7 +11,7 @@ import sys
 
 sys.path.insert(0, ".")
 
-from agents.research_stack import PermissionLayer, Sandbox, ToolRegistry
+from agents.research_stack import PermissionLayer, ExecutionRecorder, ToolRegistry
 
 
 def test_r1_researcher_blocked_from_broker_paths():
@@ -41,9 +41,19 @@ def test_unknown_and_unregistered_tools_refused_and_logged():
     assert p.allow_tool("wire_funds")[0] is False
     reg = ToolRegistry()
     reg.register("read_market", "img-data")
-    sb = Sandbox()
+    sb = ExecutionRecorder()
     ok, _ = sb.execute("submit_live", "buy 1M SPY", permission=p, registry=reg)
     assert not ok  # R5 allowed by level but tool not registered -> blocked
     assert sb.runs == []
-    ok, _ = sb.execute("read_market", "SPY", permission=p, registry=reg)
-    assert ok and len(sb.runs) == 1  # every execution recorded
+    ok, msg = sb.execute("read_market", "SPY", permission=p, registry=reg)
+    assert ok and len(sb.runs) == 1  # every request recorded
+    assert "NOT executed" in msg and "executed in sandbox" not in msg
+
+
+def test_no_sandbox_symbol_to_mistake():
+    """P0: the false-success Sandbox name must not resolve anywhere."""
+    import agents.research_stack as rs
+
+    assert not hasattr(rs, "Sandbox"), (
+        "Sandbox alias would let stale code claim execution")
+    assert hasattr(rs, "ExecutionRecorder")

@@ -29,6 +29,12 @@ def test_key_add_unlocks_switch_with_temp_vault(tmp_path, monkeypatch):
     t.models.vault = v
     out, _ = t.handle("/key anthropic sk-probe-key")
     assert "stored" in out
+    # CONFIGURED + live probe mocked valid -> switches (audit §4 ladder).
+    import delta_os.model_catalogue as mc
+    monkeypatch.setattr(mc, "probe_key",
+                        lambda slot, key, timeout_s=8.0: {
+                            "slot": slot, "valid": True, "http": 200,
+                            "reason": "ok"})
     out2, _ = t.handle("/model switch claude-3-7-sonnet")
     assert "Switched" in out2, out2
     assert t.model_name == "claude-3-7-sonnet"

@@ -1,12 +1,15 @@
 """DELTA OS model catalogue: what /models shows. Truth-first.
 
-Statuses are computed from runtime only:
-  READY      local/offline engine, or cloud/custom with a usable key
-  NEEDS_KEY  cloud or custom endpoint without a key on file
+Statuses are computed from runtime only (audit §4 ladder):
+  READY       local engine, or cloud/custom with a LIVE-VALIDATED key
+  CONFIGURED  key on file but never probe-validated (NOT routable as ready)
+  NEEDS_KEY   cloud or custom endpoint without a key on file
   UNAVAILABLE custom template with no base URL configured yet
+  INVALID     key on file but the last probe rejected it (401/403)
 
-Names a user asks for (e.g. claude-5-5, astro-6.0) stay listed as templates
-until configured — never shown READY without a working credential path.
+A `validation` mapping (slot -> probe_key() result) lifts CONFIGURED to
+READY. Presence of a key alone never implies authentication, support,
+health, or capability. Retired provider IDs are removed, never aliased.
 """
 from __future__ import annotations
 
@@ -28,8 +31,6 @@ BUILTIN: tuple[CatalogueEntry, ...] = (
                    "Local Quant Brain · 100% offline · no key needed"),
     CatalogueEntry("claude-3-7-sonnet", "anthropic", "cloud", "claude-3-7-sonnet-20250219",
                    "Anthropic quant depth"),
-    CatalogueEntry("claude-5-5", "anthropic", "cloud", "claude-5-5",
-                   "Anthropic latest template · key required"),
     CatalogueEntry("claude-opus-5-5", "anthropic", "cloud", "claude-opus-5-5",
                    "Anthropic Claude Opus 5.5 · key required"),
     CatalogueEntry("claude-sonnet-5-5", "anthropic", "cloud", "claude-sonnet-5-5",
@@ -46,8 +47,8 @@ BUILTIN: tuple[CatalogueEntry, ...] = (
                    "Custom endpoint template · /models add to configure"),
     CatalogueEntry("gpt-4o", "openai", "cloud", "gpt-4o",
                    "OpenAI function-calling/tools"),
-    CatalogueEntry("deepseek-r1", "deepseek", "cloud", "deepseek-reasoner",
-                   "DeepSeek reasoning"),
+    CatalogueEntry("deepseek-r1", "deepseek", "cloud", "deepseek-v4-pro",
+                   "DeepSeek V4 Pro reasoning (deepseek-chat/reasoner retired 2026-07-24)"),
     CatalogueEntry("gemini-2-5", "gemini", "cloud", "gemini-2.5-pro",
                    "Gemini long-context filings"),
     CatalogueEntry("groq-free", "groq", "cloud", "llama-3.3-70b-versatile",
@@ -112,9 +113,11 @@ def probe_key(slot: str, api_key: str, timeout_s: float = 8.0) -> dict:
         return {"slot": slot, "valid": False, "http": None,
                 "reason": "no probe endpoint for slot"}
     base, extra = SLOT_PROBES[slot]
+    # Gemini authenticates via x-goog-api-key header; the key must never
+    # travel in the URL (query strings land in logs/proxies).
     if slot == "gemini":
-        url = base + f"?key={api_key}"
-        headers = dict(extra)
+        url = base
+        headers = {"x-goog-api-key": api_key, **extra}
     else:
         url = base
         headers = {"Authorization": f"Bearer {api_key}", **extra}
@@ -157,33 +160,64 @@ def validation_status(vault=None, slots: list[str] | None = None) -> dict:
     return out
 
 
-def catalogue_status(vault=None, custom: dict | None = None) -> list[dict]:
-    """Status rows for every catalogue entry. Never fake READY."""
+def _verified_state(slot: str, key_present: bool,
+                    validation: dict | None) -> tuple[str, str]:
+    """(status_fragment, verified) for a keyed cloud/custom entry.
+
+    key_present + probe-valid   -> READY / AUTHENTICATED
+    key_present + probe-invalid -> INVALID / INVALID (401/403) or DEGRADED
+    key_present + never probed  -> CONFIGURED / UNVERIFIED (not routable)
+    """
+    if not key_present:
+        return "NEEDS_KEY", "UNCONFIGURED"
+    verdict = (validation or {}).get(slot)
+    if verdict is None:
+        return "CONFIGURED", "UNVERIFIED"
+    if verdict.get("valid"):
+        return "READY", "AUTHENTICATED"
+    reason = str(verdict.get("reason", ""))
+    if reason == "invalid_key":
+        return "INVALID", "INVALID"
+    return "CONFIGURED", f"DEGRADED:{reason}"
+
+
+def catalogue_status(vault=None, custom: dict | None = None,
+                     validation: dict | None = None) -> list[dict]:
+    """Status rows for every catalogue entry. Never fake READY.
+
+    Without `validation` (slot -> probe_key() result), keyed cloud entries
+    report CONFIGURED/UNVERIFIED — routable READY requires a live probe.
+    """
     rows = []
     for e in BUILTIN:
         if e.kind == "local":
-            status = "READY"
+            status, verified = "READY", "LOCAL"
         elif e.kind == "custom-template":
             cfg = (custom or {}).get(e.name, {})
-            if cfg.get("base_url") and has_key(e.slot, vault):
-                status = "READY"
-            elif cfg.get("base_url"):
-                status = "NEEDS_KEY"
+            if not cfg.get("base_url"):
+                status, verified = "UNAVAILABLE", "UNCONFIGURED"
             else:
-                status = "UNAVAILABLE"
+                status, verified = _verified_state(
+                    e.slot, has_key(e.slot, vault), validation)
         else:
-            status = "READY" if has_key(e.slot, vault) else "NEEDS_KEY"
+            status, verified = _verified_state(
+                e.slot, has_key(e.slot, vault), validation)
         rows.append({"name": e.name, "slot": e.slot, "kind": e.kind,
                      "model_id": e.model_id, "description": e.description,
-                     "status": status})
+                     "status": status, "verified": verified})
     for name, cfg in (custom or {}).items():
         if name in {e.name for e in BUILTIN}:
             continue
-        ok = bool(cfg.get("base_url")) and has_key(cfg.get("slot", "custom"), vault)
+        if not cfg.get("base_url"):
+            status, verified = "UNAVAILABLE", "UNCONFIGURED"
+        else:
+            status, verified = _verified_state(
+                cfg.get("slot", "custom"),
+                has_key(cfg.get("slot", "custom"), vault), validation)
         rows.append({"name": name, "slot": cfg.get("slot", "custom"),
                      "kind": "custom", "model_id": cfg.get("model", name),
                      "description": cfg.get("description", "User custom endpoint"),
-                     "status": "READY" if ok else ("NEEDS_KEY" if cfg.get("base_url") else "UNAVAILABLE")})
+                     "status": status, "verified": verified})
     return rows
 
 

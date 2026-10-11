@@ -83,3 +83,14 @@ def test_kill_wiring_runs_both_halts_and_binds_board():
         assert False, "must raise"
     except ValueError:
         pass
+
+
+def test_g5_probe_tests_consumer_not_harness(monkeypatch):
+    """P0: sabotage the consumer -> G5 must FAIL (proves the probe invokes
+    Tick.is_usable_at rather than comparing datetimes)."""
+    import data.market.canonical as canon
+    from finance_model.evaluation.delta_gates import GateId, GateStatus, run_rule_probes
+
+    monkeypatch.setattr(canon.Tick, "is_usable_at", lambda self, asof: True)
+    status, ev = run_rule_probes()[GateId.G5_TEMPORAL_CORRECTNESS]
+    assert status == GateStatus.FAIL, (status, ev)

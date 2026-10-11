@@ -31,6 +31,9 @@ class PlanStep:
 class AgentPlan:
     task_id: UUID
     steps: tuple[PlanStep, ...]
+    # Audit §6.2: this planner is a keyword intent router, not model-generated
+    # structured planning. Labeled on every plan so no consumer mistakes it.
+    planning_mode: str = "heuristic-keyword"
 
 
 class AgentPlanner:

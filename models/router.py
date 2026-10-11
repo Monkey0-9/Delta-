@@ -84,21 +84,30 @@ class ModelRouter:
                       role: Optional[ModelRole] = None,
                       params: Optional[Dict[str, Any]] = None) -> ModelResponse:
         """Generate a response using the specified or current model"""
-        # Determine which provider to use
+        # Determine which provider to use. An explicit model request that
+        # cannot be honored FAILS VISIBLY (P0): silently invoking a different
+        # model would break reproducibility and role pinning.
         provider = self.current_provider
         if model_name:
             if model_name in self.providers:
                 provider = self.providers[model_name]
             else:
-                logger.warning(f"Model {model_name} not found, using current")
+                raise ValueError(
+                    f"Model {model_name!r} not available "
+                    f"(known: {sorted(self.providers)}); refusing to "
+                    f"substitute {getattr(self, 'current_model_name', '?')!r}.")
         elif role and role in self.role_routing:
             routed_model = self.role_routing[role]
             if routed_model in self.providers:
                 provider = self.providers[routed_model]
-        
+            else:
+                raise ValueError(
+                    f"Role {role!r} routes to unavailable model "
+                    f"{routed_model!r}; refusing to substitute.")
+
         if not provider:
             raise RuntimeError("No model provider available")
-        
+
         return await provider.generate(messages, params)
     
     async def generate_stream(self, messages: List[ModelMessage],
@@ -107,12 +116,21 @@ class ModelRouter:
                              params: Optional[Dict[str, Any]] = None):
         """Generate a streaming response"""
         provider = self.current_provider
-        if model_name and model_name in self.providers:
-            provider = self.providers[model_name]
+        if model_name:
+            if model_name in self.providers:
+                provider = self.providers[model_name]
+            else:
+                raise ValueError(
+                    f"Model {model_name!r} not available "
+                    f"(known: {sorted(self.providers)}); refusing to substitute.")
         elif role and role in self.role_routing:
             routed_model = self.role_routing[role]
             if routed_model in self.providers:
                 provider = self.providers[routed_model]
+            else:
+                raise ValueError(
+                    f"Role {role!r} routes to unavailable model "
+                    f"{routed_model!r}; refusing to substitute.")
         
         if not provider:
             raise RuntimeError("No model provider available")

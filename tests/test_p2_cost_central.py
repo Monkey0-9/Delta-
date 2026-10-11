@@ -64,3 +64,22 @@ def test_cost_adjusted_sharpe_produced_by_engine():
     assert "cost_adjusted_sharpe" in st and "cost_proxy" in st, st.keys()
     assert st["cost_proxy"] is True  # engine uncalibrated: labeled, not hidden
     assert isinstance(st["cost_adjusted_sharpe"], float)
+
+
+def test_sft_dataset_contract_enforced():
+    """P0/training-correctness: text rows pass; prompt+completion pass;
+    wrong schemas and blanks fail closed (would mis-train)."""
+    from datasets import Dataset
+
+    from finance_model.training.sft import prepare_sft_dataset
+
+    ok = Dataset.from_list([{"text": "a"}, {"text": "b"}])
+    assert prepare_sft_dataset(ok) == 2
+    ok2 = Dataset.from_list([{"prompt": "p", "completion": "c"}])
+    assert prepare_sft_dataset(ok2) == 1
+    with __import__("pytest").raises(ValueError, match="no `text`"):
+        prepare_sft_dataset(Dataset.from_list([{"instruction": "x"}]))
+    with __import__("pytest").raises(ValueError, match="blank"):
+        prepare_sft_dataset(Dataset.from_list([{"text": "a"}, {"text": "  "}]))
+    with __import__("pytest").raises(ValueError, match="empty"):
+        prepare_sft_dataset(Dataset.from_list([{"text": "a"}]).select([]))

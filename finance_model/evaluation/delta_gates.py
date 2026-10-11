@@ -151,15 +151,26 @@ def run_rule_probes() -> dict[GateId, tuple[GateStatus, str]]:
     except Exception as exc:
         out[GateId.G2_NUMERICAL_CORRECTNESS] = (GateStatus.FAIL, f"probe_error:{exc}")
 
-    # G5: temporal oracle — future-as-of must be refused by consumers.
+    # G5: temporal oracle — future-dated data must be refused by the REAL
+    # consumer (data/market/canonical.py Tick.is_usable_at), not by comparing
+    # two datetimes. A tick available tomorrow is unusable today (P0-proven
+    # precedence fix); usable at/after its availability stamp.
     try:
-        from datetime import datetime, timezone, timedelta
-        now = datetime.now(timezone.utc)
-        future_as_of = now + timedelta(days=1)
-        ok = future_as_of > now
+        from datetime import datetime, timezone
+        from data.market.canonical import Tick
+        now_ts = datetime.now(timezone.utc).timestamp()
+        future_tick = Tick(symbol="G5-PROBE", price=100.0, qty=1.0,
+                           t_event=now_ts, t_pub=now_ts,
+                           t_avail=now_ts + 86400.0)
+        refused_now = not future_tick.is_usable_at(now_ts)
+        usable_later = bool(future_tick.is_usable_at(now_ts + 86400.0))
+        past_tick = Tick(symbol="G5-PROBE", price=100.0, qty=1.0,
+                         t_event=now_ts - 10.0)
+        usable_past = bool(past_tick.is_usable_at(now_ts))
+        ok = refused_now and usable_later and usable_past
         out[GateId.G5_TEMPORAL_CORRECTNESS] = (
             GateStatus.PASS if ok else GateStatus.FAIL,
-            "oracle:future_as_of_detectable_refuse_required")
+            "consumer:Tick.is_usable_at refuses future availability")
     except Exception as exc:
         out[GateId.G5_TEMPORAL_CORRECTNESS] = (GateStatus.FAIL, f"probe_error:{exc}")
 

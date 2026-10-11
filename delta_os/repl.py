@@ -296,8 +296,8 @@ class Terminal:
             lines = []
             for r in rows:
                 active = " [ACTIVE]" if r["name"] == self.model_name else ""
-                badge = {"READY": "●", "NEEDS_KEY": "◐",
-                         "UNAVAILABLE": "○"}.get(r["status"], "?")
+                badge = {"READY": "●", "CONFIGURED": "◑", "INVALID": "✗",
+                         "NEEDS_KEY": "◐", "UNAVAILABLE": "○"}.get(r["status"], "?")
                 lines.append(f"  {badge} {r['name']:<22} │ {r['status']:<11} │ {r['description']}{active}")
             return (header + "\n".join(lines)
                     + "\n\nSwitch model: /model <name> · Add endpoint: /models add <name> <base-url> [model-id]"
@@ -319,7 +319,27 @@ class Terminal:
         if rec is None:
             names = ", ".join(r["name"] for r in rows)
             return f"unknown model {target!r}. Available: {names}"
-        if rec["status"] != "READY":
+        if rec["status"] == "CONFIGURED" or rec["status"] == "INVALID":
+            # Audit §4 ladder: a key on file is not authentication. Probe
+            # live before routing; invalid/unreachable keys refuse. Custom
+            # endpoints without a known probe keep the rail check below
+            # (unwired templates refuse as "no inference rail").
+            from delta_os.model_catalogue import (_get_key, SLOT_PROBES,
+                                                  probe_key)
+
+            if rec["slot"] in SLOT_PROBES:
+                key = _get_key(rec["slot"], self.vault)
+                if not key:
+                    return (f"refused: {target} key disappeared — "
+                            f"fix: /key {rec['slot']} <token>")
+                probe = probe_key(rec["slot"], key)
+                if not probe.get("valid"):
+                    return (f"refused: {target} key {probe.get('reason')} "
+                            f"(http={probe.get('http')}) — not authenticated, "
+                            f"never fake-READY. Fix: /key {rec['slot']} <token>")
+                rec = dict(rec, status="READY", verified="AUTHENTICATED")
+        if rec["status"] != "READY" and rec.get("kind") not in (
+                "custom", "custom-template"):
             hint = (f"/models add {target} <base-url>" if rec["status"] == "UNAVAILABLE"
                     else f"/key {rec['slot']} <token>")
             return (f"refused: {target} is {rec['status']} — "
