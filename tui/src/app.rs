@@ -711,7 +711,7 @@ impl App {
                         self.state.add_log("ERROR", "EXEC", "ORDER NOT SUBMITTED: no backend connection");
                         self.state.research.turns.push((
                             format!("Execute {} {} {}", t.side, t.qty, t.symbol),
-                            "✗ ORDER NOT SUBMITTED: no backend connection. Nothing was sent; no order exists.".to_string(),
+                            format!("✗ ORDER NOT SUBMITTED ({} {} {}): no backend connection. Nothing was sent; no order exists.", t.side, t.qty, t.symbol),
                         ));
                         self.state.ui.order_ticket.is_open = false;
                         self.state.ui.order_ticket.confirmed = false;

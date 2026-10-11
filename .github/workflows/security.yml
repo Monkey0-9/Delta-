@@ -1,7 +1,7 @@
 name: delta-security-gates
 # B9: blocking SAST/secret/dependency gates on every push + PR.
 # Tool versions are pinned; the offline pin-test is tests/test_ci_security_gates.py.
-# pins-verified: 2026-10-09 (max-age 180d — the pin-freshness test fails past
+# pins-verified: 2026-10-11 (max-age 180d — the pin-freshness test fails past
 # this date; refresh the pins below to reset the clock).
 # NOTE (B9 gitleaks decision): no gitleaks/entropy-history job. The shaped
 # secret_scan (scripts/release_certify.py) already covers key/PEM/token
@@ -54,8 +54,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo install cargo-audit --version 0.21.0 --locked
-      - run: cargo audit --manifest-path tui/Cargo.toml
+      - run: cargo install cargo-audit --version 0.22.2 --locked
+      # Audit both lockfiles: workspace root (rust/ python extension via
+      # rust/Cargo.toml) and tui/Cargo.toml. -f takes the lockfile because
+      # cargo-audit has no --manifest-path flag (0.21.0 errored on it).
+      - run: cargo audit -f Cargo.lock
+      - run: cargo audit -f tui/Cargo.lock
   pip-audit:
     runs-on: ubuntu-latest
     steps:

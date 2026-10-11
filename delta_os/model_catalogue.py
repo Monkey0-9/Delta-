@@ -107,7 +107,7 @@ SLOT_PROBES: dict[str, tuple[str, dict[str, str]]] = {
 def probe_key(slot: str, api_key: str, timeout_s: float = 8.0) -> dict:
     """Validate one provider key against its models endpoint. Never raises:
     unreachable/timeout/invalid are distinct verdicts, never exceptions."""
-    from core.net import checked_url
+    from core.net import checked_url, urlopen_checked
 
     if slot not in SLOT_PROBES:
         return {"slot": slot, "valid": False, "http": None,
@@ -130,7 +130,7 @@ def probe_key(slot: str, api_key: str, timeout_s: float = 8.0) -> dict:
 
     req = urllib.request.Request(url, headers=headers, method="GET")
     try:
-        with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+        with urlopen_checked(req, timeout=timeout_s) as resp:
             code = getattr(resp, "status", 200)
             if not (200 <= code < 300):
                 return {"slot": slot, "valid": False, "http": code,
