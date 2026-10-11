@@ -116,6 +116,17 @@ def research_statistics(frame: pd.DataFrame, feat: pd.DataFrame,
         float(_net.mean() / _sd * (252 / fwd_days) ** 0.5), 4) if _sd > 0 else 0.0
     stats["cost_proxy"] = bool(_per_trade.proxy)
     stats["cost_bps_per_trade"] = round(_per_trade.total_bps, 2)
+    # P2/I fill-contingent evidence: the empirical P(fill) model scores the
+    # same turnover the analytic backtest fudges. Uncalibrated (prior 0.5)
+    # until observe() data lands — informational, never a gate threshold.
+    from simulation.exchange_replay import fill_contingent_report
+
+    _px = frame["close"].astype(float)
+    _spread_proxy = ((_px.rolling(20).max() - _px.rolling(20).min())
+                     / _px * 1e4).fillna(5.0)
+    _vol = _px.pct_change().rolling(20).std().fillna(0.015)
+    stats["fill_contingent"] = fill_contingent_report(
+        _churn, _spread_proxy, None, _vol)
     # Multiple-testing honesty (P2): the old code fabricated "proxy p-values"
     # from |IC| and ran BH on fiction. Only ONE hypothesis is actually tested
     # here (strategy IC != 0), so report its permutation p-value directly.

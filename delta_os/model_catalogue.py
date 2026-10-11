@@ -132,8 +132,12 @@ def probe_key(slot: str, api_key: str, timeout_s: float = 8.0) -> dict:
     try:
         with urllib.request.urlopen(req, timeout=timeout_s) as resp:
             code = getattr(resp, "status", 200)
-            return {"slot": slot, "valid": 200 <= code < 300, "http": code,
-                    "reason": "ok" if 200 <= code < 300 else f"http_{code}"}
+            if not (200 <= code < 300):
+                return {"slot": slot, "valid": False, "http": code,
+                        "reason": f"http_{code}", "models": []}
+            models = _parse_models_list(resp.read(1_000_000), slot)
+            return {"slot": slot, "valid": True, "http": code,
+                    "reason": "ok", "models": models}
     except Exception as exc:
         code = getattr(exc, "code", None)
         if code in (401, 403):
@@ -144,6 +148,49 @@ def probe_key(slot: str, api_key: str, timeout_s: float = 8.0) -> dict:
                   else "unreachable")
         return {"slot": slot, "valid": False, "http": code,
                 "reason": reason}
+
+
+def _parse_models_list(body: bytes, slot: str) -> list[str]:
+    """Measured capability discovery (P4 remainder): model IDs the provider
+    actually lists. Unparseable bodies yield [] (measured-nothing), never
+    declared capabilities disguised as measured."""
+    try:
+        import json as _json
+
+        doc = _json.loads(body.decode("utf-8", errors="replace"))
+        data = doc.get("data", []) if isinstance(doc, dict) else []
+        ids = [str(m.get("id")) for m in data
+               if isinstance(m, dict) and m.get("id")]
+        # Anthropic-style {"models": [{"name": ...}]} shape.
+        if not ids and isinstance(doc, dict):
+            alt = doc.get("models", [])
+            ids = [str(m.get("name", m.get("id", ""))) for m in alt
+                   if isinstance(m, dict)]
+        return sorted({i for i in ids if i})
+    except Exception:
+        return []
+
+
+# Declared (documentation-sourced) capabilities. Labeled declared: proof
+# comes only from measured probes + benchmarks, never this table.
+DECLARED_CAPABILITIES: dict[str, dict] = {
+    "openai": {"context": "per-model docs", "tools": True},
+    "anthropic": {"context": "per-model docs", "tools": True},
+    "gemini": {"context": "per-model docs", "tools": True},
+    "groq": {"context": "per-model docs", "tools": True},
+    "deepseek": {"context": "per-model docs", "tools": True},
+}
+
+
+def describe_capabilities(slot: str, probe: dict | None = None) -> dict:
+    """Measured-vs-declared capability record for one slot. `measured`
+    comes only from a live probe response; everything else is declared."""
+    measured = (probe or {}).get("models", [])
+    return {"slot": slot,
+            "measured_models": list(measured),
+            "measured": bool(measured),
+            "declared": DECLARED_CAPABILITIES.get(slot, {}),
+            "probed": probe is not None}
 
 
 def validation_status(vault=None, slots: list[str] | None = None) -> dict:
@@ -254,4 +301,4 @@ def add_custom(name: str, base_url: str, model: str, vault) -> str:
 
 __all__ = ["BUILTIN", "CatalogueEntry", "catalogue_status", "load_custom",
            "add_custom", "has_key", "probe_key", "validation_status",
-           "SLOT_PROBES"]
+           "describe_capabilities", "SLOT_PROBES"]

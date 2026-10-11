@@ -123,3 +123,40 @@ def test_calibration_empty_log_shape(tmp_path, monkeypatch):
     b = DeltaBrain.__new__(DeltaBrain)
     cal = b.forecast_calibration(price_lookup=lambda s, d: None)
     assert cal["n_resolved"] == 0 and cal["accuracy"] is None
+
+
+def test_binned_ece_curve(tmp_path, monkeypatch):
+    import json as _json
+    from datetime import datetime, timedelta, timezone
+
+    from delta_os import brain as bmod
+    from delta_os.brain import DeltaBrain
+
+    log = tmp_path / "forecast_log.jsonl"
+    monkeypatch.setattr(bmod.DeltaBrain, "_forecast_log_path",
+                        lambda self: str(log))
+    b = DeltaBrain.__new__(DeltaBrain)
+    past = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+    rows = []
+    # 4 correct high-prob + 4 correct low-prob(=bearish right) => ECE ~0.
+    for i in range(4):
+        rows.append({"ts": past, "symbol": "T", "horizon_days": 5,
+                     "direction": "BULLISH (UP)", "prob_positive": 0.8})
+        rows.append({"ts": past, "symbol": "T", "horizon_days": 5,
+                     "direction": "BEARISH (DOWN)", "prob_positive": 0.2})
+    log.write_text("\n".join(_json.dumps(r) for r in rows) + "\n",
+                   encoding="utf-8")
+    seq = [100.0, 110.0, 100.0, 90.0] * 4  # (up, down) per bull/bear pair
+    it = iter(seq)
+    cal = b.forecast_calibration(price_lookup=lambda s, d: next(it))
+    assert cal["n_resolved"] == 8, cal
+    assert cal["accuracy"] == 1.0
+    # Perfect accuracy at p=0.8/0.2 is miscalibrated by construction:
+    # |1-0.8|*1/2 + |1-0.2|*1/2 = 0.5. Calibration != accuracy.
+    assert cal["ece_binned"] == 0.5, cal
+    assert len(cal["bins"]) == 5
+    assert sum(bn["n"] for bn in cal["bins"]) == 8
+    by_n = sorted((bn["n"], bn["accuracy"], bn["mean_prob"]) for bn in cal["bins"] if bn["n"])
+    assert by_n == [(4, 1.0, 0.2), (4, 1.0, 0.8)], by_n
+    empty = [bn for bn in cal["bins"] if bn["n"] == 0]
+    assert len(empty) == 3 and all(bn["accuracy"] is None for bn in empty)

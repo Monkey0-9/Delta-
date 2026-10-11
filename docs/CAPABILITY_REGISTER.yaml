@@ -189,9 +189,9 @@ capabilities:
     canonical_impl: delta_os/brain.py (log_forecast/forecast_calibration)
     integration_path: "/forecast output track-record line + automation gate reads"
     tests: [tests/test_brain_forecast_honesty.py]
-    evidence: {type: pytest, commit: HEAD, note: "stale-tier ABSTAIN; noise ABSTAIN; log/resolve/ECE math; /forecast shows record"}
+    evidence: {type: pytest, commit: HEAD, note: "stale-tier ABSTAIN; noise ABSTAIN; log/resolve/single-bin + per-bin ECE; /forecast shows record"}
     performance: null
-    known_limitations: ["single-bin ECE only; per-bin curves need larger N; outcome resolution needs router history"]
+    known_limitations: ["per-bin curves thin below N=20 (labeled); outcome resolution needs router history"]
     release_status: tested
     owner: research
     blocker: null

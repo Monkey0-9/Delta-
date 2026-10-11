@@ -649,7 +649,7 @@ class DeltaBrain:
                     "note": "log unreadable"}
         now = datetime.now(timezone.utc)
         lookup = price_lookup or self._router_close_at
-        hits, probs = 0, []
+        hits, probs, hits_list = 0, [], []
         for e in entries[-500:]:
             try:
                 ts = datetime.fromisoformat(e["ts"])
@@ -664,7 +664,9 @@ class DeltaBrain:
                     continue
                 realized_up = p1 > p0
                 predicted_up = "BEARISH" not in str(e.get("direction", ""))
-                hits += predicted_up == realized_up
+                hit = predicted_up == realized_up
+                hits += hit
+                hits_list.append(1 if hit else 0)
                 probs.append(float(e.get("prob_positive", 0.5)))
             except Exception:
                 continue
@@ -672,14 +674,39 @@ class DeltaBrain:
         if not n:
             return {"n_logged": len(entries), "n_resolved": 0,
                     "accuracy": None, "mean_prob": None,
-                    "ece_single_bin": None,
+                    "ece_single_bin": None, "ece_binned": None, "bins": [],
                     "note": "no resolved forecasts yet"}
         acc = hits / n
         mean_p = sum(probs) / n
-        return {"n_logged": len(entries), "n_resolved": n,
-                "accuracy": round(acc, 4), "mean_prob": round(mean_p, 4),
-                "ece_single_bin": round(abs(acc - mean_p), 4),
-                "note": "single-bin ECE; per-bin curves need larger N"}
+        out: dict[str, object] = {
+            "n_logged": len(entries), "n_resolved": n,
+            "accuracy": round(acc, 4), "mean_prob": round(mean_p, 4),
+            "ece_single_bin": round(abs(acc - mean_p), 4)}
+        # Per-bin reliability curve (P4 remainder closed): 5 equal-width prob
+        # bins; bins with zero mass are reported, never interpolated. Needs
+        # enough resolutions to mean anything — below 20 the single-bin
+        # number above stays the headline.
+        resolved = list(zip(probs, hits_list))
+        nbins, bins, ece_num = 5, [], 0.0
+        for b in range(nbins):
+            lo, hi = b / nbins, (b + 1) / nbins
+            in_bin = [(pr, ht) for pr, ht in resolved
+                      if (pr > lo and pr <= hi) or (b == 0 and pr == 0.0)]
+            if not in_bin:
+                bins.append({"bin": [lo, hi], "n": 0, "accuracy": None,
+                             "mean_prob": None})
+                continue
+            b_acc = sum(ht for _, ht in in_bin) / len(in_bin)
+            b_prob = sum(pr for pr, _ in in_bin) / len(in_bin)
+            ece_num += len(in_bin) / n * abs(b_acc - b_prob)
+            bins.append({"bin": [lo, hi], "n": len(in_bin),
+                         "accuracy": round(b_acc, 4),
+                         "mean_prob": round(b_prob, 4)})
+        out["bins"] = bins
+        out["ece_binned"] = round(ece_num, 4)
+        out["note"] = ("per-bin ECE over 5 bins" if n >= 20 else
+                       "single-bin headline; per-bin curve shown but thin (N<20)")
+        return out
 
     def _router_close_at(self, symbol: str, day: str):
         """Realized close on/before a calendar day via the data router."""

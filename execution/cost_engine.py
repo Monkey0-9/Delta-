@@ -38,6 +38,25 @@ class TransactionCostEngine:
     def is_proxy(self) -> bool:
         return not self.calibrated
 
+    @classmethod
+    def calibrate(cls, executions: list[tuple[float, float, float, float]],
+                  calibration_id: str, **overrides) -> "TransactionCostEngine":
+        """Stream C: fit gamma to realized fills, returning a CALIBRATED
+        engine. executions = (qty, adv, sigma_frac, realized_total_bps).
+        Fails closed on thin/degenerate data (caller must handle ValueError);
+        a calibration that cannot be fit must never silently stay proxy."""
+        from simulation.l3_engine import calibrate_gamma
+
+        usable = [e for e in executions
+                  if e[1] > 0 and e[0] > 0 and e[2] > 0]
+        if len(usable) < 5:
+            raise ValueError(
+                f"calibration needs >=5 usable fills, got {len(usable)}")
+        gamma = calibrate_gamma(usable)
+        eng = cls(gamma=gamma, calibrated=True,
+                  calibration_id=calibration_id, **overrides)
+        return eng
+
     def quote_participation(self, participation: float, sigma: float,
                             spread_bps: float | None = None,
                             side: str = "buy", hold_days: float = 0.0,

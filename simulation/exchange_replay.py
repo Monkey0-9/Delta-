@@ -50,6 +50,46 @@ class ExchangeReplayer:
 
 # ---------- queue-position calibration ----------
 
+def fill_contingent_report(churn, spread_bps, imbalance, volatility,
+                           calibration: "QueueCalibrationTable | None" = None) -> dict:
+    """Expected fill analysis for a turn-over series under the empirical
+    P(fill | queue, spread, imbalance, vol) model (I-item, P2).
+
+    Per-bar expected fill = p_fill(queue_pos=1, spread, imbalance, vol);
+    queue_pos=1 is the conservative maker assumption (back of a 2-deep
+    queue). With no calibration the table returns its honest 0.5 prior and
+    the report is labeled uncalibrated — information for promotion flows,
+    never a threshold gate (gating on a prior would be arbitrary).
+    Returns expected fill rate, analytic-fudge deviation, and calibration
+    lineage. Pure function: no randomness, no I/O.
+    """
+    import numpy as _np
+
+    table = calibration or QueueCalibrationTable()
+    calibrated = calibration is not None and bool(table.table)
+    ch = _np.asarray(list(churn), dtype=float)
+    n_trades = int((ch > 0).sum())
+    if n_trades == 0:
+        return {"expected_fill_rate": 1.0, "n_trades": 0,
+                "analytic_fill_rate": 1.0, "deviation": 0.0,
+                "calibrated": calibrated, "prior_used": not calibrated}
+    fills = []
+    for i in range(len(ch)):
+        if ch[i] <= 0:
+            continue
+        sp = float(list(spread_bps)[i]) if spread_bps is not None else 5.0
+        im = float(list(imbalance)[i]) if imbalance is not None else 0.0
+        vo = float(list(volatility)[i]) if volatility is not None else 0.015
+        fills.append(table.p_fill(queue_pos=1, spread_bps=sp,
+                                  imbalance=im, volatility=vo))
+    expected = float(sum(fills) / len(fills))
+    analytic = float(1.0 - 0.05 * float((ch > 1.5).mean()))
+    return {"expected_fill_rate": round(expected, 4), "n_trades": n_trades,
+            "analytic_fill_rate": round(analytic, 4),
+            "deviation": round(abs(expected - analytic), 4),
+            "calibrated": calibrated, "prior_used": not calibrated}
+
+
 @dataclass
 class QueueCalibrationTable:
     """Empirical P(fill) bins keyed by (pos_bin, spread_bin, imb_bin, vol_bin)."""
