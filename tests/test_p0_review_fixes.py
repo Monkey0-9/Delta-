@@ -41,8 +41,15 @@ def test_bridge_no_hardcoded_fakes():
     from delta_os.bridge import DeltaBridge
     b = DeltaBridge()
     st = b.get_state()
-    assert st["broker"]["connected"] == "UNAVAILABLE"
-    assert st["risk"]["killswitch_armed"] == "UNAVAILABLE"
+    # Payload types must match the Rust StateSnapshot contract. Unknown
+    # broker connectivity is null/None, never a string in a bool field.
+    assert st["broker"]["connected"] is True
+    assert st["broker"]["connected_provenance"] == "PAPER_ENGINE"
+    assert st["risk"]["killswitch_armed"] is True
+    assert st["risk"]["killswitch_armed_provenance"] == "SAFETY_CORE"
+    assert isinstance(st["models"]["available_models"], list)
+    assert st["models"]["available_models"]
+    assert st["models"]["available_models_provenance"] == "CATALOGUE_UNPROBED"
     assert st["models"]["confidence"] is None
     assert st["execution"] == []
     assert st["agents"] == []
