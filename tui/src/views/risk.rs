@@ -125,8 +125,10 @@ pub fn render_risk_view(frame: &mut Frame, area: Rect, state: &ApplicationState)
             Span::styled("Kill Switch Mode:  ", ThemeStyles::muted_text()),
             if state.risk.killswitch_halted {
                 Span::styled("HALTED / LOCKED [!] (All trading blocked)", ThemeStyles::critical())
+            } else if state.risk.killswitch_armed {
+                Span::styled("ARMED (Safety control state verified)", ThemeStyles::positive())
             } else {
-                Span::styled("ARMED (Direct risk governor hardware wire active)", ThemeStyles::positive())
+                Span::styled("NOT ARMED / UNVERIFIED [!] (Do not rely on this control)", ThemeStyles::critical())
             },
         ]),
     ];
