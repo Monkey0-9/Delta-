@@ -35,3 +35,13 @@ def test_cli_status_uses_runtime_status_handler(monkeypatch, capsys):
     cli.status()
 
     assert "DYNAMIC RUNTIME STATUS" in capsys.readouterr().out
+
+def test_model_doctor_reports_missing_torch_without_crashing(monkeypatch, capsys):
+    monkeypatch.setitem(sys.modules, "torch", None)
+
+    assert cli.model_doctor() is False
+    output = capsys.readouterr().out
+
+    assert "PyTorch: NOT INSTALLED" in output
+    assert "Toolchain check: INCOMPLETE" in output
+    assert "Inference status: NOT VERIFIED" in output
