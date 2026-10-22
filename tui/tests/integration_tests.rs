@@ -85,6 +85,15 @@ fn test_bridge_snapshot_json_types_are_deserializable() {
         "CATALOGUE_UNPROBED"
     );
     assert!(snapshot.risk.killswitch_armed);
+
+    let unknown_broker: BrokerInfo = serde_json::from_value(serde_json::json!({
+        "name": "ibkr",
+        "connected": null,
+        "connected_provenance": "UNPROBED",
+        "type": "DIRECT_BROKER"
+    }))
+    .expect("unknown broker connectivity must be representable");
+    assert_eq!(unknown_broker.connected, None);
 }
 
 #[test]
