@@ -183,7 +183,7 @@ impl BridgeClient {
                                         let success = res
                                             .get("status")
                                             .and_then(|s| s.as_str())
-                                            .map(|s| s == "ok")
+                                            .map(|s| matches!(s, "ok" | "halted"))
                                             .unwrap_or(false);
                                         action_tx
                                             .send(Action::CommandCompleted {
@@ -237,7 +237,7 @@ impl BridgeClient {
                                         .send(Action::CommandCompleted {
                                             command: "".into(),
                                             output: cmd_resp.output,
-                                            success: cmd_resp.status == "ok",
+                                            success: matches!(cmd_resp.status.as_str(), "ok" | "halted"),
                                         })
                                         .ok();
                                 }
