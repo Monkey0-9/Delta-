@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from delta_os.bridge import DeltaBridge, _dispatch_status
+from delta_os.bridge import DeltaBridge
 
 
 @pytest.mark.parametrize(
@@ -22,7 +22,7 @@ from delta_os.bridge import DeltaBridge, _dispatch_status
     ],
 )
 def test_dispatch_status_classification(command, output, expected):
-    assert _dispatch_status(command, output) == expected
+    assert DeltaBridge._dispatch_status(command, output) == expected
 
 
 def test_bridge_dispatch_propagates_real_status_without_constructing_runtime():
