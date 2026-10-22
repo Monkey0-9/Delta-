@@ -46,7 +46,10 @@ pub struct StateSnapshot {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct BrokerInfo {
     pub name: String,
-    pub connected: bool,
+    /// None means the runtime has not established connectivity, not "disconnected".
+    pub connected: Option<bool>,
+    #[serde(default)]
+    pub connected_provenance: String,
     #[serde(default)]
     pub r#type: String,
 }
@@ -103,6 +106,8 @@ pub struct RiskInfo {
     pub gross_limit: f64,
     pub net_limit: f64,
     pub killswitch_armed: bool,
+    #[serde(default)]
+    pub killswitch_armed_provenance: String,
     pub killswitch_halted: bool,
     #[serde(default)]
     pub var95_dollar: f64,
@@ -160,6 +165,8 @@ pub struct ModelInfo {
     pub active_model: String,
     #[serde(default)]
     pub available_models: Vec<String>,
+    #[serde(default)]
+    pub available_models_provenance: String,
     pub health: String,
     #[serde(default)]
     pub confidence: Option<f64>,
