@@ -23,6 +23,7 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
+      - run: pip install --retries 10 --default-timeout 120 --extra-index-url https://download.pytorch.org/whl/cpu torch
       - run: pip install --retries 5 -e ".[dev]"
       - run: mkdir -p execution/java_gateway/bin && javac -d execution/java_gateway/bin execution/java_gateway/src/delta/execution/*.java
       - run: mkdir -p native/build && g++ -std=c++17 -shared -fPIC -O2 -I. native/cpp/lob.cpp -o native/build/lob.dll
