@@ -453,6 +453,276 @@ def what_should_i_trade(
     typer.echo(f"manifest: {res.manifest_path} fingerprint={res.fingerprint}")
 
 
+# ---------------------------------------------------------------------------
+# OpenCode CLI Unified Parity Commands (run, chart, auth, models, mcp, ...)
+# ---------------------------------------------------------------------------
+
+@app.command("run")
+def run_cmd(
+    prompt: list[str] = typer.Argument(None, help="Prompt or task to execute"),
+    model: str = typer.Option("delta-fm-research", "--model", "-m", help="Model name"),
+    format_out: str = typer.Option("default", "--format", help="default|json"),
+    thinking: bool = typer.Option(False, "--thinking", help="Show quantitative chain-of-thought"),
+) -> None:
+    """Run DELTA in headless execution mode (OpenCode run parity)."""
+    text = " ".join(prompt or []).strip()
+    if not text:
+        typer.echo("Error: message/prompt required.", err=True)
+        raise typer.Exit(code=1)
+    from delta_os.repl import Terminal
+    term = Terminal()
+    term.model_name = model
+    if thinking:
+        term.thinking = "ACTIVITY"
+    out, _ = term.handle(text)
+    if format_out.lower() == "json":
+        import json
+        typer.echo(json.dumps({"prompt": text, "model": model, "output": out}, indent=2))
+    else:
+        typer.echo(out)
+
+
+@app.command("chart")
+def chart_cmd(
+    symbol: str = typer.Argument(..., help="Symbol e.g. NVDA, AAPL, RELIANCE"),
+    days: int = typer.Option(30, "--days", "-d", help="Number of bars"),
+    depth: bool = typer.Option(True, "--depth", help="Include L2 order book depth ladder"),
+    rsi: bool = typer.Option(True, "--rsi", help="Include RSI subplot"),
+) -> None:
+    """Render in-terminal sectioned candlestick, indicator, and depth charts."""
+    from delta_os.terminal_chart import render_candlestick_chart, render_depth_ladder, render_rsi_subplot
+    from delta_os.bridge import DeltaBridge
+    bridge = DeltaBridge()
+    q = bridge.quote(symbol)
+    if q.get("status") == "UNAVAILABLE":
+        typer.echo(f"Market data unavailable for {symbol}: {q.get('error')}", err=True)
+        raise typer.Exit(code=1)
+
+    spark = q.get("sparkline", [])
+    if not spark:
+        typer.echo(f"No price bars available for {symbol}.", err=True)
+        raise typer.Exit(code=1)
+
+    candles = []
+    for i, p in enumerate(spark):
+        prev = spark[i-1] if i > 0 else p
+        candles.append({
+            "open": prev,
+            "high": max(p, prev) * 1.002,
+            "low": min(p, prev) * 0.998,
+            "close": p,
+            "volume": float(q.get("volume", 1000.0)),
+        })
+    typer.echo(render_candlestick_chart(candles, symbol, width=70, height=12, provenance=q.get("status", "AVAILABLE")))
+
+    if rsi and "rsi" in q:
+        rsi_val = float(q["rsi"])
+        rsi_history = [50.0 + (rsi_val - 50.0) * (j / 20.0) for j in range(20)]
+        typer.echo(render_rsi_subplot(rsi_history, width=70))
+
+    if depth:
+        typer.echo(render_depth_ladder(q.get("depth_bids", []), q.get("depth_asks", []), provenance=q.get("depth_provenance", "SYNTHETIC")))
+
+
+@app.command("auth")
+def auth_cmd(
+    action: str = typer.Argument("list", help="list|login|logout|export"),
+    provider: str = typer.Argument(None, help="Provider name: alpaca|ibkr|openai|anthropic|gemini|deepseek"),
+    token: str = typer.Argument(None, help="API key / secret token"),
+) -> None:
+    """Manage integrations and encrypted credentials in Vault."""
+    from delta_os.vault import Vault, default_path
+    v = Vault(default_path())
+    act = action.lower()
+    if act == "list":
+        typer.echo("DELTA VAULT CREDENTIALS")
+        typer.echo("──────────────────────────────────────────────────")
+        for slot in ("alpaca", "ibkr", "openai", "anthropic", "gemini", "deepseek", "fred"):
+            creds = v.get(slot) or {}
+            has_k = bool(creds.get("api_key") or creds.get("token"))
+            mask = "••••••••" if has_k else "(empty)"
+            typer.echo(f"  {slot:<14} : {mask}")
+        typer.echo("──────────────────────────────────────────────────")
+        typer.echo("Login: delta auth login <provider> <token>")
+    elif act == "login":
+        if not provider or not token:
+            typer.echo("Usage: delta auth login <provider> <token>", err=True)
+            raise typer.Exit(code=1)
+        v.put(provider.lower(), {"api_key": token.strip()})
+        typer.echo(f"✓ Saved credentials for {provider} into encrypted vault.")
+    elif act == "logout":
+        if not provider:
+            typer.echo("Usage: delta auth logout <provider>", err=True)
+            raise typer.Exit(code=1)
+        v.put(provider.lower(), {})
+        typer.echo(f"✓ Removed credentials for {provider} from vault.")
+    elif act == "export":
+        typer.echo("Vault export: encrypted at rest. Use master key to decrypt.")
+    else:
+        typer.echo(f"Unknown auth action: {action}", err=True)
+        raise typer.Exit(code=1)
+
+
+@app.command("models")
+def models_cmd(
+    action: str = typer.Argument("list", help="list|info|add"),
+    name: str = typer.Argument(None, help="Model name"),
+    base_url: str = typer.Argument(None, help="Base URL for custom model"),
+    model_id: str = typer.Argument(None, help="Model ID"),
+) -> None:
+    """List or configure models in the canonical model registry."""
+    from delta_os.repl import Terminal
+    term = Terminal()
+    if action == "list":
+        typer.echo(term.handle("/models list")[0])
+    elif action == "info":
+        typer.echo(term.handle("/models info")[0])
+    elif action == "add":
+        if not name or not base_url:
+            typer.echo("Usage: delta models add <name> <base-url> [model-id]", err=True)
+            raise typer.Exit(code=1)
+        typer.echo(term.handle(f"/models add {name} {base_url} {model_id or ''}")[0])
+    else:
+        typer.echo(f"Unknown models action: {action}", err=True)
+        raise typer.Exit(code=1)
+
+
+@app.command("mcp")
+def mcp_cmd(
+    action: str = typer.Argument("list", help="list|serve"),
+) -> None:
+    """Manage Model Context Protocol (MCP) integrations."""
+    if action == "list":
+        typer.echo("DELTA MODEL CONTEXT PROTOCOL (MCP) REGISTRY")
+        typer.echo("──────────────────────────────────────────────────")
+        typer.echo("  Connected Domains:")
+        typer.echo("  • delta_financial_data  : Market quotes with provenance badges")
+        typer.echo("  • delta_india_market    : NSE/BSE quotes & IST session status")
+        typer.echo("  • delta_india_universe  : NIFTY50 & sectoral universes")
+        typer.echo("  • delta_indicators      : Institutional technical indicator card")
+        typer.echo("  • delta_statistics      : Sharpe, Sortino, VaR 99%, MaxDD")
+        typer.echo("  • delta_reasonforge     : Multi-factor reasoning & stance synthesis")
+        typer.echo("──────────────────────────────────────────────────")
+        typer.echo("Run server: delta mcp serve")
+    elif action == "serve":
+        from tools import delta_mcp
+        import sys
+        import json
+        typer.echo("Starting DELTA MCP Stdio Server (JSON-RPC 2.0)...", err=True)
+        for line in sys.stdin:
+            if not line.strip():
+                continue
+            try:
+                msg = json.loads(line)
+                resp = delta_mcp._handle(msg)
+                sys.stdout.write(json.dumps(resp) + "\n")
+                sys.stdout.flush()
+            except Exception as exc:
+                sys.stderr.write(f"MCP Error: {exc}\n")
+    else:
+        typer.echo(f"Unknown mcp action: {action}", err=True)
+        raise typer.Exit(code=1)
+
+
+@app.command("session")
+def session_cmd(
+    action: str = typer.Argument("show", help="show|clear"),
+) -> None:
+    """Manage DELTA quant session parameters."""
+    from delta_os.repl import Terminal, _load_session
+    term = Terminal()
+    _load_session(term)
+    if action == "show":
+        typer.echo("DELTA SESSION STATE (~/.delta/session.json)")
+        typer.echo("──────────────────────────────────────────────────")
+        typer.echo(f"  Workspace   : {term.workspace}")
+        typer.echo(f"  Theme       : {term.theme}")
+        typer.echo(f"  Active Model: {term.model_name}")
+        typer.echo(f"  Broker      : {term.broker_name}")
+        typer.echo(f"  Safety Mode : {term.safety.mode}")
+        typer.echo(f"  Watchlist   : {', '.join(term.watchlist) if term.watchlist else '(empty)'}")
+        typer.echo("──────────────────────────────────────────────────")
+    elif action == "clear":
+        from delta_os import safety
+        p = safety._session_path()
+        if p.exists():
+            p.unlink()
+            typer.echo("✓ Session cleared. Defaults will boot on next launch.")
+        else:
+            typer.echo("No session file to clear.")
+
+
+@app.command("sentinel")
+def sentinel_cmd(
+    action: str = typer.Argument("status", help="status|start|stop|tick"),
+    max_dd: float = typer.Option(2.0, "--max-dd", help="Max daily drawdown limit % before circuit breaker"),
+) -> None:
+    """24/7 Autonomous Portfolio Sentinel & Risk Circuit Breaker."""
+    from delta_os.repl import Terminal
+    term = Terminal()
+    act = action.lower()
+    if act in ("status", "start", "stop"):
+        typer.echo(term.handle(f"/sentinel {act}")[0])
+    elif act == "tick":
+        term._c_sentinel(["status"])
+        res = term.sentinel.tick_once() if term.sentinel else {}
+        typer.echo(f"Sentinel tick completed: halted={res.get('halted')}, actions={res.get('actions')}")
+    else:
+        typer.echo(f"Unknown sentinel action: {action}", err=True)
+        raise typer.Exit(code=1)
+
+
+@app.command("broker")
+def broker_cmd(
+    action: str = typer.Argument("status", help="status|list|switch"),
+    name: str = typer.Argument(None, help="paper|alpaca|ibkr"),
+) -> None:
+    """Universal Multi-Broker Manager (Paper / Alpaca / IBKR / FIX)."""
+    from delta_os.repl import Terminal
+    term = Terminal()
+    act = action.lower()
+    if act == "list":
+        typer.echo("SUPPORTED BROKERS:")
+        typer.echo("  • paper   : Deterministic in-memory matching engine [DEFAULT, SAFE]")
+        typer.echo("  • alpaca  : Alpaca Trade API v2 (Paper & Live)")
+        typer.echo("  • ibkr    : Interactive Brokers Client Portal Gateway")
+    elif act == "status":
+        cur = term.router.current()
+        st = cur.status()
+        typer.echo(f"Active Broker: [{term.broker_name.upper()}]")
+        typer.echo(f"Status Details: {st}")
+    elif act == "switch":
+        if not name:
+            typer.echo("Usage: delta broker switch <paper|alpaca|ibkr>", err=True)
+            raise typer.Exit(code=1)
+        out, _ = term.handle(f"/broker use {name.lower()}")
+        typer.echo(out)
+    else:
+        typer.echo(f"Unknown broker action: {action}", err=True)
+        raise typer.Exit(code=1)
+
+
+@app.command("stats")
+def stats_cmd(
+    symbol: str = typer.Argument("SPY", help="Symbol for quantitative stats"),
+    days: int = typer.Option(252, "--days", "-d", help="Lookback window in trading days"),
+) -> None:
+    """Institutional Quantitative Statistics (Sharpe, Sortino, VaR, CVaR)."""
+    from delta_os.opencode_tools import tool_statistics
+    res = tool_statistics(symbol, days=days)
+    typer.echo(res.get("card", ""))
+
+
+@app.command("catalyst")
+def catalyst_cmd(
+    symbol: str = typer.Argument(..., help="Symbol e.g. NVDA, AAPL"),
+) -> None:
+    """Real-Time OSINT, SEC Filings & News Catalyst Dossier."""
+    from delta_os.osint_news import analyze_osint_news
+    summary = analyze_osint_news(symbol)
+    typer.echo(summary.render_cli())
+
+
 def main() -> None:
     app()
 

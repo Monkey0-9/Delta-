@@ -205,9 +205,9 @@ def test_ctypes_cabi_boundary():
     tmp.mkdir(exist_ok=True)
     ext = ".dll" if os.name == "nt" else ".so"
     lib = tmp / f"delta_cabi{ext}"
+    static_flags = ["-static-libgcc", "-static-libstdc++"] if os.name == "nt" else []
     subprocess.run(
-        ["g++", "-std=c++17", "-shared", "-fPIC", "-static-libgcc",
-         "-static-libstdc++", "-I.", "native/cpp/cabi.cpp",
+        ["g++", "-std=c++17", "-shared", "-fPIC", *static_flags, "-I.", "native/cpp/cabi.cpp",
          "-o", str(lib)], check=True, timeout=300,
     )
     so = ctypes.CDLL(str(lib.resolve()))

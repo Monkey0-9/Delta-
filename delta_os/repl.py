@@ -116,6 +116,9 @@ def _save_session(term) -> None:
                       UserWarning, stacklevel=2)
 
 HELP = {
+    "chart": "[symbol] [--days N] [--no-depth] — high-res in-terminal candlestick & depth chart",
+    "catalyst": "[symbol] — real-time OSINT & SEC filing news catalyst dossier",
+    "mistakes": "— review past trade failures and learned attribution lessons",
     "analyze": "[symbol] — multi-factor stock analysis & fundamental score",
     "forecast": "[symbol] [days=5] — future price direction & turn points (buy lows/sell highs)",
     "risk": "[sym|p] [asset_type|b] — Greeks (Delta/Gamma/Vega/Theta) or VaR99 & Kelly",
@@ -254,6 +257,8 @@ class Terminal:
             "backtest": self._c_backtest, "trade": self._c_trade,
             "quote": self._c_quote, "risk": self._c_risk,
             "india": self._c_india, "indicators": self._c_indicators,
+            "chart": self._c_chart, "catalyst": self._c_catalyst,
+            "mistakes": self._c_mistakes, "lessons": self._c_mistakes,
             "stats": self._c_stats, "reason": self._c_reason,
             "fundamental": self._c_fundamental, "report": self._c_report,
             "mode": self._c_mode, "theme": self._c_theme, "workspace": self._c_workspace,
@@ -1573,6 +1578,39 @@ class Terminal:
                 + f"0.25-Kelly guide {kelly['qty']} sh (${kelly['notional']:,.0f})"
                 + (f" | R:R 1:{rr:.2f}" if rr is not None else " | R:R n/a (add --stop/--target)")
                 + f" | {qf.provenance.tier}")
+
+        # Pre-Trade Mistake Interception (Self-Learning from Past Errors)
+        try:
+            from delta_os.pretrade_interceptor import PreTradeInterceptor
+            interceptor = PreTradeInterceptor()
+            f_frame = qf.frame
+            rsi_val = 50.0
+            if len(f_frame) >= 14:
+                try:
+                    rsi_val = float(Q.calc_rsi(f_frame["close"]).iloc[-1])
+                except Exception:
+                    rsi_val = 50.0
+            warnings = interceptor.inspect_order(
+                symbol=sym,
+                side=side,
+                quantity=qty,
+                price=px,
+                regime=self.regime_chip,
+                rsi=rsi_val,
+                strict_veto="force" not in kw,
+            )
+            if warnings:
+                warn_text = "\n".join(w.format_cli() for w in warnings)
+                if any(w.blocked for w in warnings):
+                    fw._seen_keys.discard(idem)
+                    raise SafetyError(f"Self-Learning Pre-Trade Veto:\n{warn_text}\n(pass --force to override)")
+                else:
+                    card = f"{warn_text}\n" + card
+        except SafetyError:
+            raise
+        except Exception:
+            pass
+
         try:
             # --yes skips the interactive prompt. It is accepted ONLY from
             # callers that already confirmed through their own UI (the Rust
@@ -1600,6 +1638,76 @@ class Terminal:
         r = cur.submit(sym, side, qty, px, idempotency_key=f"os-{sym}-{side}-{qty}-{px}")
         self.safety.compliance.append("order", {"ticket": r})
         return f"submitted {r['order_id']} {r['status']} filled {r['filled']} @ {r['avg_price']}."
+
+    def _c_chart(self, args: list) -> str:
+        if not args:
+            return "usage: /chart [symbol] [--days N] [--no-depth]"
+        sym = args[0].strip().upper()
+        days = 30
+        for i, a in enumerate(args[1:]):
+            if a == "--days" and i + 1 < len(args[1:]):
+                try:
+                    days = int(args[1:][i + 1])
+                except Exception:
+                    pass
+        from delta_os.terminal_chart import render_candlestick_chart, render_depth_ladder, render_rsi_subplot
+        qf = self.data.quote(sym, days=days)
+        f = qf.frame
+        if f is None or len(f) == 0:
+            return f"[{sym}] Chart data UNAVAILABLE."
+        candles = []
+        for _, row in f.iterrows():
+            candles.append({
+                "open": float(row.get("open", row.get("close", 0.0))),
+                "high": float(row.get("high", row.get("close", 0.0))),
+                "low": float(row.get("low", row.get("close", 0.0))),
+                "close": float(row.get("close", 0.0)),
+                "volume": float(row.get("volume", 0.0)),
+            })
+        chart_str = render_candlestick_chart(candles, sym, width=70, height=12, provenance=qf.provenance.tier)
+        try:
+            from delta_os.quantkit import calc_rsi
+            rsi_series = calc_rsi(f["close"])
+            rsi_chart = render_rsi_subplot(rsi_series.dropna().tolist(), width=70)
+            chart_str += "\n" + rsi_chart
+        except Exception:
+            pass
+        if "--no-depth" not in args:
+            last = candles[-1]["close"]
+            spread = max(0.01, round(last * 0.0002, 2))
+            half = spread / 2.0
+            bids = []
+            asks = []
+            for k in range(5):
+                bids.append({"price": round(last - half - k * 0.02, 2), "size": 150 * (k + 1)})
+                asks.append({"price": round(last + half + k * 0.02, 2), "size": 150 * (k + 1)})
+            depth_str = render_depth_ladder(bids, asks, width=64, provenance="SYNTHETIC")
+            chart_str += "\n" + depth_str
+        return chart_str
+
+    def _c_catalyst(self, args: list) -> str:
+        if not args:
+            return "usage: /catalyst [symbol]"
+        sym = args[0].strip().upper()
+        from delta_os.osint_news import analyze_osint_news
+        res = analyze_osint_news(sym)
+        return res.render_cli()
+
+    def _c_mistakes(self, args: list) -> str:
+        from delta_os.pretrade_interceptor import PreTradeInterceptor
+        interceptor = PreTradeInterceptor()
+        if not interceptor.learner.experiences and not interceptor.learner.failures:
+            return (
+                "=== SELF-LEARNING MISTAKE REPOSITORY ===\n"
+                "  Status: ACTIVE\n"
+                "  Recorded Failures: 0\n"
+                "  Trade Experiences: 0\n"
+                "  All pre-trade regime checks armed."
+            )
+        lines = ["=== SELF-LEARNING MISTAKE REPOSITORY ==="]
+        for f in interceptor.learner.failures[-5:]:
+            lines.append(f"  • [{f.failure_type}] {f.details} (Severity: {f.severity})")
+        return "\n".join(lines)
 
     # -- nl --
     def _ask(self, question: str) -> str:
