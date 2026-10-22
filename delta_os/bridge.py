@@ -156,7 +156,30 @@ class DeltaBridge:
             available_models = []
             model_catalogue_provenance = "UNAVAILABLE"
 
-        kill_switch_available = getattr(self.term.safety, "kill", None) is not None
+        # "Armed" means the safety control is present, its live state can
+        # be read, and it is not currently tripped. Object existence alone is
+        # not sufficient evidence of an armed protection.
+        kill_switch_obj = getattr(self.term.safety, "kill", None)
+        kill_switch_status_known = False
+        kill_switch_active = True  # conservative default: fail closed
+        try:
+            if kill_switch_obj is not None:
+                is_active = getattr(kill_switch_obj, "is_active", None)
+                if callable(is_active):
+                    kill_switch_active = bool(is_active())
+                    kill_switch_status_known = True
+                elif isinstance(getattr(kill_switch_obj, "active", None), bool):
+                    kill_switch_active = bool(kill_switch_obj.active)
+                    kill_switch_status_known = True
+        except Exception:
+            kill_switch_status_known = False
+            kill_switch_active = True
+        kill_switch_armed = bool(
+            kill_switch_obj is not None
+            and kill_switch_status_known
+            and not kill_switch_active
+            and not is_halted
+        )
 
         # Native acceleration check
         native_active = False
@@ -233,8 +256,11 @@ class DeltaBridge:
                 "gross_limit_provenance": "CONFIG" if book_available else "UNAVAILABLE",
                 "net_limit": 500_000.0,
                 "net_limit_provenance": "CONFIG" if book_available else "UNAVAILABLE",
-                "killswitch_armed": bool(kill_switch_available),
-                "killswitch_armed_provenance": "SAFETY_CORE" if kill_switch_available else "UNAVAILABLE",
+                "killswitch_armed": kill_switch_armed,
+                "killswitch_armed_provenance": (
+                    "SAFETY_CORE" if kill_switch_status_known and kill_switch_obj is not None
+                    else "UNAVAILABLE"
+                ),
                 "killswitch_halted": is_halted,
                 "risk_provenance": ("PAPER" if self.term.broker_name == "paper" else "LIVE") if book_available else "UNAVAILABLE",
                 "risk_asof": now.isoformat(),
