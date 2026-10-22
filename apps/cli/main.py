@@ -44,7 +44,12 @@ def model_doctor() -> None:
             torch.cuda.get_device_capability(0),
         )
 
-    print("Model platform: READY")
+    print("Toolchain check: COMPLETE")
+    print("Inference status: NOT VERIFIED")
+    print(
+        "Note: this checks PyTorch/CUDA only. It does not verify model weights, "
+        "provider authentication, or a successful inference call."
+    )
 
 
 @app.command("model-doctor")
@@ -78,8 +83,11 @@ def doctor(display: bool = typer.Option(False, "--display", help="Probe terminal
 
 @app.command("status")
 def status() -> None:
-    """Print frozen baseline status (no execution)."""
-    typer.echo("DELTA baseline: W45 contracts frozen. See research/contracts.py.")
+    """Show current runtime status; do not print a frozen historical baseline."""
+    from delta_os.repl import Terminal
+
+    output, _ = Terminal().handle("/status")
+    typer.echo(output)
 
 
 def _git_commit() -> str:
