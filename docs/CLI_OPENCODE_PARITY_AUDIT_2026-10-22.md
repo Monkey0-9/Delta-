@@ -15,7 +15,7 @@ This audit produced targeted fixes on branch **audit/cli-truth-opencode-parity**
 - model doctor no longer says the platform is ready merely because the local PyTorch/CUDA probe completed; it explicitly says inference is not verified, handles missing PyTorch, and returns a meaningful process result;
 - the CLI status command now uses current runtime status instead of a frozen historical baseline;
 - bridge dispatch reports BLOCKED, ERROR, unknown-command, unavailable, halted and invalid-input outcomes rather than calling every response successful;
-- the Python-to-Rust state payload now uses contract-compatible values for broker connectivity, the model catalogue and kill-switch presence; the Rust contract carries unknown broker connectivity as optional rather than pretending it is false;
+- the Python-to-Rust state payload now uses contract-compatible values for broker connectivity, the model catalogue and kill-switch state; the Rust contract carries unknown broker connectivity as optional rather than pretending it is false, and the risk view distinguishes a verified armed control from an unverified/unarmed control;
 - regression tests were added for these contracts.
 
 Those changes have been committed to the audit branch, not main. They have not been run in a local checkout in this environment. CI must validate the branch before any change is merged.
