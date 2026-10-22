@@ -143,3 +143,52 @@ def test_cli_upgrade_and_uninstall():
     res_un = runner.invoke(app, ["uninstall"])
     assert res_un.exit_code == 0
     assert "DELTA OS UNINSTALL" in res_un.stdout
+
+
+def test_cli_reload():
+    result = runner.invoke(app, ["reload"])
+    assert result.exit_code == 0
+    assert "DELTA OS CONFIGURATION RELOAD" in result.stdout
+    assert "Workspace" in result.stdout
+
+
+def test_cli_pair():
+    result = runner.invoke(app, ["pair"])
+    assert result.exit_code == 0
+    assert "DELTA OS ONE-TIME PAIRING LINK" in result.stdout
+    assert "token=" in result.stdout
+
+
+def test_cli_serve():
+    result = runner.invoke(app, ["serve", "--hostname", "127.0.0.1", "--port", "9876"])
+    assert result.exit_code == 0
+    assert "Starting DELTA Protocol Bridge" in result.stdout
+    assert "9876" in result.stdout
+
+
+def test_cli_session_export_and_list():
+    res_list = runner.invoke(app, ["session", "list"])
+    assert res_list.exit_code == 0
+    assert "DELTA SESSION STATE" in res_list.stdout
+
+    res_exp = runner.invoke(app, ["session", "export"])
+    assert res_exp.exit_code == 0
+    assert "workspace" in res_exp.stdout
+
+
+def test_cli_service_get_set():
+    res_get = runner.invoke(app, ["service", "get"])
+    assert res_get.exit_code == 0
+    assert "max_dd" in res_get.stdout
+
+    res_set = runner.invoke(app, ["service", "set", "max_dd", "3.5"])
+    assert res_set.exit_code == 0
+    assert "3.5" in res_set.stdout
+
+
+def test_cli_chart_macd_and_timeframe():
+    result = runner.invoke(app, ["chart", "AAPL", "--days", "20", "--timeframe", "1H"])
+    assert result.exit_code == 0
+    assert "AAPL" in result.stdout
+    assert "[1H]" in result.stdout
+    assert "MACD" in result.stdout

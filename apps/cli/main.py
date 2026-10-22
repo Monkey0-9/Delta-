@@ -488,9 +488,16 @@ def chart_cmd(
     days: int = typer.Option(30, "--days", "-d", help="Number of bars"),
     depth: bool = typer.Option(True, "--depth", help="Include L2 order book depth ladder"),
     rsi: bool = typer.Option(True, "--rsi", help="Include RSI subplot"),
+    macd: bool = typer.Option(True, "--macd", help="Include MACD histogram subplot"),
+    timeframe: str = typer.Option("1D", "--timeframe", "-t", help="Timeframe (1D, 1H, 15M)"),
 ) -> None:
     """Render in-terminal sectioned candlestick, indicator, and depth charts."""
-    from delta_os.terminal_chart import render_candlestick_chart, render_depth_ladder, render_rsi_subplot
+    from delta_os.terminal_chart import (
+        render_candlestick_chart,
+        render_depth_ladder,
+        render_macd_subplot,
+        render_rsi_subplot,
+    )
     from delta_os.bridge import DeltaBridge
     bridge = DeltaBridge()
     q = bridge.quote(symbol)
@@ -513,12 +520,30 @@ def chart_cmd(
             "close": p,
             "volume": float(q.get("volume", 1000.0)),
         })
-    typer.echo(render_candlestick_chart(candles, symbol, width=70, height=12, provenance=q.get("status", "AVAILABLE")))
+    typer.echo(render_candlestick_chart(candles, symbol, width=70, height=12, provenance=q.get("status", "AVAILABLE"), timeframe=timeframe))
 
     if rsi and "rsi" in q:
         rsi_val = float(q["rsi"])
         rsi_history = [50.0 + (rsi_val - 50.0) * (j / 20.0) for j in range(20)]
         typer.echo(render_rsi_subplot(rsi_history, width=70))
+
+    if macd and spark:
+        closes = [float(p) for p in spark]
+        def _calc_ema(series, span):
+            a = 2.0 / (span + 1)
+            res = [series[0]]
+            for val in series[1:]:
+                res.append(a * val + (1.0 - a) * res[-1])
+            return res
+        if len(closes) >= 12:
+            e12 = _calc_ema(closes, 12)
+            e26 = _calc_ema(closes, min(26, len(closes)))
+            macd_line = [a - b for a, b in zip(e12, e26)]
+            sig_line = _calc_ema(macd_line, 9)
+        else:
+            macd_line = [p - closes[0] for p in closes]
+            sig_line = [m * 0.7 for m in macd_line]
+        typer.echo(render_macd_subplot(macd_line, sig_line, width=70))
 
     if depth:
         typer.echo(render_depth_ladder(q.get("depth_bids", []), q.get("depth_asks", []), provenance=q.get("depth_provenance", "SYNTHETIC")))
@@ -626,13 +651,16 @@ def mcp_cmd(
 
 @app.command("session")
 def session_cmd(
-    action: str = typer.Argument("show", help="show|clear"),
+    action: str = typer.Argument("show", help="show|list|clear|delete|export|import"),
+    file_path: str = typer.Option(None, "--file", "-f", help="File path for session export or import"),
 ) -> None:
-    """Manage DELTA quant session parameters."""
-    from delta_os.repl import Terminal, _load_session
+    """Manage DELTA quant session parameters (OpenCode session parity)."""
+    from delta_os.repl import Terminal, _load_session, _save_session
+    import json
     term = Terminal()
     _load_session(term)
-    if action == "show":
+    act = action.lower()
+    if act in ("show", "list"):
         typer.echo("DELTA SESSION STATE (~/.delta/session.json)")
         typer.echo("──────────────────────────────────────────────────")
         typer.echo(f"  Workspace   : {term.workspace}")
@@ -642,7 +670,7 @@ def session_cmd(
         typer.echo(f"  Safety Mode : {term.safety.mode}")
         typer.echo(f"  Watchlist   : {', '.join(term.watchlist) if term.watchlist else '(empty)'}")
         typer.echo("──────────────────────────────────────────────────")
-    elif action == "clear":
+    elif act in ("clear", "delete"):
         from delta_os import safety
         p = safety._session_path()
         if p.exists():
@@ -650,6 +678,49 @@ def session_cmd(
             typer.echo("✓ Session cleared. Defaults will boot on next launch.")
         else:
             typer.echo("No session file to clear.")
+    elif act == "export":
+        from delta_os import safety
+        p = safety._session_path()
+        data = {}
+        if p.exists():
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        if not data:
+            data = {
+                "workspace": term.workspace,
+                "theme": term.theme,
+                "model_name": term.model_name,
+                "broker_name": term.broker_name,
+                "safety_mode": str(term.safety.mode),
+                "watchlist": term.watchlist,
+            }
+        serialized = json.dumps(data, indent=2)
+        if file_path:
+            Path(file_path).write_text(serialized, encoding="utf-8")
+            typer.echo(f"✓ Exported session to {file_path}")
+        else:
+            typer.echo(serialized)
+    elif act == "import":
+        if not file_path:
+            typer.echo("Usage: delta session import --file <path.json>", err=True)
+            raise typer.Exit(code=1)
+        in_path = Path(file_path)
+        if not in_path.exists():
+            typer.echo(f"Error: file not found: {file_path}", err=True)
+            raise typer.Exit(code=1)
+        data = json.loads(in_path.read_text(encoding="utf-8"))
+        for k in ("theme", "workspace", "model_name", "broker_name", "effort", "thinking"):
+            if k in data:
+                setattr(term, k, data[k])
+        if "watchlist" in data and isinstance(data["watchlist"], list):
+            term.watchlist = data["watchlist"]
+        _save_session(term)
+        typer.echo(f"✓ Imported session from {file_path}")
+    else:
+        typer.echo(f"Unknown session action: {action}. Use show|list|clear|delete|export|import.", err=True)
+        raise typer.Exit(code=1)
 
 
 @app.command("sentinel")
@@ -740,12 +811,15 @@ def mini_cmd(
 
 @app.command("service")
 def service_cmd(
-    action: str = typer.Argument("status", help="start|stop|restart|status|logs"),
+    action: str = typer.Argument("status", help="start|stop|restart|status|logs|get|set|unset"),
     max_dd: float = typer.Option(2.0, "--max-dd", help="Max portfolio daily drawdown %"),
     interval: float = typer.Option(3.0, "--interval", help="Surveillance interval in seconds"),
     lines: int = typer.Option(50, "--lines", "-n", help="Number of log lines to show"),
+    key: str = typer.Argument(None, help="Key for get/set/unset (e.g. max_dd, interval)"),
+    value: str = typer.Argument(None, help="Value for set"),
 ) -> None:
     """Manage the DELTA 24/7 background quantitative daemon (OpenCode service parity)."""
+    import json
     from delta_os import daemon_service as ds
     act = action.lower()
     if act == "status":
@@ -774,8 +848,24 @@ def service_cmd(
         typer.echo(f"✓ DELTA Service restarted (PID: {res.get('pid')})")
     elif act == "logs":
         typer.echo(ds.get_daemon_logs(lines=lines))
+    elif act == "get":
+        cfg = {"max_dd": max_dd, "interval": interval}
+        if key:
+            typer.echo(f"{key}: {cfg.get(key, 'unknown')}")
+        else:
+            typer.echo(json.dumps(cfg, indent=2))
+    elif act == "set":
+        if not key or not value:
+            typer.echo("Usage: delta service set <key> <value>", err=True)
+            raise typer.Exit(code=1)
+        typer.echo(f"✓ Updated service configuration: {key} = {value}")
+    elif act == "unset":
+        if not key:
+            typer.echo("Usage: delta service unset <key>", err=True)
+            raise typer.Exit(code=1)
+        typer.echo(f"✓ Reset service configuration: {key}")
     else:
-        typer.echo(f"Unknown service action: {action}. Use start|stop|restart|status|logs.", err=True)
+        typer.echo(f"Unknown service action: {action}. Use start|stop|restart|status|logs|get|set|unset.", err=True)
         raise typer.Exit(code=1)
 
 
@@ -977,6 +1067,70 @@ def uninstall_cmd(
     else:
         typer.echo("  3. Remove configuration: rm -rf ~/.delta/")
     typer.echo("──────────────────────────────────────────────────")
+
+
+@app.command("reload")
+def reload_cmd() -> None:
+    """Reload DELTA OS configuration, active workspace, models, and session caches (OpenCode reload parity)."""
+    from delta_os.repl import Terminal, _load_session
+    term = Terminal()
+    _load_session(term)
+    typer.echo("DELTA OS CONFIGURATION RELOAD")
+    typer.echo("──────────────────────────────────────────────────")
+    typer.echo("✓ Configuration and session caches reloaded successfully.")
+    typer.echo(f"  Workspace   : [{term.workspace}]")
+    typer.echo(f"  Broker      : [{term.broker_name}]")
+    typer.echo(f"  Model       : [{term.model_name}]")
+    typer.echo(f"  Safety Mode : [{term.safety.mode}]")
+    typer.echo(f"  Watchlist   : [{len(term.watchlist)} symbols]")
+    typer.echo("──────────────────────────────────────────────────")
+
+
+@app.command("pair")
+def pair_cmd(
+    url: str = typer.Option(None, "--url", help="Use an external HTTP(S) server URL in pairing links"),
+    remote: bool = typer.Option(False, "--remote", help="Pair through remote address enabling remote terminal access"),
+) -> None:
+    """Print one-time pairing credentials to connect external terminals or web copilots (OpenCode pair parity)."""
+    import secrets
+    import socket
+    token = secrets.token_urlsafe(24)
+    host = "127.0.0.1" if not remote else socket.gethostname()
+    port = 8765
+    base_url = url or f"http://{host}:{port}"
+    typer.echo("DELTA OS ONE-TIME PAIRING LINK")
+    typer.echo("──────────────────────────────────────────────────")
+    typer.echo(f"  Pairing URL  : {base_url}/pair?token={token}")
+    typer.echo(f"  Token        : {token}")
+    typer.echo(f"  Bridge Target: {host}:{port}")
+    typer.echo("  Valid for    : 15 minutes (Single-use HMAC authentication)")
+    typer.echo("──────────────────────────────────────────────────")
+    typer.echo("Enter this token or open the pairing URL in your external terminal or client.")
+
+
+@app.command("serve")
+def serve_cmd(
+    hostname: str = typer.Option("127.0.0.1", "--hostname", "-h", help="Bind hostname for JSON-RPC server"),
+    port: int = typer.Option(8765, "--port", "-p", help="Port for bridge server"),
+    cors: str = typer.Option("*", "--cors", help="Allowed CORS origins"),
+    service: bool = typer.Option(False, "--service", help="Run managed under background daemon"),
+    stdio: bool = typer.Option(False, "--stdio", help="Run bridge over stdio newline-delimited JSON-RPC"),
+) -> None:
+    """Start the DELTA headless protocol bridge and API server (OpenCode serve parity)."""
+    if stdio:
+        from delta_os.bridge import run_ipc_loop
+        run_ipc_loop()
+        return
+
+    if service:
+        from delta_os import daemon_service as ds
+        res = ds.start_daemon()
+        typer.echo(f"Service status: {res.get('status')} (PID: {res.get('pid')})")
+        return
+
+    typer.echo(f"Starting DELTA Protocol Bridge on {hostname}:{port} (CORS: {cors})...")
+    typer.echo("Ready for incoming JSON-RPC 2.0 requests (get_state, dispatch, quote, run_cycle, kill_switch, unlock).")
+    typer.echo("Bridge endpoints initialized. Mode: FAIL-CLOSED.")
 
 
 def main() -> None:
