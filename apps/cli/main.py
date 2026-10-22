@@ -57,6 +57,7 @@ def model_doctor() -> bool:
         "Note: this checks PyTorch/CUDA only. It does not verify model weights, "
         "provider authentication, or a successful inference call."
     )
+    return True
 
 
 @app.command("model-doctor")
