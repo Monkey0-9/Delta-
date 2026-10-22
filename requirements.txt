@@ -28,12 +28,6 @@ datasets>=2.14.0
 peft>=0.6.0
 accelerate>=0.24.0
 
-# Security gates (CI .github/workflows/security.yml pins exact versions)
-semgrep>=1.100.0
-bandit>=1.7.0
-pip-audit>=2.7.0
-
-
 # Utilities
 python-dateutil>=2.8.0
 pytz>=2023.3
