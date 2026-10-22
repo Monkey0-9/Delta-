@@ -8,6 +8,86 @@ use delta_tui::{
 use ratatui::layout::Rect;
 
 #[test]
+fn test_bridge_snapshot_json_types_are_deserializable() {
+    // Keep this contract aligned with delta_os.bridge.DeltaBridge.get_state().
+    // Unknown broker connectivity must remain null, not the string
+    // "UNAVAILABLE" in a bool field; model catalogue is always an array.
+    let raw = serde_json::json!({
+        "mode": "PAPER",
+        "safety_mode": "MANUAL",
+        "market_status": "CLOSED",
+        "clock_utc": "12:00:00 UTC",
+        "workspace": "TEST",
+        "broker": {
+            "name": "paper",
+            "connected": true,
+            "connected_provenance": "PAPER_ENGINE",
+            "type": "PAPER_ENGINE"
+        },
+        "portfolio": {
+            "net_liq": 100000.0,
+            "cash": 100000.0,
+            "equity": 100000.0,
+            "day_pnl": 0.0,
+            "day_pnl_pct": 0.0,
+            "gross_exposure": 0.0,
+            "net_exposure": 0.0,
+            "leverage": 0.0,
+            "positions_count": 0,
+            "positions": [],
+            "status": "AVAILABLE",
+            "status_reason": "",
+            "provenance": "PAPER"
+        },
+        "risk": {
+            "status": "SAFE",
+            "status_reason": "",
+            "provenance": "PAPER",
+            "var95": 0.0,
+            "var99": 0.0,
+            "cvar": 0.0,
+            "drawdown": 0.0,
+            "leverage": 0.0,
+            "gross_limit": 2000000.0,
+            "net_limit": 500000.0,
+            "killswitch_armed": true,
+            "killswitch_armed_provenance": "SAFETY_CORE",
+            "killswitch_halted": false,
+            "alerts": []
+        },
+        "models": {
+            "active_model": "delta",
+            "available_models": ["delta"],
+            "available_models_provenance": "CATALOGUE_UNPROBED",
+            "health": "UNAVAILABLE",
+            "confidence": null
+        },
+        "system": {
+            "market_data_provider": "DataRouter",
+            "market_data_status": "UNAVAILABLE",
+            "broker_connection": "PAPER_ENGINE",
+            "model_gateway": "ModelGateway",
+            "database": "SQLite / JSON",
+            "runtime": "DELTA",
+            "native_acceleration": "Python Fallback",
+            "version": "test",
+            "environment": "PAPER"
+        }
+    });
+
+    let snapshot: StateSnapshot =
+        serde_json::from_value(raw).expect("bridge payload must match typed protocol");
+    assert_eq!(snapshot.broker.connected, Some(true));
+    assert_eq!(snapshot.broker.connected_provenance, "PAPER_ENGINE");
+    assert_eq!(snapshot.models.available_models, vec!["delta".to_string()]);
+    assert_eq!(
+        snapshot.models.available_models_provenance,
+        "CATALOGUE_UNPROBED"
+    );
+    assert!(snapshot.risk.killswitch_armed);
+}
+
+#[test]
 fn test_all_eleven_views_navigation_cycle() {
     let mut app = App::new(None);
     assert_eq!(app.state.nav.current_view, ViewId::Home);
