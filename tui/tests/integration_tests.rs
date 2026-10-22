@@ -55,7 +55,8 @@ fn test_mode_visibility_and_snapshot_consumption() {
         workspace: "PROD_DESK".into(),
         broker: BrokerInfo {
             name: "LiveDMA".into(),
-            connected: true,
+            connected: Some(true),
+            connected_provenance: "TEST_FIXTURE".into(),
             r#type: "DIRECT_FIX".into(),
         },
         clock_utc: "15:30:00 UTC".into(),
@@ -131,6 +132,7 @@ fn test_mode_visibility_and_snapshot_consumption() {
         models: ModelInfo {
             active_model: "delta-fm-research".into(),
             available_models: vec!["delta-fm-research".into(), "groq-free".into()],
+            available_models_provenance: "TEST_FIXTURE".into(),
             health: "OPERATIONAL".into(),
             confidence: Some(0.94),
         },
