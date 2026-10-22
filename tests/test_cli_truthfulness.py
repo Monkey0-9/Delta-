@@ -15,7 +15,7 @@ def test_model_doctor_does_not_claim_inference_ready(monkeypatch, capsys):
     )
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
 
-    cli.model_doctor()
+    assert cli.model_doctor() is True
     output = capsys.readouterr().out
 
     assert "Toolchain check: COMPLETE" in output
