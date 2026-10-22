@@ -12,9 +12,18 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
+import json
+import os
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from learning.closed_loop import ClosedLoopLearner, FailureType
+
+
+def _mistakes_file_path() -> Path:
+    base = Path(os.environ.get("DELTA_HOME", str(Path.home() / ".delta")))
+    base.mkdir(parents=True, exist_ok=True)
+    return base / "mistakes.jsonl"
 
 
 @dataclass(frozen=True)
@@ -45,6 +54,29 @@ class PreTradeInterceptor:
 
     def __init__(self, learner: Optional[ClosedLoopLearner] = None) -> None:
         self.learner = learner or ClosedLoopLearner()
+        self._load_persisted_mistakes()
+
+    def _load_persisted_mistakes(self) -> None:
+        """Load historical trade mistakes from persistent JSONL file."""
+        p = _mistakes_file_path()
+        if not p.exists():
+            return
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                for line in f:
+                    if not line.strip():
+                        continue
+                    item = json.loads(line)
+                    self.learner.record_experience(
+                        trade_id=item.get("trade_id", "persisted"),
+                        symbol=item.get("symbol", "").upper(),
+                        predicted_return=float(item.get("predicted_return", 0.0)),
+                        realized_return=float(item.get("realized_return", -0.02)),
+                        execution_shortfall_bps=float(item.get("execution_shortfall_bps", 0.0)),
+                        vwap_slippage_bps=float(item.get("vwap_slippage_bps", 0.0)),
+                    )
+        except Exception:
+            pass
 
     def inspect_order(
         self,
@@ -149,6 +181,56 @@ class PreTradeInterceptor:
                 details=details or f"Trade {trade_id} on {symbol} lost {realized_return * 100:.2f}%.",
                 severity="HIGH" if realized_return < -0.03 else "MEDIUM",
             )
+            # Atomically append to persistent mistakes file
+            try:
+                p = _mistakes_file_path()
+                record = {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "trade_id": trade_id,
+                    "symbol": symbol.strip().upper(),
+                    "predicted_return": predicted_return,
+                    "realized_return": realized_return,
+                    "execution_shortfall_bps": execution_shortfall_bps,
+                    "vwap_slippage_bps": vwap_slippage_bps,
+                    "failure_type": ft,
+                    "details": details,
+                }
+                with open(p, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(record) + "\n")
+            except Exception:
+                pass
+
+    def get_bayesian_risk_penalty(self, symbol: str, regime: str = "NEUTRAL") -> float:
+        """Compute an adaptive capital scaling multiplier (0.25 to 1.0) based on historical loss rate.
+
+        If a model suffers frequent losses on this asset or regime, reduce allocation size.
+        """
+        sym = symbol.strip().upper()
+        sym_exps = [e for e in self.learner.experiences if e.symbol == sym]
+        if not sym_exps:
+            return 1.0  # No prior negative experience
+
+        losses = [e for e in sym_exps if e.realized_return < 0.0]
+        loss_rate = len(losses) / len(sym_exps)
+
+        # Scale penalty: 0.0 loss rate -> 1.0; 100% loss rate -> 0.25
+        penalty = max(0.25, 1.0 - (loss_rate * 0.75))
+        return round(penalty, 2)
+
+    def get_mistakes_ledger(self) -> List[Dict[str, Any]]:
+        """Return full ledger of all recorded trade experiences and attributed failures."""
+        records = []
+        for exp in self.learner.experiences:
+            records.append({
+                "trade_id": exp.trade_id,
+                "symbol": exp.symbol,
+                "predicted_return": exp.predicted_return,
+                "realized_return": exp.realized_return,
+                "execution_shortfall_bps": exp.execution_shortfall_bps,
+                "vwap_slippage_bps": exp.vwap_slippage_bps,
+                "status": "LOSS" if exp.realized_return < 0 else "PROFIT",
+            })
+        return records
 
 
 __all__ = [

@@ -33,6 +33,7 @@ def render_candlestick_chart(
     height: int = 12,
     provenance: str = "AVAILABLE",
     show_volume: bool = True,
+    timeframe: str = "1D",
 ) -> str:
     """Render an ASCII/Unicode candlestick chart with a price axis and provenance badge."""
     if not candles:
@@ -76,10 +77,10 @@ def render_candlestick_chart(
 
     lines: List[str] = []
 
-    # 1. Header with symbol, metrics, and provenance badge
+    # 1. Header with symbol, timeframe, metrics, and provenance badge
     chg_sign = "+" if change >= 0 else ""
     header = (
-        f"  {symbol:<8} · Last: {last_px:,.2f} ({chg_sign}{change:,.2f} | {chg_sign}{change_pct:.2f}%) "
+        f"  {symbol:<8} [{timeframe}] · Last: {last_px:,.2f} ({chg_sign}{change:,.2f} | {chg_sign}{change_pct:.2f}%) "
         f"· High: {max_px:,.2f} · Low: {min_px:,.2f} · [{provenance}]"
     )
     lines.append(header)
@@ -225,7 +226,13 @@ def render_depth_ladder(
 
         lines.append(f"  {b_str}  │  {a_str}")
 
-    # Spread calculation
+    # Spread & Order Book Imbalance Ratio (OBIR) calculation
+    total_bid_sz = sum(int(b.get("size", 0)) for b in bid_list)
+    total_ask_sz = sum(int(a.get("size", 0)) for a in ask_list)
+    tot_depth = total_bid_sz + total_ask_sz
+    obir = ((total_bid_sz - total_ask_sz) / tot_depth) if tot_depth > 0 else 0.0
+    bias_tag = "BUY HEAVY" if obir > 0.15 else ("SELL HEAVY" if obir < -0.15 else "BALANCED")
+
     if bid_list and ask_list:
         best_bid = float(bid_list[0].get("price", 0.0))
         best_ask = float(ask_list[0].get("price", 0.0))
@@ -233,8 +240,54 @@ def render_depth_ladder(
         spread_bps = (spread_abs / best_bid * 10_000.0) if best_bid > 0 else 0.0
         lines.append("  " + "─" * width)
         lines.append(f"  Spread: {spread_abs:,.2f} ({spread_bps:.1f} bps) · Top Book: Bid {best_bid:,.2f} / Ask {best_ask:,.2f}")
+        lines.append(f"  Depth Imbalance: OBIR {obir:+.2f} [{bias_tag}] · Total Depth: {tot_depth:,} shares")
 
     lines.append("  " + "─" * width)
+    return "\n".join(lines)
+
+
+def render_macd_subplot(
+    macd_series: Sequence[float],
+    signal_series: Sequence[float],
+    width: int = 70,
+    height: int = 5,
+) -> str:
+    """Render MACD indicator histogram subplot."""
+    if not macd_series or not signal_series:
+        return "  MACD: UNAVAILABLE"
+
+    w_macd = list(macd_series[-width:])
+    w_sig = list(signal_series[-width:])
+    n = min(len(w_macd), len(w_sig))
+    if n == 0:
+        return "  MACD: EMPTY"
+
+    hist = [w_macd[i] - w_sig[i] for i in range(n)]
+    last_m = w_macd[-1]
+    last_s = w_sig[-1]
+    last_h = hist[-1]
+
+    lines = [
+        f"  MACD (12, 26, 9) · MACD: {last_m:+.2f} · Signal: {last_s:+.2f} · Hist: {last_h:+.2f}",
+        "  " + "─" * (n + 12),
+    ]
+
+    max_h = max(abs(h) for h in hist) if hist and max(abs(h) for h in hist) > 0 else 1.0
+    for r in range(height - 1, -1, -1):
+        level = ((r - (height // 2)) / (height // 2)) * max_h
+        row_chars = []
+        for h in hist:
+            if h >= 0 and level >= 0 and h >= level:
+                row_chars.append("▲")
+            elif h < 0 and level < 0 and h <= level:
+                row_chars.append("▼")
+            elif abs(level) < (max_h / height / 2.0):
+                row_chars.append("┄")
+            else:
+                row_chars.append(" ")
+        lines.append(f"{level:7.2f}  │ {''.join(row_chars)}")
+
+    lines.append("  " + "─" * (n + 12))
     return "\n".join(lines)
 
 
@@ -243,4 +296,5 @@ __all__ = [
     "render_candlestick_chart",
     "render_rsi_subplot",
     "render_depth_ladder",
+    "render_macd_subplot",
 ]

@@ -68,3 +68,13 @@ def test_interceptor_learns_from_trade_experience():
     assert w.symbol == "AAPL"
     assert "Prior loss on AAPL" in w.lesson
     assert w.past_loss_pct > 4.0
+
+    # Test Bayesian risk penalty
+    penalty = interceptor.get_bayesian_risk_penalty("AAPL")
+    assert penalty < 1.0  # Reduced due to prior loss
+
+    # Test mistakes ledger
+    ledger = interceptor.get_mistakes_ledger()
+    assert len(ledger) >= 1
+    assert ledger[0]["symbol"] == "AAPL"
+    assert ledger[0]["status"] == "LOSS"

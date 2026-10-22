@@ -91,3 +91,55 @@ def test_cli_run_headless_json():
     data = json.loads(result.stdout)
     assert data["model"] == "delta-fm-research"
     assert "output" in data
+
+
+def test_cli_service_status():
+    result = runner.invoke(app, ["service", "status"])
+    assert result.exit_code == 0
+    assert "DELTA BACKGROUND SERVICE STATUS" in result.stdout
+    assert "State" in result.stdout
+
+
+def test_cli_plugin_list():
+    result = runner.invoke(app, ["plugin", "list"])
+    assert result.exit_code == 0
+    assert "DELTA QUANTITATIVE PLUGIN REGISTRY" in result.stdout
+
+
+def test_cli_debug_paths_and_agents():
+    res_paths = runner.invoke(app, ["debug", "paths"])
+    assert res_paths.exit_code == 0
+    assert "DELTA GLOBAL PATHS" in res_paths.stdout
+
+    res_agents = runner.invoke(app, ["debug", "agents"])
+    assert res_agents.exit_code == 0
+    assert "DELTA REGISTERED AGENT FLEET" in res_agents.stdout
+
+
+def test_cli_acp_startup():
+    result = runner.invoke(app, ["acp"])
+    assert result.exit_code == 0
+    assert "Starting DELTA ACP Server" in result.stdout
+
+
+def test_cli_api_quote():
+    result = runner.invoke(app, ["api", "quote", "AAPL"])
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert "AAPL" in data["symbol"]
+
+
+def test_cli_mistakes_ledger():
+    result = runner.invoke(app, ["mistakes"])
+    assert result.exit_code == 0
+    assert "DELTA SELF-LEARNING MISTAKE ATTRIBUTION LEDGER" in result.stdout
+
+
+def test_cli_upgrade_and_uninstall():
+    res_up = runner.invoke(app, ["upgrade"])
+    assert res_up.exit_code == 0
+    assert "DELTA OS" in res_up.stdout
+
+    res_un = runner.invoke(app, ["uninstall"])
+    assert res_un.exit_code == 0
+    assert "DELTA OS UNINSTALL" in res_un.stdout

@@ -7,6 +7,7 @@ from delta_os.terminal_chart import (
     render_candlestick_chart,
     render_depth_ladder,
     render_rsi_subplot,
+    render_macd_subplot,
 )
 
 
@@ -47,3 +48,23 @@ def test_depth_ladder():
     assert "Spread:" in out
     assert "100.00" in out
     assert "100.20" in out
+    assert "Depth Imbalance:" in out
+    assert "OBIR" in out
+
+
+def test_macd_subplot():
+    macd = [0.1, 0.2, 0.4, 0.6, 0.5, 0.3, 0.1, -0.2]
+    sig = [0.05, 0.1, 0.2, 0.3, 0.35, 0.35, 0.3, 0.2]
+    out = render_macd_subplot(macd, sig, width=30, height=5)
+    assert "MACD (12, 26, 9)" in out
+    assert "▲" in out or "▼" in out
+    assert "Signal:" in out
+
+
+def test_candlestick_chart_timeframe():
+    candles = [
+        {"open": 100.0, "high": 105.0, "low": 98.0, "close": 104.0, "volume": 1000.0},
+    ]
+    out = render_candlestick_chart(candles, "MSFT", width=40, height=8, timeframe="15M")
+    assert "[15M]" in out
+    assert "MSFT" in out
