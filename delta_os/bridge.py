@@ -131,6 +131,33 @@ class DeltaBridge:
         is_halted = ks_mode == "HALTED" or self.pipeline.kill_switch_halted
         risk_status = "CRITICAL / HALTED" if is_halted else ("ELEVATED" if leverage > 1.5 else "SAFE")
 
+        # Keep bridge JSON aligned with the typed Rust StateSnapshot.
+        # Unknown broker connectivity is None (not the string "UNAVAILABLE").
+        paper_active = str(self.term.broker_name).lower() == "paper"
+        broker_connected: bool | None = True if paper_active else None
+        broker_connected_provenance = "PAPER_ENGINE" if paper_active else "UNPROBED"
+
+        # Expose the catalogue as names, not a status string. Listing a model
+        # is not proof that it can generate; model health stays UNAVAILABLE
+        # until a real inference probe is recorded.
+        try:
+            from delta_os.model_catalogue import catalogue_status, load_custom
+
+            model_rows = catalogue_status(
+                self.term.vault, load_custom(self.term.vault)
+            )
+            available_models = [
+                str(row["name"]) for row in model_rows if row.get("name")
+            ]
+            model_catalogue_provenance = (
+                "CATALOGUE_UNPROBED" if available_models else "UNAVAILABLE"
+            )
+        except Exception:
+            available_models = []
+            model_catalogue_provenance = "UNAVAILABLE"
+
+        kill_switch_available = getattr(self.term.safety, "kill", None) is not None
+
         # Native acceleration check
         native_active = False
         try:
@@ -168,9 +195,9 @@ class DeltaBridge:
             "workspace": self.term.workspace,
             "broker": {
                 "name": self.term.broker_name,
-                "connected": "UNAVAILABLE",
-                "connected_provenance": "UNAVAILABLE",
-                "type": "PAPER_ENGINE" if self.term.broker_name == "paper" else "DIRECT_BROKER",
+                "connected": broker_connected,
+                "connected_provenance": broker_connected_provenance,
+                "type": "PAPER_ENGINE" if paper_active else "DIRECT_BROKER",
             },
             "portfolio": {
                 "net_liq": equity,
@@ -206,8 +233,8 @@ class DeltaBridge:
                 "gross_limit_provenance": "CONFIG" if book_available else "UNAVAILABLE",
                 "net_limit": 500_000.0,
                 "net_limit_provenance": "CONFIG" if book_available else "UNAVAILABLE",
-                "killswitch_armed": "UNAVAILABLE",
-                "killswitch_armed_provenance": "UNAVAILABLE",
+                "killswitch_armed": bool(kill_switch_available),
+                "killswitch_armed_provenance": "SAFETY_CORE" if kill_switch_available else "UNAVAILABLE",
                 "killswitch_halted": is_halted,
                 "risk_provenance": ("PAPER" if self.term.broker_name == "paper" else "LIVE") if book_available else "UNAVAILABLE",
                 "risk_asof": now.isoformat(),
@@ -221,8 +248,8 @@ class DeltaBridge:
             "models": {
                 "active_model": self.term.model_name,
                 "active_roles": getattr(self.term.models, "active", {}),
-                "available_models": "UNAVAILABLE",
-                "available_models_provenance": "UNAVAILABLE",
+                "available_models": available_models,
+                "available_models_provenance": model_catalogue_provenance,
                 "health": "UNAVAILABLE",
                 "health_provenance": "UNAVAILABLE",
                 "confidence": None,
