@@ -20,11 +20,18 @@ def _default(ctx: typer.Context) -> None:
         raise SystemExit(Terminal().run())
 
 
-def model_doctor() -> None:
-    import torch
-
+def model_doctor() -> bool:
+    """Probe the local ML runtime without misrepresenting inference readiness."""
     print("DELTA-FM MODEL DOCTOR")
     print("=" * 40)
+    try:
+        import torch
+    except ImportError:
+        print("PyTorch: NOT INSTALLED")
+        print("Toolchain check: INCOMPLETE")
+        print("Inference status: NOT VERIFIED")
+        print("Fix: install the project's supported ML dependencies, then rerun model-doctor.")
+        return False
 
     print(f"PyTorch: {torch.__version__}")
     print(f"CUDA available: {torch.cuda.is_available()}")
@@ -54,8 +61,9 @@ def model_doctor() -> None:
 
 @app.command("model-doctor")
 def model_doctor_cmd() -> None:
-    """Local GPU/model toolchain check (RTX 3050 6GB safe, read-only)."""
-    model_doctor()
+    """Probe local ML runtime (read-only; inference readiness is a separate gate)."""
+    if not model_doctor():
+        raise typer.Exit(code=1)
 
 
 @app.command("doctor")
@@ -78,7 +86,8 @@ def doctor(display: bool = typer.Option(False, "--display", help="Probe terminal
         import json
         typer.echo(json.dumps(display_probe(), indent=2))
         return
-    model_doctor()
+    if not model_doctor():
+        raise typer.Exit(code=1)
 
 
 @app.command("status")
