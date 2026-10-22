@@ -9,7 +9,7 @@ name: delta-security-gates
 # secrets rules; a gitleaks job would add an external action dep plus
 # triage surface for no new coverage. Revisit if secret_scan ever goes red
 # on a shape it cannot express.
-on: [push, pull_request]
+on: [push, pull_request, workflow_dispatch]
 permissions:
   contents: read
 jobs:
