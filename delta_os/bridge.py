@@ -246,11 +246,58 @@ class DeltaBridge:
         }
 
     def dispatch(self, text: str) -> dict[str, Any]:
+        """Dispatch a terminal command and preserve its real outcome status.
+
+        The UI uses status == "ok" as the success signal. Returning "ok"
+        for BLOCKED, ERROR, unknown commands, or unavailable data made failed
+        operations appear successful, so classify the runtime's explicit
+        result prefixes here. This is presentation status only; execution
+        authority remains with the safety/OMS pipeline.
+        """
         text = (text or "").strip()
         if not text:
             return {"output": "", "status": "ok"}
         out, _ = self.term.handle(text)
-        return {"output": out, "status": "ok"}
+        output = str(out or "")
+        status = _dispatch_status(text, output)
+        return {"output": output, "status": status}
+
+
+def _dispatch_status(command_text: str, output_text: str) -> str:
+    """Map explicit terminal result markers to stable bridge status values."""
+    output = (output_text or "").strip()
+    if not output:
+        return "ok"
+
+    upper = output.upper()
+    if upper.startswith("KILLED:"):
+        return "halted"
+    if upper.startswith((
+        "BLOCKED:", "REFUSED:", "DENIED:", "UNLOCK DENIED:",
+        "DELTA SAFETY BOUNDARY",
+    )):
+        return "blocked"
+    if upper.startswith(("ERROR:", "FAILED:", "DELTA LLM ERROR")):
+        return "error"
+    if upper.startswith(("UNKNOWN /", "UNKNOWN COMMAND")):
+        return "unknown_command"
+    if upper.lower().startswith("usage:"):
+        return "invalid_input"
+    if upper.lower().startswith(("cancelled", "canceled")):
+        return "cancelled"
+
+    # These commands return explicit feed failures in their main result body
+    # instead of a standard prefix. Don't infer health from unrelated fields
+    # printed by /status or /doctor.
+    first = (command_text or "").strip().split(maxsplit=1)
+    command = first[0].lstrip("/").lower() if first else ""
+    if command in {
+        "data", "quote", "india", "news", "macro", "fundamental",
+        "indicators", "stats",
+    } and "UNAVAILABLE" in upper:
+        return "unavailable"
+
+    return "ok"
 
     def quote(self, symbol: str) -> dict[str, Any]:
         sym = symbol.strip().upper()
