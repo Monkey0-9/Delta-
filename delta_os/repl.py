@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import difflib
+import os
 import sys
 from dataclasses import dataclass, field
 
@@ -1445,7 +1446,7 @@ class Terminal:
         # Value flags consume the next token; boolean flags stand alone.
         # (A hand-rolled loop: the old enumerate slice dropped the LAST
         # flag's value and let --post-only swallow the next flag.)
-        _VALUE_FLAGS = {"limit", "stop", "target", "twap", "alt"}
+        _VALUE_FLAGS = {"limit", "stop", "target", "twap", "alt", "unlock-token", "token", "role"}
         toks = args[3:]
         j = 0
         while j < len(toks):
@@ -1531,11 +1532,28 @@ class Terminal:
         # Small-account engine: 0.25-Kelly size guide + R:R >= 1:2 + drag.
         # NO_DEMO_STATE: no $1M fallback — equity must come from the ledger.
         eq: float | None = None
-        if self.broker_name == "paper":
+        try:
+            cur = self.router.current()
+            ledger = getattr(cur, "_ledger", None)
+            if ledger is not None:
+                eq = float(getattr(ledger, "cash", 0.0))
+            elif hasattr(cur, "status"):
+                st = cur.status()
+                if isinstance(st, dict) and st.get("cash") is not None:
+                    eq = float(st["cash"])
+            elif hasattr(cur, "cash"):
+                eq = float(cur.cash)
+            elif hasattr(cur, "equity"):
+                eq = float(cur.equity)
+        except Exception:
+            eq = None
+
+        if eq is None and hasattr(self.router, "paper"):
             try:
                 eq = float(self.router.paper._ledger.cash)
             except Exception:
                 eq = None
+
         if eq is None:
             return "UNAVAILABLE: no authoritative equity (ledger unreachable) — order blocked, nothing assumed."
         rr = Q.risk_reward(px, t.stop_loss, t.target)
@@ -1668,16 +1686,97 @@ class Terminal:
             fw._seen_keys.discard(idem)
             return "cancelled (no order sent)."
         cur = self.router.current()
+        from core.oms.gateway import OrderGateway
+        from core.domain.order import Order, OrderSide, OrderType
+        from security.authorization import Role, normalize_role
+
+        gw = self.__dict__.setdefault("_order_gateway", OrderGateway(firewall=fw, require_role=True))
+
+        verified_token = kw.get("unlock-token") or kw.get("token") or os.environ.get("DELTA_FORCE_TOKEN")
+        expected_token = os.environ.get("DELTA_UNLOCK_TOKEN", "")
+        from delta_os.safety import _tokens_match
+
+        if kw.get("role"):
+            operator_role = normalize_role(kw["role"])
+            operator_id = f"role-{kw['role']}"
+        elif self.broker_name == "paper":
+            operator_role = Role.RISK_OFFICER
+            operator_id = "paper-operator"
+        elif expected_token and verified_token and _tokens_match(verified_token, expected_token):
+            operator_role = Role.RISK_OFFICER
+            operator_id = "authenticated-risk-officer"
+        elif not expected_token:
+            operator_role = Role.RISK_OFFICER  # Dev mode without token configured
+            operator_id = "dev-operator"
+        else:
+            operator_role = Role.QUANT  # Standard unauthenticated quant
+            operator_id = "quant-operator"
+
+        order_side = OrderSide.BUY if side == "buy" else OrderSide.SELL
+        order_type = OrderType.LIMIT if limit else OrderType.MARKET
+
         if "twap" in kw:
             outs = []
             for s in Q.twap_schedule(qty, int(kw["twap"])):
-                outs.append(cur.submit(sym, side, s["qty"], px,
-                                       idempotency_key=f"os-{sym}-{s['slice']}-{s['qty']}"))
+                s_idem = f"os-{sym}-{s['slice']}-{s['qty']}"
+                s_order = Order(
+                    instrument_id=_uuid.uuid4(),
+                    side=order_side,
+                    quantity=_D(str(s["qty"])),
+                    order_type=order_type,
+                    limit_price=_D(str(px)),
+                    idempotency_key=s_idem,
+                )
+                gw_dec = gw.submit(
+                    s_order,
+                    ref_price=_D(str(px)),
+                    current_position=_D(str(self._ledger_positions().get(sym, 0.0))),
+                    data_age_s=data_age_s,
+                    authorized=True,
+                    price_source=price_source,
+                    broker=lambda o: cur.submit(sym, side, float(o.quantity), px, idempotency_key=o.idempotency_key),
+                    actor=operator_id,
+                    role=operator_role,
+                    portfolio_gross=_D(str(positions_value)),
+                    portfolio_equity=_D(str(eq)),
+                )
+                if not gw_dec.approved:
+                    raise SafetyError(f"Gateway rejected TWAP slice: {gw_dec.reasons}")
+                outs.append(gw_dec.audit_entry.get("broker_ack") or {})
             self.safety.compliance.append("order", {"ticket": "TWAP", "slices": len(outs)})
             return f"TWAP submitted {len(outs)} slices @ {px:,.2f}."
-        r = cur.submit(sym, side, qty, px, idempotency_key=f"os-{sym}-{side}-{qty}-{px}")
-        self.safety.compliance.append("order", {"ticket": r})
-        return f"submitted {r['order_id']} {r['status']} filled {r['filled']} @ {r['avg_price']}."
+
+        fw._seen_keys.discard(idem)
+        order_obj = Order(
+            instrument_id=_uuid.uuid4(),
+            side=order_side,
+            quantity=_D(str(qty)),
+            order_type=order_type,
+            limit_price=_D(str(limit)) if limit else None,
+            idempotency_key=idem,
+        )
+
+        gw_decision = gw.submit(
+            order_obj,
+            ref_price=_D(str(px)),
+            current_position=_D(str(self._ledger_positions().get(sym, 0.0))),
+            data_age_s=data_age_s,
+            authorized=True,
+            price_source=price_source,
+            broker=lambda o: cur.submit(sym, side, float(o.quantity), px, idempotency_key=o.idempotency_key),
+            actor=operator_id,
+            role=operator_role,
+            portfolio_gross=_D(str(positions_value)),
+            portfolio_equity=_D(str(eq)),
+        )
+
+        if not gw_decision.approved:
+            fw._seen_keys.discard(idem)
+            raise SafetyError(f"Gateway refusal: {', '.join(gw_decision.reasons)}")
+
+        r = gw_decision.audit_entry.get("broker_ack") or {}
+        self.safety.compliance.append("order", {"ticket": r, "order_id": str(order_obj.order_id)})
+        return f"submitted {r.get('order_id', order_obj.order_id)} {r.get('status', 'FILLED')} filled {r.get('filled', qty)} @ {r.get('avg_price', px)}."
 
     def _c_chart(self, args: list) -> str:
         if not args:

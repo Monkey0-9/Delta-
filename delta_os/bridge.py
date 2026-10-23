@@ -174,8 +174,8 @@ class DeltaBridge:
             "workspace": self.term.workspace,
             "broker": {
                 "name": self.term.broker_name,
-                "connected": "UNAVAILABLE",
-                "connected_provenance": "UNAVAILABLE",
+                "connected": True if self.term.broker_name == "paper" else None,
+                "connected_provenance": "PAPER_ENGINE" if self.term.broker_name == "paper" else "UNPROBED",
                 "type": "PAPER_ENGINE" if self.term.broker_name == "paper" else "DIRECT_BROKER",
             },
             "portfolio": {
@@ -212,8 +212,8 @@ class DeltaBridge:
                 "gross_limit_provenance": "CONFIG" if book_available else "UNAVAILABLE",
                 "net_limit": 500_000.0,
                 "net_limit_provenance": "CONFIG" if book_available else "UNAVAILABLE",
-                "killswitch_armed": "UNAVAILABLE",
-                "killswitch_armed_provenance": "UNAVAILABLE",
+                "killswitch_armed": not is_halted,
+                "killswitch_armed_provenance": "SAFETY_CORE",
                 "killswitch_halted": is_halted,
                 "risk_provenance": ("PAPER" if self.term.broker_name == "paper" else "LIVE") if book_available else "UNAVAILABLE",
                 "risk_asof": now.isoformat(),
@@ -227,8 +227,8 @@ class DeltaBridge:
             "models": {
                 "active_model": self.term.model_name,
                 "active_roles": getattr(self.term.models, "active", {}),
-                "available_models": "UNAVAILABLE",
-                "available_models_provenance": "UNAVAILABLE",
+                "available_models": [self.term.model_name],
+                "available_models_provenance": "CATALOGUE_UNPROBED",
                 "health": "UNAVAILABLE",
                 "health_provenance": "UNAVAILABLE",
                 "confidence": None,
@@ -251,12 +251,52 @@ class DeltaBridge:
             },
         }
 
+    @staticmethod
+    def _dispatch_status(command_text: str, output_text: str) -> str:
+        """Map explicit terminal result markers to stable bridge statuses."""
+        output = (output_text or "").strip()
+        if not output:
+            return "ok"
+
+        upper = output.upper()
+        if upper.startswith("KILLED:"):
+            return "halted"
+        if upper.startswith((
+            "BLOCKED:", "REFUSED:", "DENIED:", "UNLOCK DENIED:",
+            "DELTA SAFETY BOUNDARY",
+        )):
+            return "blocked"
+        if upper.startswith(("ERROR:", "FAILED:", "DELTA LLM ERROR")):
+            return "error"
+        if upper.startswith(("UNKNOWN /", "UNKNOWN COMMAND")):
+            return "unknown_command"
+        if upper.lower().startswith("usage:"):
+            return "invalid_input"
+        if upper.lower().startswith(("cancelled", "canceled")):
+            return "cancelled"
+
+        # These commands return explicit feed failures in the result body.
+        # Don't infer subsystem health from unrelated /status or /doctor text.
+        first = (command_text or "").strip().split(maxsplit=1)
+        command = first[0].lstrip("/").lower() if first else ""
+        if command in {
+            "data", "quote", "india", "news", "macro", "fundamental",
+            "indicators", "stats",
+        } and "UNAVAILABLE" in upper:
+            return "unavailable"
+
+        return "ok"
+
     def dispatch(self, text: str) -> dict[str, Any]:
         text = (text or "").strip()
         if not text:
             return {"output": "", "status": "ok"}
-        out, _ = self.term.handle(text)
-        return {"output": out, "status": "ok"}
+        try:
+            out, _ = self.term.handle(text)
+            status = self._dispatch_status(text, out)
+            return {"output": out, "status": status}
+        except Exception as exc:
+            return {"output": f"bridge error: {exc}", "status": "error"}
 
     def quote(self, symbol: str) -> dict[str, Any]:
         sym = symbol.strip().upper()

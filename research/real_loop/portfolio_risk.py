@@ -34,10 +34,41 @@ class TargetPortfolio:
 
 
 def _cap(w: np.ndarray, max_weight: float) -> np.ndarray:
-    w = np.clip(np.asarray(w, dtype=float), 0, None)
-    w = np.minimum(w, max_weight)
-    s = w.sum()
-    return w / (s or 1.0)
+    """Project weights onto bounded simplex {w in [0, max_weight]^n : sum(w) = 1}.
+
+    Uses exact iterative water-filling. Guarantees that no asset exceeds max_weight
+    after normalization, eliminating weight re-inflation bugs.
+    """
+    w = np.clip(np.asarray(w, dtype=float), 0.0, None)
+    n = len(w)
+    if n == 0:
+        return w
+    if n * max_weight < 1.0 - 1e-9:
+        raise ValueError(
+            f"Infeasible weight cap: {n} assets with max_weight={max_weight:.4f} "
+            f"cannot sum to 1.0 (maximum feasible sum is {n * max_weight:.4f})"
+        )
+    if w.sum() == 0:
+        w = np.ones(n) / n
+    else:
+        w = w / w.sum()
+
+    fixed = np.zeros(n, dtype=bool)
+    for _ in range(n + 1):
+        violators = (~fixed) & (w > max_weight + 1e-12)
+        if not np.any(violators):
+            break
+        fixed[violators] = True
+        w[fixed] = max_weight
+        rem_sum = 1.0 - fixed.sum() * max_weight
+        free_mask = ~fixed
+        free_sum = w[free_mask].sum()
+        if free_mask.sum() > 0:
+            if free_sum > 0:
+                w[free_mask] = w[free_mask] * (rem_sum / free_sum)
+            else:
+                w[free_mask] = rem_sum / free_mask.sum()
+    return np.clip(w, 0.0, max_weight)
 
 
 def _erc_weights(cov: pd.DataFrame, max_iter: int = 500, tol: float = 1e-8) -> np.ndarray:
@@ -206,7 +237,8 @@ def optimize(weights_hint: dict[str, float], cov: pd.DataFrame,
         label = "cvar"
     else:
         raise ValueError(f"unknown optimizer method: {method}")
-    w = _cap(np.asarray(w, dtype=float), max_weight)
+    eff_max = max(max_weight, 1.0 / n) if n > 0 else max_weight
+    w = _cap(np.asarray(w, dtype=float), eff_max)
     ev = float(np.sqrt(max(float(w @ cov.values @ w), 0.0)))
     er_p = float(sum((er or weights_hint).get(s, 0.0) * float(wi) for s, wi in zip(syms, w)))
     return TargetPortfolio({s: round(float(wi), 5) for s, wi in zip(syms, w)},

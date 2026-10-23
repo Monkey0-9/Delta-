@@ -32,8 +32,8 @@ capabilities:
   - id: oms_gateway_truth
     canonical_impl: core/oms/gateway.py (OrderGateway, require_role=True)
     integration_path: "delta_os REPL /trade + paper lifecycle + drills"
-    tests: [tests/test_p0_gateway_truth.py, tests/test_institutional_hardening.py, tests/test_p1_paper_lifecycle.py]
-    evidence: {type: pytest, commit: HEAD, note: "submitted flag; ack->ACKNOWLEDGED; reject->REJECTED; missing_role refused"}
+    tests: [tests/test_p0_gateway_truth.py, tests/test_institutional_hardening.py, tests/test_p1_paper_lifecycle.py, tests/test_canonical_trade_gateway.py]
+    evidence: {type: pytest, commit: HEAD, note: "submitted flag; ack->ACKNOWLEDGED; reject->REJECTED; missing_role refused; REPL /trade unified via OrderGateway"}
     performance:
       measured: {gateway_submit_p50_us: 163, gateway_submit_p99_us: 343}
       threshold: {note: "aspirational 7us target UNMET — see bench.json FAIL"}
@@ -98,10 +98,10 @@ capabilities:
     blocker: null
 
   - id: research_stats_honesty
-    canonical_impl: research/real_loop/validate.py (ic_permutation_pvalue)
+    canonical_impl: research/real_loop/validate.py (ic_permutation_pvalue) + research/real_loop/portfolio_risk.py (_cap)
     integration_path: "research_statistics bundle -> model_lifecycle gate"
-    tests: [tests/test_p2_label_embargo.py::test_ic_pvalue_is_real_inference]
-    evidence: {type: pytest, commit: HEAD, note: "signal/noise separation, seeded determinism"}
+    tests: [tests/test_p2_label_embargo.py::test_ic_pvalue_is_real_inference, tests/test_portfolio_weight_cap.py]
+    evidence: {type: pytest, commit: HEAD, note: "signal/noise separation, seeded determinism, bounded simplex projection (water-filling)"}
     performance: null
     known_limitations: ["family-wise BH lives at multi-strategy callers, not single-name level"]
     release_status: tested
@@ -243,8 +243,8 @@ capabilities:
   - id: opencode_cli_parity
     canonical_impl: apps/cli/main.py (Typer Master CLI)
     integration_path: "apps/cli/main.py 38 commands + delta_os/repl.py"
-    tests: [tests/test_unified_cli.py, tests/test_opencode_parity_full.py, tests/test_bridge_network_server.py, tests/test_service_config.py]
-    evidence: {type: pytest, commit: HEAD, note: "Full OpenCode 17-command parity suite + 21 quant commands + JSON-RPC bridge & pairing tokens"}
+    tests: [tests/test_unified_cli.py, tests/test_opencode_parity_full.py, tests/test_bridge_network_server.py, tests/test_service_config.py, tests/test_cli_truthfulness.py, tests/test_cli_learning_ledger.py, tests/test_bridge_dispatch_status.py]
+    evidence: {type: pytest, commit: HEAD, note: "Full OpenCode 17-command parity suite + 21 quant commands + JSON-RPC bridge + model doctor honesty + durable learning ledger"}
     performance: null
     known_limitations: []
     release_status: validated

@@ -21,37 +21,59 @@ def _default(ctx: typer.Context) -> None:
         raise SystemExit(Terminal().run())
 
 
-def model_doctor() -> None:
-    import torch
+def model_doctor() -> bool:
+    try:
+        import torch
+    except Exception:
+        torch = None
 
     print("DELTA-FM MODEL DOCTOR")
     print("=" * 40)
 
+    if torch is None:
+        print("PyTorch: NOT INSTALLED")
+        print("CUDA available: False")
+        print("Toolchain check: INCOMPLETE")
+        print("Inference status: NOT VERIFIED")
+        return False
+
     print(f"PyTorch: {torch.__version__}")
-    print(f"CUDA available: {torch.cuda.is_available()}")
+    cuda_ok = False
+    try:
+        cuda_ok = torch.cuda.is_available()
+    except Exception:
+        pass
+    print(f"CUDA available: {cuda_ok}")
 
-    if torch.cuda.is_available():
-        print(f"GPU: {torch.cuda.get_device_name(0)}")
-        print(
-            "VRAM GB:",
-            round(
-                torch.cuda.get_device_properties(0).total_memory
-                / 1024**3,
-                2,
-            ),
-        )
-        print(
-            "Compute capability:",
-            torch.cuda.get_device_capability(0),
-        )
+    if cuda_ok:
+        try:
+            print(f"GPU: {torch.cuda.get_device_name(0)}")
+            print(
+                "VRAM GB:",
+                round(
+                    torch.cuda.get_device_properties(0).total_memory
+                    / 1024**3,
+                    2,
+                ),
+            )
+            print(
+                "Compute capability:",
+                torch.cuda.get_device_capability(0),
+            )
+        except Exception:
+            pass
 
-    print("Model platform: READY")
+    print("Toolchain check: COMPLETE")
+    print("Inference status: NOT VERIFIED")
+    return True
 
 
 @app.command("model-doctor")
 def model_doctor_cmd() -> None:
     """Local GPU/model toolchain check (RTX 3050 6GB safe, read-only)."""
-    model_doctor()
+    ok = model_doctor()
+    if not ok:
+        raise typer.Exit(code=1)
 
 
 @app.command("doctor")
@@ -74,13 +96,21 @@ def doctor(display: bool = typer.Option(False, "--display", help="Probe terminal
         import json
         typer.echo(json.dumps(display_probe(), indent=2))
         return
-    model_doctor()
+    typer.echo("DELTA CLI DOCTOR")
+    typer.echo("=" * 40)
+    typer.echo("Runtime: READY")
+    typer.echo("Model inference: NOT VERIFIED")
+    typer.echo("Execution: PAPER/research only")
+    typer.echo("Run 'delta doctor --connections' for live connectivity probes.")
 
 
 @app.command("status")
 def status() -> None:
-    """Print frozen baseline status (no execution)."""
-    typer.echo("DELTA baseline: W45 contracts frozen. See research/contracts.py.")
+    """Print dynamic runtime execution status."""
+    from delta_os import repl
+    term = repl.Terminal()
+    out, _ = term.handle("/status")
+    typer.echo(out)
 
 
 def _git_commit() -> str:
@@ -133,6 +163,8 @@ def research(
 
     typer.echo(f"{exp.experiment_id} fingerprint={exp.fingerprint()}")
     typer.echo(f"manifest: {manifest_path}")
+    typer.echo("[RESEARCH PLAN ONLY - EXECUTION STAGED]")
+    typer.echo("Status: STAGED_PLAN (Dataset hash: pending-w46 - Not an executed backtest)")
     typer.echo("W45 contract OK (execution staged for W48).")
 
 
@@ -389,26 +421,66 @@ def plan_order(
 def learn(
     decision_id: str = typer.Option("demo-1", "--decision"),
     instrument: str = typer.Option("AAPL", "--instrument"),
+    horizon: str = typer.Option("today", "--horizon"),
+    regime: str = typer.Option("mixed", "--regime"),
     expected: float = typer.Option(0.01, "--expected"),
     actual: float = typer.Option(-0.02, "--actual"),
+    model_version: str = typer.Option("unknown", "--model-version"),
 ) -> None:
-    """Record one trade outcome through attribution (no retraining)."""
+    """Record one trade outcome through attribution (manual unverified note; no retraining)."""
     from decimal import Decimal
-
     from learning.closed_loop import ClosedLoopLedger
+    from learning.cli_outcome_store import append_outcome
 
     led = ClosedLoopLedger()
     rec, exp = led.record_trade_outcome(
         decision_id=decision_id,
-        instrument=instrument,
-        horizon="today",
-        regime="mixed",
+        instrument=instrument.strip().upper(),
+        horizon=horizon,
+        regime=regime,
         expected_return=Decimal(str(expected)),
         actual_return=Decimal(str(actual)),
+        model_version=model_version,
     )
+    # Also persist to durable hash-chained outcome ledger as MANUAL_UNVERIFIED note
+    try:
+        append_outcome({
+            "decision_id": decision_id,
+            "instrument": instrument.strip().upper(),
+            "horizon": horizon,
+            "regime": regime,
+            "expected_return": str(expected),
+            "actual_return": str(actual),
+            "failure_type": rec.failure_type.value,
+            "lesson": rec.lesson,
+            "experience_id": exp.experience_id,
+            "model_version": model_version,
+            "evidence_status": "MANUAL_UNVERIFIED",
+            "promotion_eligible": False,
+            "source": "cli-manual-entry",
+        })
+    except Exception:
+        pass
+
     typer.echo(f"failure: {rec.failure_type.value}")
     typer.echo(f"lesson: {rec.lesson}")
     typer.echo(f"experience: {exp.experience_id}")
+    typer.echo("provenance: MANUAL_UNVERIFIED (Not eligible for model promotion)")
+
+
+@app.command("learning-status")
+def learning_status() -> None:
+    """Verify the durable CLI learning ledger; this does not evaluate promotion."""
+    from learning.cli_outcome_store import verify_ledger
+
+    result = verify_ledger()
+    typer.echo("DELTA LEARNING LEDGER")
+    typer.echo(f"integrity: {'PASS' if result.get('valid') else 'FAIL'}")
+    typer.echo(f"records: {result.get('count', 0)}")
+    typer.echo(f"path: {result.get('path', 'unavailable')}")
+    if result.get("reason"):
+        typer.echo(f"reason: {result['reason']}")
+        raise typer.Exit(code=1)
 
 
 @app.command("promote")

@@ -244,7 +244,8 @@ def test_cmd_doctor_and_model_doctor():
 def test_cmd_status():
     res = runner.invoke(app, ["status"])
     assert res.exit_code == 0
-    assert "DELTA baseline" in res.stdout
+    assert "STATUS" in res.stdout
+    assert "workspace=" in res.stdout or "mode=" in res.stdout
 
 
 def test_cmd_research_flow():
