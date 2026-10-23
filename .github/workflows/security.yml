@@ -68,4 +68,7 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install pip-audit==2.9.0
+      # Audit deployed/runtime dependencies and the optional model-training stack.
+      # Scanner packages are installed in their own jobs and are not DELTA runtime deps.
       - run: pip-audit -r requirements.txt --desc
+      - run: pip-audit -r requirements-training.txt --desc
