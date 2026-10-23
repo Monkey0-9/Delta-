@@ -1,0 +1,5 @@
+# Optional DELTA Finance Model training stack.
+# Not required to launch the CLI, research shell, or local/Ollama provider path.
+# For GPU hosts, install the correct PyTorch wheel for that host before resolving
+# this extra. CI explicitly preinstalls the CPU-only PyTorch build.
+-e .[training]
