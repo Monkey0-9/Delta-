@@ -243,8 +243,8 @@ capabilities:
   - id: opencode_cli_parity
     canonical_impl: apps/cli/main.py (Typer Master CLI)
     integration_path: "apps/cli/main.py 38 commands + delta_os/repl.py"
-    tests: [tests/test_unified_cli.py, tests/test_opencode_parity_full.py]
-    evidence: {type: pytest, commit: HEAD, note: "Full OpenCode 17-command parity suite + 21 quant commands"}
+    tests: [tests/test_unified_cli.py, tests/test_opencode_parity_full.py, tests/test_bridge_network_server.py, tests/test_service_config.py]
+    evidence: {type: pytest, commit: HEAD, note: "Full OpenCode 17-command parity suite + 21 quant commands + JSON-RPC bridge & pairing tokens"}
     performance: null
     known_limitations: []
     release_status: validated
@@ -254,8 +254,8 @@ capabilities:
   - id: terminal_sectioned_charts
     canonical_impl: delta_os/terminal_chart.py
     integration_path: "apps/cli/main.py chart + delta_os/repl.py"
-    tests: [tests/test_unified_cli.py::test_cli_chart, tests/test_unified_cli.py::test_cli_chart_macd_and_timeframe]
-    evidence: {type: pytest, commit: HEAD, note: "Candlestick canvas + Volume + RSI(14) + MACD(12,26,9) + L2 depth ladder with OBIR"}
+    tests: [tests/test_unified_cli.py::test_cli_chart, tests/test_unified_cli.py::test_cli_chart_macd_and_timeframe, tests/test_terminal_chart_truth.py]
+    evidence: {type: pytest, commit: HEAD, note: "Candlestick canvas + Volume + RSI(14) + MACD(12,26,9) + L2 depth ladder with OBIR and honest provenance"}
     performance: null
     known_limitations: []
     release_status: validated
@@ -265,8 +265,8 @@ capabilities:
   - id: pretrade_mistake_interceptor
     canonical_impl: delta_os/pretrade_interceptor.py (PreTradeInterceptor)
     integration_path: "apps/cli/main.py trade + delta_os/repl.py /trade"
-    tests: [tests/test_pretrade_interceptor.py, tests/test_unified_cli.py::test_cli_mistakes_ledger]
-    evidence: {type: pytest, commit: HEAD, note: "Persistent episodic memory (~/.delta/mistakes.jsonl) + Bayesian penalty scaling"}
+    tests: [tests/test_pretrade_interceptor.py, tests/test_unified_cli.py::test_cli_mistakes_ledger, tests/test_osint_provenance_truth.py::test_mistake_interceptor_corrupt_line_recovery]
+    evidence: {type: pytest, commit: HEAD, note: "Persistent episodic memory (~/.delta/mistakes.jsonl) + Bayesian penalty scaling + corrupt line recovery"}
     performance: null
     known_limitations: []
     release_status: validated
@@ -276,8 +276,8 @@ capabilities:
   - id: osint_news_catalysts
     canonical_impl: delta_os/osint/ (OsintEngine, SecEdgarClient, NewsCatalystEngine)
     integration_path: "apps/cli/main.py osint/catalyst + delta_os/repl.py /osint"
-    tests: [tests/test_osint_engine.py, tests/test_osint_news.py, tests/test_unified_cli.py::test_cli_catalyst]
-    evidence: {type: pytest, commit: HEAD, note: "Full OSINT suite: SEC EDGAR 10-K/10-Q/8-K + Form 4 Insiders + FRED macro + Anti-Clickbait NLP + Social Divergence"}
+    tests: [tests/test_osint_engine.py, tests/test_osint_news.py, tests/test_unified_cli.py::test_cli_catalyst, tests/test_osint_provenance_truth.py]
+    evidence: {type: pytest, commit: HEAD, note: "Full OSINT suite with honest provenance badges (TIER1_SEC_EDGAR, CACHED_BASELINE, SYNTHETIC_DEMO, UNAVAILABLE/UNRESOLVED)"}
     performance: null
     known_limitations: []
     release_status: validated
@@ -287,8 +287,8 @@ capabilities:
   - id: daemon_sentinel_service
     canonical_impl: delta_os/daemon_service.py
     integration_path: "apps/cli/main.py service + apps/cli/main.py sentinel"
-    tests: [tests/test_unified_cli.py::test_cli_service_status, tests/test_unified_cli.py::test_cli_service_get_set]
-    evidence: {type: pytest, commit: HEAD, note: "24/7 background surveillance daemon with PID tracking and detached logging"}
+    tests: [tests/test_unified_cli.py::test_cli_service_status, tests/test_unified_cli.py::test_cli_service_get_set, tests/test_sentinel_live_wiring.py, tests/test_service_config.py]
+    evidence: {type: pytest, commit: HEAD, note: "24/7 background surveillance daemon with live paper ledger equity/positions, broker adapter wiring, and cross-process kill circuit"}
     performance: null
     known_limitations: []
     release_status: validated

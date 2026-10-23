@@ -390,7 +390,8 @@ class SafetyState:
         Enforces: 5% pos / 1.5x lev / 2% halt + asymmetric R:R >= 1:2.0
         (small-account capital preservation) + anti-tilt + kill switch.
         """
-        if self.mode == "HALTED":
+        if self.mode == "HALTED" or read_persisted_safety_mode() == "HALTED":
+            self.mode = "HALTED"
             return False, "HALTED"
         if equity <= 0:
             return False, "no equity"

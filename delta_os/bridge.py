@@ -10,13 +10,19 @@ Communicates via newline-delimited JSON over stdin/stdout.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import secrets
 import sys
+import threading
+import time
 import traceback
 from datetime import datetime, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -276,6 +282,36 @@ class DeltaBridge:
             # Historical sparkline closes (up to 30 bars)
             sparkline = [float(x) for x in df["close"].tail(30).tolist()]
 
+            # Genuine historical OHLCV bars (up to 60 bars)
+            bars = []
+            for idx, row in df.tail(60).iterrows():
+                ts_str = str(idx) if not isinstance(idx, int) else str(row.get("timestamp", ""))
+                bars.append({
+                    "time": ts_str,
+                    "timestamp": ts_str,
+                    "open": float(row["open"]),
+                    "high": float(row["high"]),
+                    "low": float(row["low"]),
+                    "close": float(row["close"]),
+                    "volume": float(row["volume"]),
+                })
+
+            # Real historical RSI calculation across close series
+            rsi_history = []
+            if len(df) >= 15:
+                try:
+                    closes = df["close"]
+                    diff = closes.diff()
+                    gain = diff.clip(lower=0)
+                    loss = -diff.clip(upper=0)
+                    avg_gain = gain.rolling(window=14, min_periods=14).mean()
+                    avg_loss = loss.rolling(window=14, min_periods=14).mean()
+                    rs = avg_gain / avg_loss.replace(0, 1e-9)
+                    rsi_series = 100.0 - (100.0 / (1.0 + rs))
+                    rsi_history = [float(x) for x in rsi_series.dropna().tail(20).tolist()]
+                except Exception:
+                    rsi_history = []
+
             # Compute institutional technical indicators using canonical pipeline
             features = self.pipeline.extract_features(sym, df)
             regime = self.pipeline.detect_regime(features)
@@ -303,6 +339,8 @@ class DeltaBridge:
                 "low": low,
                 "volume": vol,
                 "sparkline": sparkline,
+                "bars": bars,
+                "rsi_history": rsi_history,
                 "status": "AVAILABLE",
                 "rsi": round(features.rsi, 2),
                 "macd": round(features.macd, 3),
@@ -317,7 +355,7 @@ class DeltaBridge:
                 # Display must badge this as SYNTHETIC provenance.
                 "depth_bids": bids,
                 "depth_asks": asks,
-                "depth_provenance": "SYNTHETIC",
+                "depth_provenance": "SYNTHETIC_DEMO",
             }
         except Exception as exc:
             return {
@@ -470,6 +508,323 @@ def run_ipc_loop():
                 sys.stdout.flush()
             except Exception:
                 pass
+
+
+
+class PairingTokenRegistry:
+    """Cryptographically secure, expiring, single-use pairing token manager."""
+
+    @staticmethod
+    def _registry_path() -> Path:
+        base = Path(os.environ.get("DELTA_HOME", str(Path.home() / ".delta")))
+        base.mkdir(parents=True, exist_ok=True)
+        return base / "pairing_tokens.json"
+
+    @classmethod
+    def generate_token(cls, ttl_seconds: int = 900, metadata: dict | None = None) -> tuple[str, dict[str, Any]]:
+        from delta_os.safety import atomic_write_json
+        raw_token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+        now = datetime.now(timezone.utc)
+        expires_at = now.timestamp() + ttl_seconds
+
+        record = {
+            "token_hash": token_hash,
+            "created_at": now.isoformat(),
+            "expires_at": datetime.fromtimestamp(expires_at, tz=timezone.utc).isoformat(),
+            "ttl_seconds": ttl_seconds,
+            "used": False,
+            "used_at": None,
+            "metadata": metadata or {},
+        }
+
+        p = cls._registry_path()
+        tokens = {}
+        if p.exists():
+            try:
+                tokens = json.loads(p.read_text(encoding="utf-8"))
+            except Exception:
+                tokens = {}
+        tokens[token_hash] = record
+
+        # Prune very old tokens (> 86400s)
+        now_ts = now.timestamp()
+        filtered = {}
+        for h, rec in tokens.items():
+            try:
+                exp_dt = datetime.fromisoformat(rec["expires_at"]).timestamp()
+                if now_ts - exp_dt < 86400:
+                    filtered[h] = rec
+            except Exception:
+                filtered[h] = rec
+
+        atomic_write_json(p, filtered)
+        return raw_token, record
+
+    @classmethod
+    def redeem_token(cls, raw_token: str) -> tuple[bool, str]:
+        from delta_os.safety import atomic_write_json
+        if not raw_token or not isinstance(raw_token, str):
+            return False, "INVALID_TOKEN"
+        token_hash = hashlib.sha256(raw_token.strip().encode("utf-8")).hexdigest()
+        p = cls._registry_path()
+        if not p.exists():
+            return False, "TOKEN_NOT_FOUND"
+        try:
+            tokens = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            return False, "REGISTRY_CORRUPTED"
+
+        record = tokens.get(token_hash)
+        if not record:
+            return False, "TOKEN_NOT_FOUND"
+        if record.get("used"):
+            return False, "TOKEN_ALREADY_USED"
+
+        try:
+            exp_dt = datetime.fromisoformat(record["expires_at"])
+            if datetime.now(timezone.utc) > exp_dt:
+                return False, "TOKEN_EXPIRED"
+        except Exception:
+            return False, "INVALID_EXPIRATION"
+
+        record["used"] = True
+        record["used_at"] = datetime.now(timezone.utc).isoformat()
+        tokens[token_hash] = record
+        atomic_write_json(p, tokens)
+        return True, "PAIRED_SUCCESSFULLY"
+
+
+class _BridgeHTTPRequestHandler(BaseHTTPRequestHandler):
+    bridge: DeltaBridge
+    cors: str = "*"
+
+    def log_message(self, format: str, *args: Any) -> None:
+        if os.environ.get("DELTA_LOG_HTTP"):
+            super().log_message(format, *args)
+
+    def _send_cors_headers(self) -> None:
+        self.send_header("Access-Control-Allow-Origin", self.cors)
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
+
+    def do_OPTIONS(self) -> None:
+        self.send_response(204)
+        self._send_cors_headers()
+        self.end_headers()
+
+    def do_GET(self) -> None:
+        parsed = urlparse(self.path)
+        path = parsed.path.rstrip("/")
+        if path == "/healthz":
+            data = {
+                "status": "ok",
+                "service": "delta-protocol-bridge",
+                "version": "2.14",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "safety_mode": getattr(self.bridge.term.safety, "mode", "UNKNOWN"),
+                "fail_closed": True,
+            }
+            body = json.dumps(data).encode("utf-8")
+            self.send_response(200)
+            self._send_cors_headers()
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif path == "/pair":
+            qs = parse_qs(parsed.query)
+            token = qs.get("token", [""])[0]
+            ok, reason = PairingTokenRegistry.redeem_token(token)
+            status_code = 200 if ok else (403 if "ALREADY" in reason or "EXPIRED" in reason else 401)
+            resp = {
+                "paired": ok,
+                "status": "AUTHENTICATED" if ok else "REJECTED",
+                "reason": reason,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+            body = json.dumps(resp).encode("utf-8")
+            self.send_response(status_code)
+            self._send_cors_headers()
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        else:
+            self.send_response(404)
+            self._send_cors_headers()
+            self.end_headers()
+
+    def do_POST(self) -> None:
+        parsed = urlparse(self.path)
+        path = parsed.path.rstrip("/")
+        content_len = int(self.headers.get("Content-Length", 0))
+        post_body = self.rfile.read(content_len) if content_len > 0 else b""
+
+        if path == "/pair":
+            token = ""
+            try:
+                data = json.loads(post_body.decode("utf-8")) if post_body else {}
+                token = data.get("token", "")
+            except Exception:
+                pass
+            ok, reason = PairingTokenRegistry.redeem_token(token)
+            status_code = 200 if ok else (403 if "ALREADY" in reason or "EXPIRED" in reason else 401)
+            resp = {
+                "paired": ok,
+                "status": "AUTHENTICATED" if ok else "REJECTED",
+                "reason": reason,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+            body = json.dumps(resp).encode("utf-8")
+            self.send_response(status_code)
+            self._send_cors_headers()
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if path == "/rpc":
+            req_id = None
+            try:
+                payload = json.loads(post_body.decode("utf-8"))
+            except Exception as exc:
+                err_resp = {
+                    "jsonrpc": "2.0",
+                    "id": None,
+                    "error": {"code": -32700, "message": f"Parse error: {exc}"},
+                }
+                body = json.dumps(err_resp).encode("utf-8")
+                self.send_response(400)
+                self._send_cors_headers()
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+
+            req_id = payload.get("id")
+            method = payload.get("method")
+            params = payload.get("params", {}) or {}
+
+            if not method or not isinstance(method, str):
+                err_resp = {
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "error": {"code": -32600, "message": "Invalid Request: missing method"},
+                }
+                body = json.dumps(err_resp).encode("utf-8")
+                self.send_response(400)
+                self._send_cors_headers()
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+
+            try:
+                if method == "ping":
+                    res = {"pong": True, "time": datetime.now(timezone.utc).isoformat()}
+                elif method == "get_state":
+                    res = self.bridge.get_state()
+                elif method == "quote":
+                    res = self.bridge.quote(params.get("symbol", "SPY"))
+                elif method == "dispatch":
+                    res = self.bridge.dispatch(params.get("text", ""))
+                elif method == "run_cycle":
+                    symbols = params.get("symbols", ["SPY", "QQQ", "NVDA", "AAPL", "MSFT"])
+                    res = self.bridge.pipeline.run_cycle(symbols=symbols)
+                elif method == "reconcile":
+                    results = self.bridge.pipeline.reconcile()
+                    res = {"reconciliation": [r.status.value for r in results]}
+                elif method == "kill_switch":
+                    res = self.bridge.kill_switch(confirm=params.get("confirm", False))
+                elif method == "unlock":
+                    res = self.bridge.unlock(
+                        actor=params.get("actor", "trader"),
+                        reason=params.get("reason", "manual"),
+                        token=params.get("token"),
+                        role=params.get("role"),
+                    )
+                elif method == "cancel":
+                    res = {"cancelled": True}
+                else:
+                    err_resp = {
+                        "jsonrpc": "2.0",
+                        "id": req_id,
+                        "error": {"code": -32601, "message": f"Method not found: {method}"},
+                    }
+                    body = json.dumps(err_resp).encode("utf-8")
+                    self.send_response(404)
+                    self._send_cors_headers()
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+
+                resp = {"jsonrpc": "2.0", "id": req_id, "result": res}
+                body = json.dumps(resp, default=str).encode("utf-8")
+                self.send_response(200)
+                self._send_cors_headers()
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            except Exception as exc:
+                err_resp = {
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "error": {"code": -32603, "message": f"Internal error: {exc}"},
+                }
+                body = json.dumps(err_resp).encode("utf-8")
+                self.send_response(500)
+                self._send_cors_headers()
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+        else:
+            self.send_response(404)
+            self._send_cors_headers()
+            self.end_headers()
+
+
+def run_network_server(
+    hostname: str = "127.0.0.1",
+    port: int = 8765,
+    cors: str = "*",
+    timeout: float | None = None,
+    ready_event: Any = None,
+    bridge: DeltaBridge | None = None,
+) -> None:
+    """Run an authentic asynchronous HTTP/JSON-RPC 2.0 network server for DELTA."""
+    br = bridge if bridge is not None else DeltaBridge()
+
+    class BoundHandler(_BridgeHTTPRequestHandler):
+        pass
+
+    BoundHandler.bridge = br
+    BoundHandler.cors = cors
+
+    server = ThreadingHTTPServer((hostname, port), BoundHandler)
+    server.daemon_threads = True
+
+    if ready_event is not None:
+        ready_event.set()
+
+    if timeout is not None:
+        timer = threading.Timer(timeout, server.shutdown)
+        timer.daemon = True
+        timer.start()
+
+    try:
+        server.serve_forever()
+    except (KeyboardInterrupt, SystemExit):
+        pass
+    finally:
+        server.server_close()
 
 
 def main() -> int:

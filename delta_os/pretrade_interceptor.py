@@ -58,25 +58,48 @@ class PreTradeInterceptor:
 
     def _load_persisted_mistakes(self) -> None:
         """Load historical trade mistakes from persistent JSONL file."""
+        import logging
         p = _mistakes_file_path()
         if not p.exists():
             return
         try:
             with open(p, "r", encoding="utf-8") as f:
-                for line in f:
-                    if not line.strip():
+                for line_no, line in enumerate(f, start=1):
+                    line_str = line.strip()
+                    if not line_str:
                         continue
-                    item = json.loads(line)
+                    try:
+                        item = json.loads(line_str)
+                    except Exception as err:
+                        logging.getLogger("pretrade_interceptor").warning(
+                            f"Discarding corrupt line {line_no} in mistakes ledger {p}: {err}"
+                        )
+                        continue
+                    if not isinstance(item, dict):
+                        continue
+                    realized = item.get("realized_return")
+                    if realized is None:
+                        logging.getLogger("pretrade_interceptor").warning(
+                            f"Skipping line {line_no} with missing realized_return in {p}"
+                        )
+                        continue
+                    try:
+                        realized_val = float(realized)
+                    except (ValueError, TypeError):
+                        continue
+
                     self.learner.record_experience(
-                        trade_id=item.get("trade_id", "persisted"),
-                        symbol=item.get("symbol", "").upper(),
+                        trade_id=item.get("trade_id", f"persisted-{line_no}"),
+                        symbol=str(item.get("symbol", "")).upper(),
                         predicted_return=float(item.get("predicted_return", 0.0)),
-                        realized_return=float(item.get("realized_return", -0.02)),
+                        realized_return=realized_val,
                         execution_shortfall_bps=float(item.get("execution_shortfall_bps", 0.0)),
                         vwap_slippage_bps=float(item.get("vwap_slippage_bps", 0.0)),
                     )
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger("pretrade_interceptor").warning(
+                f"Error opening mistakes ledger {p}: {exc}"
+            )
 
     def inspect_order(
         self,

@@ -138,20 +138,69 @@ def get_daemon_logs(lines: int = 50) -> str:
 
 
 def _run_worker(max_dd: float, interval_s: float) -> None:
-    """Worker process running the 24/7 Sentinel loop."""
-    from delta_os.brain import DeltaBrain, DeltaSentinel
-    from delta_os.safety import SafetyState
+    """Worker process running the 24/7 Sentinel loop with real portfolio wiring."""
+    from delta_os.brain import DeltaSentinel
+    from delta_os.repl import Terminal
+    from delta_os import service_config as sc
 
-    brain = DeltaBrain()
-    safety = SafetyState()
+    # Load persistent service configuration overrides
+    cfg = sc.load_config()
+    eff_max_dd = float(cfg.get("max_dd_pct", max_dd))
+    eff_interval = float(cfg.get("interval_s", interval_s))
+
+    # Initialize terminal to access authoritative paper ledger, broker adapter, and safety
+    term = Terminal()
+    safety = term.safety
     d_dir = _delta_dir()
     state_path = str(d_dir / "sentinel.json")
 
+    def _read_portfolio_equity() -> float | None:
+        try:
+            cur = term.router.current()
+            ledger = getattr(cur, "_ledger", None)
+            if ledger is None:
+                return None
+            cash = float(getattr(ledger, "cash", 0.0))
+            # Calculate market value of held positions
+            mkt_val = 0.0
+            for sym, pos in getattr(ledger, "positions", {}).items():
+                qty = float(getattr(pos, "quantity", getattr(pos, "qty", 0.0)))
+                px = float(getattr(pos, "avg_price", getattr(pos, "price", 0.0)))
+                try:
+                    q = term.data.quote(sym)
+                    px = float(q.frame["close"].iloc[-1])
+                except Exception:
+                    pass
+                mkt_val += qty * px
+            return cash + mkt_val
+        except Exception:
+            return None
+
+    def _read_portfolio_positions() -> Dict[str, float]:
+        try:
+            cur = term.router.current()
+            ledger = getattr(cur, "_ledger", None)
+            if ledger is None:
+                return {}
+            return {
+                sym: float(getattr(pos, "quantity", getattr(pos, "qty", 0.0)))
+                for sym, pos in getattr(ledger, "positions", {}).items()
+            }
+        except Exception:
+            return {}
+
+    broker_adapters = []
+    if hasattr(term.router, "paper"):
+        broker_adapters.append(term.router.paper)
+
     sentinel = DeltaSentinel(
-        brain=brain,
+        brain=term.brain,
         safety_state=safety,
-        max_drawdown_pct=max_dd,
-        check_interval_s=interval_s,
+        max_drawdown_pct=eff_max_dd,
+        check_interval_s=eff_interval,
+        equity_fn=_read_portfolio_equity,
+        positions_fn=_read_portfolio_positions,
+        broker_adapters=broker_adapters,
         state_path=state_path,
     )
 
@@ -165,7 +214,7 @@ def _run_worker(max_dd: float, interval_s: float) -> None:
     signal.signal(signal.SIGTERM, _sig_handler)
     signal.signal(signal.SIGINT, _sig_handler)
 
-    print(f"[{datetime.now(timezone.utc).isoformat()}] DELTA 24/7 Sentinel Service active. Interval: {interval_s}s, MaxDD: {max_dd}%.")
+    print(f"[{datetime.now(timezone.utc).isoformat()}] DELTA 24/7 Sentinel Service active. Interval: {eff_interval}s, MaxDD: {eff_max_dd}%.")
 
     while keep_running:
         try:
@@ -174,7 +223,7 @@ def _run_worker(max_dd: float, interval_s: float) -> None:
                 print(f"[{datetime.now(timezone.utc).isoformat()}] CRITICAL: Circuit Breaker TRIPPED! Halted: {res}")
         except Exception as exc:
             print(f"[{datetime.now(timezone.utc).isoformat()}] Sentinel tick error: {exc}")
-        time.sleep(interval_s)
+        time.sleep(eff_interval)
 
     print(f"[{datetime.now(timezone.utc).isoformat()}] DELTA Service terminated cleanly.")
 

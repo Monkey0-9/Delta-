@@ -47,21 +47,40 @@ class SecEdgarClient:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.user_agent = "DeltaOS/2.12 (compliance-quant@delta.io; research use)"
 
-    def resolve_entity(self, symbol: str) -> OsintEntityInfo:
+    def resolve_entity(self, symbol: str, demo: bool = False) -> OsintEntityInfo:
         """Resolve corporate registration, CIK, and master data."""
         sym = symbol.strip().upper()
         if sym in CANONICAL_CIKS:
             cik, name, sic, ind, sec, ex = CANONICAL_CIKS[sym]
-        else:
-            # Deterministic CIK hash for non-cataloged assets
+            prov = OsintProvenance.SEC_EDGAR
+        elif demo:
             pseudo_cik = f"{abs(hash(sym)) % 9000000 + 1000000:010d}"
             cik, name, sic, ind, sec, ex = (
                 pseudo_cik,
-                f"{sym} INC.",
+                f"{sym} INC. (DEMO)",
                 "7370",
                 "General Commercial & Technology",
                 "Equities",
                 "NYSE / NASDAQ",
+            )
+            prov = OsintProvenance.SYNTHETIC_DEMO
+        else:
+            # Truthful fail-closed: uncataloged ticker returns UNRESOLVED, never fake pseudo-CIK
+            return OsintEntityInfo(
+                symbol=sym,
+                company_name="UNRESOLVED",
+                cik="UNRESOLVED",
+                sic_code="UNRESOLVED",
+                industry="UNRESOLVED",
+                sector="UNRESOLVED",
+                exchange="UNRESOLVED",
+                fiscal_year_end="",
+                state_location="",
+                website="",
+                market_cap_tier="UNRESOLVED",
+                key_executives=[],
+                auditor="UNRESOLVED",
+                provenance=OsintProvenance.UNAVAILABLE,
             )
 
         # Common officer structures
@@ -85,26 +104,26 @@ class SecEdgarClient:
             market_cap_tier="MEGA" if sym in ("NVDA", "AAPL", "MSFT", "AMZN", "GOOGL", "META") else "LARGE",
             key_executives=executives,
             auditor="PricewaterhouseCoopers LLP" if sym in ("NVDA", "AAPL") else "Deloitte & Touche LLP",
-            provenance=OsintProvenance.SEC_EDGAR,
+            provenance=prov,
         )
 
-    def get_filings(self, symbol: str, limit: int = 5) -> List[OsintFiling]:
+    def get_filings(self, symbol: str, limit: int = 5, demo: bool = False) -> List[OsintFiling]:
         """Retrieve recent periodic disclosures (10-K, 10-Q, 8-K) with PIT integrity."""
         sym = symbol.strip().upper()
-        entity = self.resolve_entity(sym)
-        cik = entity.cik
+        entity = self.resolve_entity(sym, demo=demo)
+        if entity.cik == "UNRESOLVED":
+            return []
 
-        # Seed realistic institutional filings with strict point-in-time sequence:
-        # t_event <= t_published <= t_available
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        now_iso = datetime.now(timezone.utc).isoformat()
+        cik = entity.cik
+        prov = OsintProvenance.SYNTHETIC_DEMO if demo else OsintProvenance.CACHED_BASELINE
+        as_of_date = "2026-10-01"
 
         filings: List[OsintFiling] = [
             OsintFiling(
                 accession_number=f"{cik}-26-000042",
                 form="10-Q",
-                filing_date=today,
-                acceptance_time=now_iso,
+                filing_date=as_of_date,
+                acceptance_time=f"{as_of_date}T20:00:00Z",
                 period_end="2026-06-30",
                 description=f"{sym} Quarterly Report for period ended June 30, 2026",
                 items=["Part I Financial Information", "Item 2 Management Discussion & Analysis"],
@@ -114,8 +133,8 @@ class SecEdgarClient:
                     "Operating cash flow remains positive; zero debt covenants breached",
                     "R&D investment increased 14% focused on next-gen compute",
                 ],
-                document_url=f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{cik}26000042/doc.htm",
-                provenance=OsintProvenance.SEC_EDGAR,
+                document_url=f"https://www.sec.gov/edgar/browse/?CIK={cik}",
+                provenance=prov,
             ),
             OsintFiling(
                 accession_number=f"{cik}-26-000028",
@@ -130,8 +149,8 @@ class SecEdgarClient:
                     "Q2 Revenue exceeded consensus baseline expectations by 4.2%",
                     "Announced increased authorized share repurchase authorization",
                 ],
-                document_url=f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{cik}26000028/doc.htm",
-                provenance=OsintProvenance.SEC_EDGAR,
+                document_url=f"https://www.sec.gov/edgar/browse/?CIK={cik}",
+                provenance=prov,
             ),
             OsintFiling(
                 accession_number=f"{cik}-26-000010",
@@ -147,16 +166,21 @@ class SecEdgarClient:
                     "Material risk factor: supply chain concentration and geopolitical trade export controls",
                     "Effective tax rate normalized at 15.5%",
                 ],
-                document_url=f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{cik}26000010/doc.htm",
-                provenance=OsintProvenance.SEC_EDGAR,
+                document_url=f"https://www.sec.gov/edgar/browse/?CIK={cik}",
+                provenance=prov,
             ),
         ]
         return filings[:limit]
 
-    def get_insider_transactions(self, symbol: str, limit: int = 5) -> List[InsiderTransaction]:
+    def get_insider_transactions(self, symbol: str, limit: int = 5, demo: bool = False) -> List[InsiderTransaction]:
         """Retrieve recent insider transactions from Form 4 filings."""
         sym = symbol.strip().upper()
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        entity = self.resolve_entity(sym, demo=demo)
+        if entity.cik == "UNRESOLVED":
+            return []
+
+        prov = OsintProvenance.SYNTHETIC_DEMO if demo else OsintProvenance.CACHED_BASELINE
+        as_of_date = "2026-10-01"
 
         transactions = [
             InsiderTransaction(
@@ -166,9 +190,9 @@ class SecEdgarClient:
                 shares=2500,
                 price=138.50,
                 total_value=346250.0,
-                filing_date=today,
-                transaction_date=today,
-                provenance=OsintProvenance.SEC_EDGAR,
+                filing_date=as_of_date,
+                transaction_date=as_of_date,
+                provenance=prov,
             ),
             InsiderTransaction(
                 filer_name="Board Director / Independent",
@@ -179,7 +203,7 @@ class SecEdgarClient:
                 total_value=681000.0,
                 filing_date="2026-09-12",
                 transaction_date="2026-09-10",
-                provenance=OsintProvenance.SEC_EDGAR,
+                provenance=prov,
             ),
         ]
         return transactions[:limit]

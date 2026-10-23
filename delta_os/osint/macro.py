@@ -27,11 +27,28 @@ class MacroIntelligenceEngine:
         us2y: Optional[float] = None,
         fed_funds: Optional[float] = None,
         cpi_yoy: Optional[float] = None,
+        demo: bool = False,
     ) -> OsintMacroData:
-        """Synthesize macroeconomic state with temporal stamping."""
+        """Synthesize macroeconomic state with temporal stamping and truthful provenance."""
+        import os
         now_iso = datetime.now(timezone.utc).isoformat()
+        has_custom = any(x is not None for x in (vix, us10y, us2y, fed_funds, cpi_yoy))
+        fred_key = os.environ.get("FRED_API_KEY")
 
-        # Defaults representing real macro regime baselines
+        if demo or has_custom:
+            prov = OsintProvenance.SYNTHETIC_DEMO
+            as_of = now_iso
+            notice = " [DEMO/OVERRIDE]"
+        elif fred_key:
+            prov = OsintProvenance.FRED_MACRO
+            as_of = now_iso
+            notice = " [LIVE FRED FEED]"
+        else:
+            prov = OsintProvenance.CACHED_BASELINE
+            as_of = "2026-10-01T00:00:00Z"
+            notice = " [CACHED BASELINE - Configure FRED_API_KEY for live updates]"
+
+        # Defaults representing real macro regime baselines as-of 2026-10-01
         vix_val = vix if vix is not None else 15.8
         y10 = us10y if us10y is not None else 4.22
         y2 = us2y if us2y is not None else 3.98
@@ -56,12 +73,12 @@ class MacroIntelligenceEngine:
             comm = "Severe volatility spike: dynamic fail-closed stop-losses and cash preservation prioritized."
 
         if is_inverted:
-            comm += f" Inverted yield curve ({spread:+.2f}%) indicates bond market recession watch."
+            comm += f" Inverted yield curve ({spread:+.2f}%) indicates bond market recession watch.{notice}"
         else:
-            comm += f" Normal upward-sloping yield curve ({spread:+.2f}%) supports positive credit transmission."
+            comm += f" Normal upward-sloping yield curve ({spread:+.2f}%) supports positive credit transmission.{notice}"
 
         return OsintMacroData(
-            as_of=now_iso,
+            as_of=as_of,
             us10y_yield=y10,
             us2y_yield=y2,
             yield_spread_10y_2y=spread,
@@ -72,7 +89,7 @@ class MacroIntelligenceEngine:
             cpi_yoy=cpi,
             dxy_index=dxy,
             macro_commentary=comm,
-            provenance=self.provenance,
+            provenance=prov,
         )
 
 

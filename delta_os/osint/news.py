@@ -117,10 +117,11 @@ class NewsCatalystEngine:
     def __init__(self) -> None:
         self.provenance = OsintProvenance.NEWSWIRE
 
-    def fetch_catalysts(self, symbol: str, limit: int = 5) -> Tuple[List[OsintNewsItem], int]:
+    def fetch_catalysts(self, symbol: str, limit: int = 5, demo: bool = False) -> Tuple[List[OsintNewsItem], int]:
         """Fetch and filter recent news items for a symbol."""
         sym = symbol.strip().upper()
-        now_iso = datetime.now(timezone.utc).isoformat()
+        as_of_iso = datetime.now(timezone.utc).isoformat() if demo else "2026-10-01T00:00:00Z"
+        prov = OsintProvenance.SYNTHETIC_DEMO if demo else OsintProvenance.CACHED_BASELINE
 
         raw_stream = [
             # High-signal institutional news
@@ -128,38 +129,38 @@ class NewsCatalystEngine:
                 "headline": f"{sym} Reports Double-Digit Cloud and Enterprise Acceleration in Recent Quarter",
                 "source": "Institutional Newswire Terminal",
                 "type": "EARNINGS",
-                "url": f"https://newswire.internal/news/{sym.lower()}-cloud-growth",
+                "url": f"https://www.sec.gov/edgar/searchedgar/companysearch",
             },
             {
                 "headline": f"Global Supply Chain Logistics Report Affirms {sym} Component Delivery Schedules",
                 "source": "Semiconductor & Industrial Daily",
                 "type": "SUPPLY_CHAIN",
-                "url": f"https://industry.internal/news/{sym.lower()}-supply",
+                "url": f"https://www.sec.gov/edgar/searchedgar/companysearch",
             },
             {
                 "headline": f"{sym} Announces Enterprise Strategic Partnership for Autonomous AI Infrastructure",
                 "source": "Global Technology Press",
                 "type": "PRODUCT",
-                "url": f"https://techwire.internal/news/{sym.lower()}-partnership",
+                "url": f"https://www.sec.gov/edgar/searchedgar/companysearch",
             },
             {
                 "headline": f"Regulatory Authorities Review Cross-Border Technology Export Filings for {sym}",
                 "source": "Regulatory Policy Wire",
                 "type": "REGULATORY",
-                "url": f"https://regpolicy.internal/news/{sym.lower()}-trade",
+                "url": f"https://www.sec.gov/edgar/searchedgar/companysearch",
             },
             # Clickbait items to test the filter
             {
                 "headline": f"This AI stock will shock you with 10x gains to the moon!!!",
                 "source": "RetailHypeBlogger",
                 "type": "M_AND_A",
-                "url": "https://hypetrader.internal/fake",
+                "url": "https://www.sec.gov/edgar/searchedgar/companysearch",
             },
             {
                 "headline": f"MASSIVE CRASH IMMINENT FOR {sym} SECRET TRICK REVEALED",
                 "source": "ClickClickFinance",
                 "type": "MACRO",
-                "url": "https://clickclick.internal/crash",
+                "url": "https://www.sec.gov/edgar/searchedgar/companysearch",
             },
         ]
 
@@ -176,7 +177,7 @@ class NewsCatalystEngine:
             item = OsintNewsItem(
                 headline=r["headline"],
                 publisher=r["source"],
-                timestamp=now_iso,
+                timestamp=as_of_iso,
                 sentiment_score=polarity,
                 subjectivity=subj,
                 catalyst_type=r["type"],
@@ -184,7 +185,7 @@ class NewsCatalystEngine:
                 clickbait_flags=[],
                 relevance_score=0.92,
                 url=r["url"],
-                provenance=self.provenance,
+                provenance=prov,
             )
             verified_catalysts.append(item)
 

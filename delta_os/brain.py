@@ -1155,6 +1155,7 @@ class DeltaSentinel:
         alert_sink: Optional[Callable[[Dict[str, Any]], Any]] = None,
         alert_cap: int = 200,
         state_path: Optional[str] = None,
+        broker_adapters: Optional[Sequence[Any]] = None,
     ):
         self.brain = brain
         self.safety = safety_state
@@ -1165,6 +1166,7 @@ class DeltaSentinel:
         self.alert_sink = alert_sink
         self.alert_cap = alert_cap
         self.state_path = state_path
+        self.broker_adapters = list(broker_adapters or [])
         self.running = False
         self.thread: Optional[threading.Thread] = None
         self.alerts: List[Dict[str, Any]] = []
@@ -1336,7 +1338,7 @@ class DeltaSentinel:
         if drawdown_pct >= self.max_drawdown_pct and not self.halted:
             reason = (f"AUTONOMOUS KILL SWITCH: Portfolio drawdown {drawdown_pct:.2f}% "
                       f"breached max tolerable limit {self.max_drawdown_pct:.2f}%.")
-            receipt = self.safety.kill_all([], actor="SENTINEL_24_7")
+            receipt = self.safety.kill_all(self.broker_adapters, actor="SENTINEL_24_7")
             self._emit("CRITICAL", "AUTOMATED_KILL_SWITCH_TRIPPED",
                        f"{reason} Receipt: {receipt}")
             self._halt_announced = True

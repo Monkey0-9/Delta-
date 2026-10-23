@@ -127,6 +127,18 @@ class OsintEngine:
             f"Overall Recommendation: Composite sentiment is {verdict} ({composite:+.2f}). Maintain fail-closed stops."
         )
 
+        prov = "TIER1_COMPOSITE"
+        if any(
+            getattr(x, "provenance", "") in (OsintProvenance.SYNTHETIC_DEMO, "SYNTHETIC_DEMO")
+            for x in (entity, macro_data, social_data) if x is not None
+        ) or any(f.provenance in (OsintProvenance.SYNTHETIC_DEMO, "SYNTHETIC_DEMO") for f in filings):
+            prov = "SYNTHETIC_DEMO_COMPOSITE"
+        elif any(
+            getattr(x, "provenance", "") in (OsintProvenance.CACHED_BASELINE, "CACHED_BASELINE")
+            for x in (entity, macro_data, social_data) if x is not None
+        ):
+            prov = "CACHED_BASELINE_COMPOSITE"
+
         return OsintDossier(
             symbol=sym,
             generated_at=now_iso,
@@ -140,7 +152,7 @@ class OsintEngine:
             macro=macro_data,
             social=social_data,
             key_takeaways=takeaways,
-            provenance="TIER1_COMPOSITE",
+            provenance=prov,
         )
 
 

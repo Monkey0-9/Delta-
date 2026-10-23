@@ -1,6 +1,6 @@
 # DELTA System Status — machine-readable gate record
 # Any PRODUCTION claim without prior gates green fails CI.
-version: "2.11"
+version: "2.14"
 date: "2026-10-23"
 overall: "PAPER/SIM LAUNCHABLE — LIVE GATED (R10)"
 stages:

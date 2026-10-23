@@ -40,19 +40,26 @@ runner = CliRunner()
 def test_sec_edgar_client_canonical_and_pseudo_resolution():
     client = SecEdgarClient()
 
-    # Canonical ticker
+    # Canonical ticker with genuine SEC provenance
     nvda = client.resolve_entity("NVDA")
     assert nvda.symbol == "NVDA"
     assert nvda.cik == "0001045810"
     assert nvda.sector == "Technology"
     assert nvda.exchange == "NASDAQ"
+    assert nvda.provenance == "TIER1_SEC_EDGAR"
     assert len(nvda.key_executives) >= 2
 
-    # Non-cataloged ticker generates deterministic pseudo-CIK
+    # Non-cataloged ticker returns UNRESOLVED, never fabricated pseudo-CIK
     xyz = client.resolve_entity("XYZ")
     assert xyz.symbol == "XYZ"
-    assert len(xyz.cik) == 10
-    assert xyz.provenance == "TIER1_SEC_EDGAR"
+    assert xyz.cik == "UNRESOLVED"
+    assert xyz.provenance == "UNAVAILABLE"
+
+    # Explicit demo flag returns synthetic demo record
+    xyz_demo = client.resolve_entity("XYZ", demo=True)
+    assert xyz_demo.symbol == "XYZ"
+    assert len(xyz_demo.cik) == 10
+    assert xyz_demo.provenance == "SYNTHETIC_DEMO"
 
 
 def test_sec_edgar_filings_and_pit_integrity():
@@ -65,7 +72,7 @@ def test_sec_edgar_filings_and_pit_integrity():
 
     for f in filings:
         assert f.accession_number
-        assert f.provenance == "TIER1_SEC_EDGAR"
+        assert f.provenance in ("CACHED_BASELINE", "SYNTHETIC_DEMO", "TIER1_SEC_EDGAR")
         # Validate temporal integrity: period_end <= filing_date
         assert f.period_end <= f.filing_date
 
@@ -80,7 +87,7 @@ def test_sec_edgar_insider_transactions():
         assert it.transaction_type in ("BUY", "SELL", "OPTION_EXERCISE", "GRANT")
         assert it.shares > 0
         assert it.price >= 0.0
-        assert it.provenance == "TIER1_SEC_EDGAR"
+        assert it.provenance in ("CACHED_BASELINE", "SYNTHETIC_DEMO", "TIER1_SEC_EDGAR")
 
 
 # ==============================================================================

@@ -12,6 +12,7 @@ session. Ctrl+K / Ctrl+M are terminal-level; use /kill and /manual here
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import difflib
 import sys
 from dataclasses import dataclass, field
@@ -1510,7 +1511,16 @@ class Terminal:
                         f"no ALLOW alternate — nothing staged, nothing sent. "
                         f"(supply --alt SYM1,SYM2 to enable substitution)")
             sym, gate = picked
-            px = float(self.data.quote(sym).frame["close"].iloc[-1]) if limit is None else px
+            qf = self.data.quote(sym)
+            self.safety.check_fresh(qf.provenance)
+            last = float(qf.frame["close"].iloc[-1])
+            px = limit if limit else last
+            adv = float(qf.frame["volume"].tail(20).mean() or 1)
+            part = qty * px / max(adv * last, 1e-9)
+            impact_bps = 8.0 * (part ** 0.5) * 100
+            slip = px * 0.0002
+            bands = Q.vwap_bands(qf.frame).iloc[-1]
+            loc = Q.vwap_location(last, bands)
             t = OrderTicket(sym, side.upper(), otype, round(px, 2), qty,
                             stop_loss=float(kw["stop"]) if "stop" in kw else None,
                             target=float(kw["target"]) if "target" in kw else None,
@@ -1549,6 +1559,16 @@ class Terminal:
         import uuid as _uuid
         from decimal import Decimal as _D
 
+        now_utc = datetime.now(timezone.utc)
+        as_of = getattr(qf.provenance, "as_of", None)
+        if isinstance(as_of, datetime):
+            if as_of.tzinfo is None:
+                as_of = as_of.replace(tzinfo=timezone.utc)
+            data_age_s = max(0.0, (now_utc - as_of).total_seconds())
+        else:
+            data_age_s = 0.0
+        price_source = "real" if getattr(qf.provenance, "tier", "") in ("TIER1", "TIER2") else "paper"
+
         fw = self.__dict__.setdefault("_firewall", RiskFirewall())
         idem = f"os-{sym}-{side}-{qty}-{px}"
         try:
@@ -1557,10 +1577,10 @@ class Terminal:
                             side=side, quantity=_D(str(qty)),
                             limit_price=_D(str(limit)) if limit else None,
                             idempotency_key=idem, authorized=True,
-                            price_source="real"),
+                            price_source=price_source),
                 ref_price=_D(str(px)),
                 current_position=_D(str(self._ledger_positions().get(sym, 0.0))),
-                data_age_s=0.0,
+                data_age_s=data_age_s,
                 # H-item (P2): portfolio ceilings evaluated on every trade —
                 # gross from live positions, equity from the ledger.
                 portfolio_gross=_D(str(positions_value)),
@@ -1591,6 +1611,25 @@ class Terminal:
                     rsi_val = float(Q.calc_rsi(f_frame["close"]).iloc[-1])
                 except Exception:
                     rsi_val = 50.0
+
+            strict_veto = True
+            if "force" in kw:
+                token_val = kw.get("unlock-token") or kw.get("token") or os.environ.get("DELTA_FORCE_TOKEN")
+                expected = os.environ.get("DELTA_UNLOCK_TOKEN", "")
+                from delta_os.safety import _tokens_match
+                if expected and token_val and _tokens_match(token_val, expected):
+                    strict_veto = False
+                    self.safety.compliance.append("force_override", {
+                        "symbol": sym, "side": side, "qty": qty, "auth": "TOKEN_VERIFIED"
+                    })
+                elif not expected:
+                    strict_veto = False
+                    self.safety.compliance.append("force_override", {
+                        "symbol": sym, "side": side, "qty": qty, "auth": "DEV_UNAUTHENTICATED"
+                    })
+                else:
+                    strict_veto = True
+
             warnings = interceptor.inspect_order(
                 symbol=sym,
                 side=side,
@@ -1598,13 +1637,13 @@ class Terminal:
                 price=px,
                 regime=self.regime_chip,
                 rsi=rsi_val,
-                strict_veto="force" not in kw,
+                strict_veto=strict_veto,
             )
             if warnings:
                 warn_text = "\n".join(w.format_cli() for w in warnings)
                 if any(w.blocked for w in warnings):
                     fw._seen_keys.discard(idem)
-                    raise SafetyError(f"Self-Learning Pre-Trade Veto:\n{warn_text}\n(pass --force to override)")
+                    raise SafetyError(f"Self-Learning Pre-Trade Veto:\n{warn_text}\n(pass --force with --unlock-token to override)")
                 else:
                     card = f"{warn_text}\n" + card
         except SafetyError:
