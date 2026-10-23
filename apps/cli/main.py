@@ -72,9 +72,17 @@ def doctor(display: bool = typer.Option(False, "--display", help="Probe terminal
            connections: bool = typer.Option(False, "--connections", help="Probe every live path (market/broker/model/mcp/daemon/bridge/vault/clock)"),
            json_out: bool = typer.Option(False, "--json", help="Emit artifacts/doctor/connections.json"),
            fix: bool = typer.Option(False, "--fix", help="Safe-fix only: artifacts + guidance (never live orders/keys/unlock)")) -> None:
-    """Connection doctor + model-doctor. --display probes responsive layout (Group 08)."""
+    """Check the installed CLI without requiring ML weights; --connections runs live probes."""
+    if display:
+        import json
+        from delta_tui.responsive_probe import display_probe
+
+        typer.echo(json.dumps(display_probe(), indent=2))
+        return
+
     if connections or json_out or fix:
-        from delta_os.doctor_connections import run_all, render_table, emit_artifact, summarize
+        from delta_os.doctor_connections import emit_artifact, render_table, run_all, summarize
+
         checks = run_all()
         typer.echo(render_table(checks))
         if json_out or fix:
@@ -82,12 +90,36 @@ def doctor(display: bool = typer.Option(False, "--display", help="Probe terminal
         if not summarize(checks)["core_ok"]:
             raise typer.Exit(code=1)
         return
-    if display:
-        from delta_tui.responsive_probe import display_probe
-        import json
-        typer.echo(json.dumps(display_probe(), indent=2))
-        return
-    if not model_doctor():
+
+    # A base CLI installation must not depend on torch, CUDA, model weights,
+    # cloud credentials, live feeds, or a configured brokerage account.
+    import importlib.util
+    import platform
+
+    required = ("typer", "httpx", "numpy", "pandas", "pydantic", "yaml")
+    missing = []
+    for module in required:
+        try:
+            if importlib.util.find_spec(module) is None:
+                missing.append(module)
+        except (ImportError, ValueError):
+            missing.append(module)
+
+    try:
+        from importlib.metadata import version
+        package_version = version("delta")
+    except Exception:
+        package_version = "source/uninstalled"
+
+    typer.echo("DELTA CLI DOCTOR")
+    typer.echo(f"Runtime: {'READY' if not missing else 'INCOMPLETE'}")
+    typer.echo(f"Python: {platform.python_version()}")
+    typer.echo(f"Package: {package_version}")
+    typer.echo(f"Core dependency probe: {'PASS' if not missing else 'MISSING ' + ', '.join(missing)}")
+    typer.echo("Model inference: NOT VERIFIED (use delta model-doctor for local ML toolchain diagnostics)")
+    typer.echo("Credentials: not tested (use delta doctor --connections for provider and broker probes)")
+    typer.echo("Execution: PAPER/research only unless all independent release gates approve LIVE")
+    if missing:
         raise typer.Exit(code=1)
 
 
