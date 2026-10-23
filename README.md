@@ -16,15 +16,25 @@ A professional-grade quantitative trading operating system designed for institut
 
 ## Installation & Launch
 
-### 1. Python Environment Setup
+### 1. Install the CLI/runtime
+
 ```bash
 # Clone repository
 git clone https://github.com/Monkey0-9/Delta-.git
 cd Delta-
 
-# Install Python quantitative dependencies
-pip install -r requirements.txt
+# Install the package, runtime dependencies and optional cloud-provider SDKs.
+# This does not install PyTorch/CUDA, training libraries or security scanners.
+python -m pip install -r requirements.txt
+
+# Verify the installed command surface before connecting any account.
+delta --help
+delta doctor
 ```
+
+The source of truth for base dependencies and optional extras is `pyproject.toml`.
+`requirements.txt` installs the CLI and provider SDKs. DELTA must remain usable in
+read-only/local mode when provider API keys or optional model weights are absent.
 
 ### 2. Launching DELTA
 
@@ -34,16 +44,39 @@ pip install -r requirements.txt
 cargo run --manifest-path tui/Cargo.toml
 ```
 
-#### Interactive Python Quantitative REPL
+#### Installed CLI / Interactive quantitative terminal
 ```bash
-# Launch the Python quantitative shell
+# Show subcommands
+delta --help
+
+# Run the default interactive terminal
+delta
+```
+
+#### Python quantitative REPL
+```bash
 python -m delta_os
 ```
 
-#### Headless JSON-RPC Bridge (For Automation & Scripting)
+#### Headless JSON-RPC bridge (automation and scripting)
 ```bash
-# Launch the headless protocol bridge over stdin/stdout
 python -m delta_os.bridge
+```
+
+### 3. Optional model training / full test suite
+
+Training is not a prerequisite for the CLI. The training extra includes PyTorch,
+datasets, PEFT, Accelerate, Transformers and TRL. Select the appropriate PyTorch
+CPU/CUDA wheel for your machine before installing this extra.
+
+```bash
+# Example only for CPU-only machines / CI
+python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+python -m pip install -e ".[training]"
+
+# Full test/development dependencies (also requires a suitable PyTorch wheel)
+python -m pip install -e ".[dev,training]"
+python -m pytest -q
 ```
 
 ---
