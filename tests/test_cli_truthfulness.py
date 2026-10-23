@@ -45,3 +45,17 @@ def test_model_doctor_reports_missing_torch_without_crashing(monkeypatch, capsys
     assert "PyTorch: NOT INSTALLED" in output
     assert "Toolchain check: INCOMPLETE" in output
     assert "Inference status: NOT VERIFIED" in output
+
+def test_default_doctor_does_not_require_training_stack(monkeypatch, capsys):
+    def forbidden_model_probe():
+        raise AssertionError("delta doctor must not require PyTorch")
+
+    monkeypatch.setattr(cli, "model_doctor", forbidden_model_probe)
+    cli.doctor()
+    output = capsys.readouterr().out
+
+    assert "DELTA CLI DOCTOR" in output
+    assert "Runtime: READY" in output
+    assert "Model inference: NOT VERIFIED" in output
+    assert "Execution: PAPER/research only" in output
+
