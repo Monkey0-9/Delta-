@@ -17,14 +17,10 @@ import os
 import numpy as np
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_C_DLL = os.path.join(ROOT, "native", "build", "delta_fast.dll")
-_CPP_DLL = os.path.join(ROOT, "native", "build", "fast_book.dll")
-_RS_DLL = os.path.join(ROOT, "target", "release", "delta_native.dll")
-if not os.path.exists(_RS_DLL):
-    _RS_DLL = os.path.join(ROOT, "rust", "target", "release", "delta_native.dll")
+
 
 def _try_load(path: str):
-    """Load a native DLL, returning None when missing OR unloadable.
+    """Load a native DLL/SO, returning None when missing OR unloadable.
 
     An unloadable DLL (stale toolchain, missing CRT/python DLL) must degrade
     to the NumPy fallback, never crash the import. Backend truth is reported
@@ -38,9 +34,36 @@ def _try_load(path: str):
         return None
 
 
-_c = _try_load(_C_DLL)
-_cpp = _try_load(_CPP_DLL)
-_rs = _try_load(_RS_DLL)
+def _find_library(candidates: list[str]) -> tuple[ctypes.CDLL | None, str]:
+    for path in candidates:
+        lib = _try_load(path)
+        if lib is not None:
+            return lib, path
+    return None, candidates[0] if candidates else ""
+
+
+_c, _C_DLL = _find_library([
+    os.path.join(ROOT, "native", "build", "delta_fast.so"),
+    os.path.join(ROOT, "native", "build", "delta_fast.dll"),
+    os.path.join(ROOT, "native", "build", "libdelta_fast.so"),
+    os.path.join(ROOT, "native", "build", "libdelta_fast.dylib"),
+])
+
+_cpp, _CPP_DLL = _find_library([
+    os.path.join(ROOT, "native", "build", "fast_book.so"),
+    os.path.join(ROOT, "native", "build", "fast_book.dll"),
+    os.path.join(ROOT, "native", "build", "libfast_book.so"),
+    os.path.join(ROOT, "native", "build", "libfast_book.dylib"),
+])
+
+_rs, _RS_DLL = _find_library([
+    os.path.join(ROOT, "target", "release", "libdelta_native.so"),
+    os.path.join(ROOT, "target", "release", "delta_native.dll"),
+    os.path.join(ROOT, "target", "release", "libdelta_native.dylib"),
+    os.path.join(ROOT, "rust", "target", "release", "libdelta_native.so"),
+    os.path.join(ROOT, "rust", "target", "release", "delta_native.dll"),
+    os.path.join(ROOT, "rust", "target", "release", "libdelta_native.dylib"),
+])
 
 if _c is not None:
     _c.delta_returns.restype = ctypes.c_size_t

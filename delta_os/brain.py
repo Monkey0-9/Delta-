@@ -1061,6 +1061,7 @@ class VolTargetedMomentumStrategy:
     # ------------------------------------------------------------------------
     def chat(self, prompt: str) -> str:
         """Provide intelligent, evidence-grounded financial advice and answers."""
+        import re
         q = (prompt or "").strip().lower()
 
         # Greetings & basic small talk
@@ -1073,44 +1074,119 @@ class VolTargetedMomentumStrategy:
                 "Ask any quantitative finance question, analyze a ticker, evaluate risk, forecast price trends, or type `/` for commands."
             )
 
-        # Quantitative definitions
-        if "var" in q or "value at risk" in q:
+        # Quantitative definitions: VaR & CVaR
+        if "var" in q or "value at risk" in q or "cvar" in q or "expected shortfall" in q:
             return (
-                "**Value at Risk (VaR)** is the maximum expected loss over a specific time horizon $T$ at a confidence level $1 - \\alpha$:\n\n"
-                "$$\\text{VaR}_\\alpha = -\\inf \\{ l \\in \\mathbb{R} : P(L > l) \\le 1 - \\alpha \\}$$\n\n"
-                "DELTA computes both **Historical VaR** (empirical quantile of past tick returns) and **Parametric VaR** (Gaussian/Student-t distribution). Expected Shortfall (CVaR) is also computed to account for fat-tail catastrophic events."
+                "**Value at Risk (VaR) & Expected Shortfall (CVaR)**:\n\n"
+                "$$\\text{VaR}_\\alpha = -\\inf \\{ l \\in \\mathbb{R} : P(L > l) \\le 1 - \\alpha \\}$$\n"
+                "$$\\text{CVaR}_\\alpha = \\mathbb{E}[L \\mid L \\ge \\text{VaR}_\\alpha]$$\n\n"
+                "• **Historical VaR**: Empirical quantile from point-in-time tick return distribution.\n"
+                "• **Parametric VaR (Cornish-Fisher)**: Corrects Gaussian quantiles for empirical skewness ($S$) and excess kurtosis ($K$):\n"
+                "  $$\\tilde{z}_\\alpha = z_\\alpha + \\frac{1}{6}(z_\\alpha^2 - 1)S + \\frac{1}{24}(z_\\alpha^3 - 3z_\\alpha)K - \\frac{1}{36}(2z_\\alpha^3 - 5z_\\alpha)S^2$$\n"
+                "• **Expected Shortfall (CVaR)**: Coherent risk measure capturing tail-loss severity beyond the VaR threshold.\n\n"
+                "Use `/risk <symbol>` to compute live parametric and historical VaR95/99 and CVaR."
             )
 
-        if "black scholes" in q or "greeks" in q:
+        # Options Mathematics & Greeks
+        if "black scholes" in q or "greeks" in q or "implied vol" in q or "option" in q:
             return (
                 "**Black-Scholes Options Greeks Mathematics**:\n\n"
                 "• **Delta ($\\Delta$)**: $\\frac{\\partial V}{\\partial S} = \\Phi(d_1)$ (Hedge ratio & directional sensitivity)\n"
                 "• **Gamma ($\\Gamma$)**: $\\frac{\\partial^2 V}{\\partial S^2} = \\frac{\\phi(d_1)}{S \\sigma \\sqrt{T}}$ (Curvature & rate of change of Delta)\n"
                 "• **Vega ($\\nu$)**: $\\frac{\\partial V}{\\partial \\sigma} = S \\sqrt{T} \\phi(d_1)$ (Sensitivity to implied volatility shifts)\n"
-                "• **Theta ($\\Theta$)**: $\\frac{\\partial V}{\\partial t}$ (Daily calendar time-decay)\n\n"
-                "Use `/risk NVDA OPTION --strike 185 --expiry 30` to run live Greeks evaluation on any contract."
+                "• **Theta ($\\Theta$)**: $\\frac{\\partial V}{\\partial t}$ (Daily calendar time-decay)\n"
+                "• **Rho ($\\rho$)**: $\\frac{\\partial V}{\\partial r} = K T e^{-rT} \\Phi(d_2)$ (Interest rate sensitivity)\n\n"
+                "Use `/risk <symbol> OPTION --strike <K> --expiry <days>` to run live analytical Greeks on any equity contract."
             )
 
-        # Ticker query fallback (e.g. "what do you think of NVDA")
-        for sym in ["NVDA", "AAPL", "MSFT", "SPY", "QQQ", "TSLA", "AMZN", "GOOGL"]:
-            if sym.lower() in q:
-                res = self.analyze_stock(sym)
-                if "error" in res:
-                    return (f"### Quantitative Analysis for **{sym}**:\n\n"
-                            f"• UNAVAILABLE: {res['error']}")
-                fc = self.forecast_direction(sym)
-                if "error" in fc:
-                    return (f"### Quantitative Analysis for **{sym}**:\n\n"
-                            f"• UNAVAILABLE: {fc['error']}")
-                return (
-                    f"### Quantitative Analysis for **{sym}**:\n\n"
-                    f"• **Current Price**: ${res['price']:.2f} ({res['change_pct']:+.2f}%)\n"
-                    f"• **Trend Stance**: `{res['trend']}` | **Composite Score**: {res['composite_score']}/100\n"
-                    f"• **RSI (14)**: {res['indicators']['rsi_14']:.1f} | **VWAP**: ${res['indicators']['vwap']:.2f}\n"
-                    f"• **5-Day Direction Forecast**: **{fc['direction']}** (Target: ${fc['target_price']:.2f}, Return: {fc['expected_return_pct']:+.2f}%)\n"
-                    f"• **Actionable Turn Signal**: {fc['turn_recommendation']}\n\n"
-                    f"Type `/risk {sym}` for downside Greeks/VaR or `/news {sym}` for catalysts."
-                )
+        # Almgren-Chriss & Optimal Execution
+        if "almgren" in q or "market impact" in q or "optimal execution" in q or "twap" in q or "vwap" in q:
+            return (
+                "**Almgren-Chriss Optimal Execution Framework**:\n\n"
+                "Balances market impact costs against the risk of holding inventory over execution horizon $T$:\n"
+                "$$\\min_{x(t)} \\mathbb{E}[x_{\\text{shortfall}}] + \\lambda \\mathbb{V}[x_{\\text{shortfall}}]$$\n\n"
+                "• **Optimal Liquidation Trajectory**:\n"
+                "  $$x(j) = \\frac{\\sinh(\\kappa (T - t_j))}{\\sinh(\\kappa T)} X_0, \\quad \\kappa \\approx \\sqrt{\\frac{\\lambda \\sigma^2}{\\eta}}$$\n"
+                "• **Permanent Impact**: Linear shift in equilibrium price $\\Delta P_{\\text{perm}} = \\gamma X_0$.\n"
+                "• **Temporary Impact**: Per-slice liquidity cost $\\Delta P_{\\text{temp}} = \\eta \\cdot v_j$.\n\n"
+                "Use `delta plan-order <sym> <qty>` or `/trade <sym> <side> <qty> --twap <slices>` to execute."
+            )
+
+        # Kelly Criterion & Position Sizing
+        if "kelly" in q or "position size" in q or "sizing" in q:
+            return (
+                "**Kelly Criterion Position Sizing & Capital Preservation**:\n\n"
+                "The optimal fraction of bankroll $f^*$ maximizing asymptotic capital growth rate $\\mathbb{E}[\\ln(W_T)]/T$:\n"
+                "$$f^* = \\frac{p(b + 1) - 1}{b} = \\frac{\\mu - r}{\\sigma^2}$$\n\n"
+                "• **Fractional Kelly (0.25-Kelly)**: Institutional desks mandate 0.25-Kelly to protect against parameter uncertainty and severe tail-drawdowns:\n"
+                "  $$f_{\\text{inst}} = 0.25 \\times f^*$$\n"
+                "• **R:R Asymmetry**: DELTA enforces risk-to-reward ratio $R:R \\ge 1:2.0$ before staging any order ticket."
+            )
+
+        # Statistical Arbitrage & Pairs Trading
+        if "statarb" in q or "pairs trading" in q or "cointegration" in q or "kalman" in q:
+            return (
+                "**Statistical Arbitrage & Kalman Filter Pairs Trading**:\n\n"
+                "• **Cointegration ($I(1) \\to I(0)$)**: Spread $S_t = Y_t - \\beta_t X_t - \\alpha$ tested via Engle-Granger and Johansen eigenvalues.\n"
+                "• **Ornstein-Uhlenbeck Mean-Reversion Speed**:\n"
+                "  $$dS_t = \\theta(\\mu - S_t)dt + \\sigma dW_t, \\quad t_{1/2} = \\frac{\\ln 2}{\\theta}$$\n"
+                "• **Kalman Filter State-Space Tracking**:\n"
+                "  $$\\beta_t = \\beta_{t-1} + w_t, \\quad Y_t = \\beta_t X_t + v_t$$\n"
+                "  Dynamically adapts hedge ratio $\\beta_t$ without rolling-window lag."
+            )
+
+        # Self-Learning & Pre-Trade Mistake Interception
+        if "mistake" in q or "self learning" in q or "episodic memory" in q or "interceptor" in q:
+            return (
+                "**DELTA Pre-Trade Mistake Interceptor & Self-Learning Engine**:\n\n"
+                "• **Episodic Memory**: Persists attributed trade experiences into `~/.delta/mistakes.jsonl` and hash-chained SQLite WAL (`~/.delta/learning/outcomes.sqlite3`).\n"
+                "• **Bayesian Risk Scaling**: Dynamically penalizes allocations on symbols with high historical loss rates:\n"
+                "  $$\\text{penalty} = \\max(0.25, 1.0 - 0.75 \\times \\text{loss\\_rate})$$\n"
+                "• **Deterministic Vetoes**: Automatically blocks toxic entries (e.g. buying $RSI > 75$ in `BEAR_CRASH` regimes or spreads $> 40$ bps).\n\n"
+                "Use `delta mistakes` or `delta learning-status` to inspect failure memory."
+            )
+
+        # Portfolio Simplex Cap Invariant
+        if "simplex" in q or "portfolio cap" in q or "water filling" in q or "weight cap" in q:
+            return (
+                "**Exact Bounded Simplex Projection (Water-Filling Cap)**:\n\n"
+                "Solves the bounded Euclidean projection problem:\n"
+                "$$\\min_{w} \\frac{1}{2} \\|w - w_0\\|^2 \\quad \\text{s.t.} \\quad \\sum_{i=1}^n w_i = 1, \\quad 0 \\le w_i \\le \\text{cap}$$\n\n"
+                "• **Feasibility Constraint**: Guarantees $n \\times \\text{cap} \\ge 1.0 - 10^{-9}$ (raises ValueError if infeasible).\n"
+                "• **Small Universe Scaling**: For $n < 4$, dynamically scales bounds via $\\text{eff\\_max} = \\max(\\text{cap}, 1.0 / n)$ to ensure valid equal-weight allocations."
+            )
+
+        # Dynamic Ticker Extraction & Quantitative Breakdown
+        target_sym = None
+        for s in ["NVDA", "AAPL", "MSFT", "SPY", "QQQ", "TSLA", "AMZN", "GOOGL", "META", "AMD", "NFLX", "COIN", "PLTR", "INTC", "BRK", "JPM"]:
+            if re.search(rf"\b{s}\b", prompt, re.IGNORECASE):
+                target_sym = s
+                break
+
+        if not target_sym:
+            dollar_match = re.findall(r"\$([A-Za-z]{1,5})\b", prompt)
+            if dollar_match:
+                target_sym = dollar_match[0].upper()
+
+        if target_sym:
+            sym = target_sym
+            res = self.analyze_stock(sym)
+            if isinstance(res, dict) and "error" in res:
+                return (f"### Quantitative Analysis for **{sym}**:\n\n"
+                        f"• UNAVAILABLE: {res['error']}")
+            fc = self.forecast_direction(sym)
+            if isinstance(fc, dict) and "error" in fc:
+                return (f"### Quantitative Analysis for **{sym}**:\n\n"
+                        f"• UNAVAILABLE: {fc['error']}")
+            return (
+                f"### Quantitative Analysis for **{sym}**:\n\n"
+                f"• **Current Price**: ${res['price']:.2f} ({res['change_pct']:+.2f}%)\n"
+                f"• **Trend Stance**: `{res['trend']}` | **Composite Score**: {res['composite_score']}/100\n"
+                f"• **RSI (14)**: {res['indicators']['rsi_14']:.1f} | **VWAP**: ${res['indicators']['vwap']:.2f}\n"
+                f"• **5-Day Direction Forecast**: **{fc['direction']}** (Target: ${fc['target_price']:.2f}, Return: {fc['expected_return_pct']:+.2f}%)\n"
+                f"• **Actionable Turn Signal**: {fc['turn_recommendation']}\n\n"
+                f"Type `/risk {sym}` for downside Greeks/VaR, `/chart {sym}` for sectioned terminal charts, or `/osint {sym}` for SEC filings."
+            )
 
         return (
             "**DELTA Quantitative Reasoning**:\n\n"
@@ -1120,7 +1196,7 @@ class VolTargetedMomentumStrategy:
             "2. **Risk & Greeks**: `/risk <symbol> [stock|option|future]` (VaR, Greeks, Shocks)\n"
             "3. **Return Forecast**: `/forecast <symbol>` (Probabilistic drift & turn points)\n"
             "4. **Algo Code**: `/algo [statarb|vwap|momentum]` (Top 0.001% production strategies)\n"
-            "5. **News & Catalysts**: `/news <symbol>` (Sentiment & clickbait filtering)\n"
+            "5. **News & Catalysts**: `/news <symbol>` or `/osint <symbol>` (SEC filings & sentiment)\n"
             "6. **24/7 Sentinel**: `/sentinel [start|status]` (Automated loss kill-switch)"
         )
 
