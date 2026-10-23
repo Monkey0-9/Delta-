@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 import typer
 
@@ -807,6 +808,167 @@ def catalyst_cmd(
     from delta_os.osint_news import analyze_osint_news
     summary = analyze_osint_news(symbol)
     typer.echo(summary.render_cli())
+
+
+@app.command("osint")
+def osint_cmd(
+    symbol: str = typer.Argument("SPY", help="Symbol e.g. NVDA, AAPL, SPY, MSFT"),
+    section: str = typer.Option("all", "--section", "-s", help="Section to view: all|news|filings|macro|social|info|insiders"),
+    format: str = typer.Option("cli", "--format", "-f", help="Output format: cli|json|markdown"),
+    vix: Optional[float] = typer.Option(None, "--vix", help="Override VIX volatility level"),
+    us10y: Optional[float] = typer.Option(None, "--us10y", help="Override US 10-Year Treasury Yield %"),
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="File path to save output"),
+) -> None:
+    """Institutional Open Source Intelligence (OSINT), SEC EDGAR filings, macro & news."""
+    import json
+    from pathlib import Path
+    from delta_os.osint import (
+        analyze_osint,
+        SecEdgarClient,
+        NewsCatalystEngine,
+        MacroIntelligenceEngine,
+        SocialSentimentEngine,
+    )
+
+    sec = section.lower()
+
+    if sec == "news":
+        engine = NewsCatalystEngine()
+        items, cb_count = engine.fetch_catalysts(symbol)
+        if format.lower() == "json":
+            res = json.dumps([
+                {"headline": i.headline, "source": i.publisher, "polarity": i.sentiment_score, "type": i.catalyst_type}
+                for i in items
+            ], indent=2)
+        else:
+            lines = [f"DELTA OSINT NEWS STREAM: {symbol.upper()}", "─" * 68]
+            for i in items:
+                lines.append(f"• [{i.catalyst_type}] {i.headline}")
+                lines.append(f"  Source: {i.publisher} · Polarity: {i.sentiment_score:+.2f}")
+            if cb_count:
+                lines.append(f"[!] Anti-Clickbait Filter: Suppressed {cb_count} clickbait headlines.")
+            res = "\n".join(lines)
+    elif sec == "filings":
+        edgar = SecEdgarClient()
+        filings = edgar.get_filings(symbol)
+        if format.lower() == "json":
+            res = json.dumps([
+                {"form": f.form, "date": f.filing_date, "acc": f.accession_number, "desc": f.description}
+                for f in filings
+            ], indent=2)
+        else:
+            lines = [f"DELTA OSINT SEC EDGAR FILINGS: {symbol.upper()}", "─" * 68]
+            for f in filings:
+                lines.append(f"• [{f.form}] {f.filing_date} | Acc: {f.accession_number}")
+                lines.append(f"  {f.description}")
+            res = "\n".join(lines)
+    elif sec == "macro":
+        macro_engine = MacroIntelligenceEngine()
+        m = macro_engine.get_macro_backdrop(vix=vix, us10y=us10y)
+        if format.lower() == "json":
+            res = json.dumps({
+                "regime": m.volatility_regime,
+                "vix": m.vix,
+                "us10y": m.us10y_yield,
+                "us2y": m.us2y_yield,
+                "spread": m.yield_spread_10y_2y,
+                "inverted": m.is_curve_inverted,
+                "fed_funds": m.fed_funds_rate,
+                "cpi_yoy": m.cpi_yoy,
+            }, indent=2)
+        else:
+            inv = "INVERTED" if m.is_curve_inverted else "NORMAL"
+            lines = [
+                f"DELTA OSINT MACROECONOMIC INTELLIGENCE",
+                "─" * 68,
+                f"Regime: {m.volatility_regime} · VIX: {m.vix:.1f} · Fed Funds: {m.fed_funds_rate:.2f}%",
+                f"US 10Y: {m.us10y_yield:.2f}% · US 2Y: {m.us2y_yield:.2f}% · Spread: {m.yield_spread_10y_2y:+.2f}% [{inv}]",
+                f"Inflation (CPI YoY): {m.cpi_yoy:.1f}% · Dollar Index (DXY): {m.dxy_index:.1f}",
+                f"Analysis: {m.macro_commentary}",
+            ]
+            res = "\n".join(lines)
+    elif sec == "social":
+        soc_engine = SocialSentimentEngine()
+        s = soc_engine.get_social_sentiment(symbol)
+        if format.lower() == "json":
+            res = json.dumps({
+                "buzz": s.retail_buzz_score,
+                "sentiment": s.retail_sentiment,
+                "consensus": s.wall_st_consensus,
+                "target": s.wall_st_price_target,
+                "divergence": s.divergence_signal,
+                "summary": s.divergence_summary,
+            }, indent=2)
+        else:
+            lines = [
+                f"DELTA OSINT SOCIAL BUZZ & ANALYST CONSENSUS: {symbol.upper()}",
+                "─" * 68,
+                f"Wall St Consensus: {s.wall_st_consensus} (Target: ${s.wall_st_price_target:.2f})",
+                f"Retail Buzz Score: {s.retail_buzz_score:.1f}/100 · Retail Polarity: {s.retail_sentiment:+.2f}",
+                f"Divergence Alert: [{s.divergence_signal}] {s.divergence_summary}",
+            ]
+            res = "\n".join(lines)
+    elif sec == "info":
+        edgar = SecEdgarClient()
+        info = edgar.resolve_entity(symbol)
+        if format.lower() == "json":
+            res = json.dumps({
+                "symbol": info.symbol,
+                "company": info.company_name,
+                "cik": info.cik,
+                "sic": info.sic_code,
+                "industry": info.industry,
+                "sector": info.sector,
+                "exchange": info.exchange,
+                "tier": info.market_cap_tier,
+            }, indent=2)
+        else:
+            lines = [
+                f"DELTA OSINT CORPORATE ENTITY REGISTRY: {symbol.upper()}",
+                "─" * 68,
+                f"Company: {info.company_name} · CIK: {info.cik}",
+                f"SIC Industry: {info.sic_code} ({info.industry})",
+                f"Exchange: {info.exchange} · Sector: {info.sector} · Tier: {info.market_cap_tier}",
+                f"Auditor: {info.auditor} · Location: {info.state_location}",
+            ]
+            res = "\n".join(lines)
+    elif sec == "insiders":
+        edgar = SecEdgarClient()
+        insiders = edgar.get_insider_transactions(symbol)
+        if format.lower() == "json":
+            res = json.dumps([
+                {
+                    "date": i.filing_date,
+                    "filer": i.filer_name,
+                    "title": i.title,
+                    "type": i.transaction_type,
+                    "shares": i.shares,
+                    "price": i.price,
+                    "value": i.total_value,
+                }
+                for i in insiders
+            ], indent=2)
+        else:
+            lines = [f"DELTA OSINT FORM 4 INSIDER TRANSACTIONS: {symbol.upper()}", "─" * 68]
+            for i in insiders:
+                lines.append(f"• {i.filing_date} | {i.filer_name} ({i.title}): {i.transaction_type} {i.shares:,} shares @ ${i.price:.2f} (${i.total_value:,.0f})")
+            res = "\n".join(lines)
+    else:
+        # Full comprehensive dossier
+        dossier = analyze_osint(symbol=symbol, vix=vix, us10y=us10y)
+        if format.lower() == "json":
+            res = json.dumps(dossier.to_dict(), indent=2)
+        elif format.lower() == "markdown":
+            res = dossier.render_markdown()
+        else:
+            res = dossier.render_cli()
+
+    typer.echo(res)
+    if output:
+        p = Path(output)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(res, encoding="utf-8")
+        typer.echo(f"✓ Saved OSINT dossier to {output}")
 
 
 @app.command("mini")

@@ -118,6 +118,7 @@ def _save_session(term) -> None:
 HELP = {
     "chart": "[symbol] [--days N] [--no-depth] — high-res in-terminal candlestick & depth chart",
     "catalyst": "[symbol] — real-time OSINT & SEC filing news catalyst dossier",
+    "osint": "[symbol] [section] — institutional OSINT dossier (filings, news, macro, social, info)",
     "mistakes": "— review past trade failures and learned attribution lessons",
     "analyze": "[symbol] — multi-factor stock analysis & fundamental score",
     "forecast": "[symbol] [days=5] — future price direction & turn points (buy lows/sell highs)",
@@ -257,7 +258,7 @@ class Terminal:
             "backtest": self._c_backtest, "trade": self._c_trade,
             "quote": self._c_quote, "risk": self._c_risk,
             "india": self._c_india, "indicators": self._c_indicators,
-            "chart": self._c_chart, "catalyst": self._c_catalyst,
+            "chart": self._c_chart, "catalyst": self._c_catalyst, "osint": self._c_osint,
             "mistakes": self._c_mistakes, "lessons": self._c_mistakes,
             "stats": self._c_stats, "reason": self._c_reason,
             "fundamental": self._c_fundamental, "report": self._c_report,
@@ -1692,6 +1693,64 @@ class Terminal:
         from delta_os.osint_news import analyze_osint_news
         res = analyze_osint_news(sym)
         return res.render_cli()
+
+    def _c_osint(self, args: list) -> str:
+        if not args:
+            return "usage: /osint [symbol] [all|news|filings|macro|social|info|insiders]"
+        sym = args[0].strip().upper()
+        sec = args[1].strip().lower() if len(args) > 1 else "all"
+        from delta_os.osint import (
+            analyze_osint,
+            SecEdgarClient,
+            NewsCatalystEngine,
+            MacroIntelligenceEngine,
+            SocialSentimentEngine,
+        )
+        if sec == "news":
+            items, cb = NewsCatalystEngine().fetch_catalysts(sym)
+            lines = [f"=== OSINT NEWS CATALYSTS: {sym} ==="]
+            for i in items:
+                lines.append(f"• [{i.catalyst_type}] {i.headline} (Source: {i.publisher}, Polarity: {i.sentiment_score:+.2f})")
+            if cb:
+                lines.append(f"[!] Filtered {cb} sensationalized headlines.")
+            return "\n".join(lines)
+        elif sec == "filings":
+            filings = SecEdgarClient().get_filings(sym)
+            lines = [f"=== OSINT SEC EDGAR FILINGS: {sym} ==="]
+            for f in filings:
+                lines.append(f"• [{f.form}] {f.filing_date} | Acc: {f.accession_number}")
+                lines.append(f"  {f.description}")
+            return "\n".join(lines)
+        elif sec == "macro":
+            m = MacroIntelligenceEngine().get_macro_backdrop()
+            lines = [
+                f"=== OSINT MACROECONOMIC REGIME ===",
+                f"Regime: {m.volatility_regime} · VIX: {m.vix:.1f} · Fed Funds: {m.fed_funds_rate:.2f}%",
+                f"US 10Y: {m.us10y_yield:.2f}% · US 2Y: {m.us2y_yield:.2f}% · Spread: {m.yield_spread_10y_2y:+.2f}%",
+                f"Analysis: {m.macro_commentary}",
+            ]
+            return "\n".join(lines)
+        elif sec == "social":
+            s = SocialSentimentEngine().get_social_sentiment(sym)
+            lines = [
+                f"=== OSINT SOCIAL BUZZ & ANALYST CONSENSUS: {sym} ===",
+                f"Consensus: {s.wall_st_consensus} (Target: ${s.wall_st_price_target:.2f})",
+                f"Retail Buzz: {s.retail_buzz_score:.1f}/100 · Polarity: {s.retail_sentiment:+.2f}",
+                f"Divergence: [{s.divergence_signal}] {s.divergence_summary}",
+            ]
+            return "\n".join(lines)
+        elif sec == "info":
+            info = SecEdgarClient().resolve_entity(sym)
+            lines = [
+                f"=== OSINT CORPORATE IDENTITY: {sym} ===",
+                f"Company: {info.company_name} · CIK: {info.cik}",
+                f"SIC: {info.sic_code} ({info.industry}) · Exchange: {info.exchange}",
+                f"Sector: {info.sector} · Tier: {info.market_cap_tier} · Auditor: {info.auditor}",
+            ]
+            return "\n".join(lines)
+        else:
+            dossier = analyze_osint(sym)
+            return dossier.render_cli()
 
     def _c_mistakes(self, args: list) -> str:
         from delta_os.pretrade_interceptor import PreTradeInterceptor

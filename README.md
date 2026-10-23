@@ -89,9 +89,13 @@ Rendered directly in the user's terminal window without external graphical or we
 ---
 
 ### 5. OSINT, SEC Filings & Alternative Data Intelligence
-- **SEC EDGAR Tracking**: Parses official 10-K, 10-Q, and 8-K filings for material corporate disclosures.
-- **Macroeconomic Backdrop**: Ingests FRED 10-year Treasury yields, yield curve slopes, and VIX volatility.
-- **Anti-Clickbait Filter**: Algorithmic regex filtering that removes sensationalized retail noise, producing sentiment scores with verifiable provenance (`TIER1_SEC`, `TIER1_VERIFIED`).
+- **Comprehensive Institutional OSINT (`delta osint`)**: Multi-source dossier combining corporate identity, SEC filings, insider trades, filtered news, macro context, and social sentiment.
+- **SEC EDGAR Tracking**: Parses official Form 10-K, 10-Q, and 8-K periodic disclosures and material events with accession numbers and Point-in-Time (PIT) validation.
+- **Form 4 Insider Intelligence**: Tracks C-Suite executive and Director buys, sells, option exercises, and grants with trade values.
+- **Macroeconomic & Rate Regime**: Ingests FRED 10Y/2Y Treasury benchmark yields, automated 10Y-2Y yield curve inversion detection, VIX volatility regimes, and CPI inflation backdrop.
+- **Anti-Clickbait & Anti-Disinformation Firewall**: Algorithmic NLP filtering suppressing hype, pump-and-dump tropes, and sensationalized retail headlines.
+- **Social Buzz & Sentiment Divergence**: Computes retail chatter index vs. Wall Street analyst consensus, flagging retail euphoria vs. institutional accumulation divergence.
+- **Multi-Format Export**: Render directly to in-terminal CLI tables, structured JSON (`--format json`), or rich Markdown reports (`--format markdown`).
 
 ---
 
@@ -125,6 +129,13 @@ python -m apps.cli.main chart NVDA --days 30 --timeframe 1D
 
 # Real-time SEC filings & OSINT news dossier
 python -m apps.cli.main catalyst AAPL
+
+# Comprehensive institutional OSINT intelligence dossier
+python -m apps.cli.main osint NVDA
+python -m apps.cli.main osint NVDA --section news
+python -m apps.cli.main osint NVDA --section filings
+python -m apps.cli.main osint --section macro
+python -m apps.cli.main osint NVDA --format json
 
 # Start 24/7 background sentinel daemon
 python -m apps.cli.main service start --max-dd 2.0

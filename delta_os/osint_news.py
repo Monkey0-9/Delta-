@@ -1,10 +1,12 @@
 """DELTA OS — OSINT, News Catalysts & SEC Filing Intelligence.
 
-Integrates multi-source alternative data and news intelligence:
-1. Real SEC EDGAR filing tracking (10-K, 10-Q, 8-K disclosure analysis).
-2. Macroeconomic backdrop synthesis (FRED interest rates, yield curve slope, VIX).
-3. Financial news catalyst extraction with automated clickbait & rumor filtering.
+Maintains backward-compatibility with DELTA v2.9+ while delegating to the
+modular `delta_os.osint` package for comprehensive institutional intelligence:
+1. Real SEC EDGAR filing tracking (10-K, 10-Q, 8-K, Form 4 insider disclosures).
+2. Macroeconomic backdrop synthesis (FRED Treasury yields, yield curve slope, VIX).
+3. Financial news catalyst extraction with anti-clickbait & anti-disinformation filtering.
 4. Sentiment quantification (-1.0 to +1.0) with verifiable provenance badges.
+5. Wall Street analyst consensus & retail social sentiment divergence alerts.
 """
 from __future__ import annotations
 
@@ -13,18 +15,22 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from delta_os.osint.engine import OsintEngine, analyze_osint
+from delta_os.osint.models import (
+    OsintDossier,
+    OsintEntityInfo,
+    OsintFiling,
+    OsintMacroData,
+    OsintNewsItem,
+    OsintProvenance,
+    OsintSocialSentiment,
+)
+from delta_os.osint.news import (
+    CLICKBAIT_PATTERNS as _CB_PATTERNS,
+    is_sensationalized as _is_sens_tuple,
+)
 
-CLICKBAIT_PATTERNS = [
-    r"will shock you",
-    r"you won't believe",
-    r"explode higher",
-    r"to the moon",
-    r"next nvidia",
-    r"10x gains",
-    r"secret trick",
-    r"massive crash imminent",
-    r"meltdown begins",
-]
+CLICKBAIT_PATTERNS = _CB_PATTERNS
 
 
 @dataclass(frozen=True)
@@ -35,20 +41,21 @@ class CatalystItem:
     sentiment_score: float  # -1.0 (bearish) to +1.0 (bullish)
     is_clickbait: bool
     relevance_score: float
-    catalyst_type: str  # REGULATORY | EARNINGS | MACRO | PRODUCT | LITIGATION
-    provenance: str = "TIER1_SEC"
+    catalyst_type: str  # REGULATORY | EARNINGS | MACRO | PRODUCT | LITIGATION | M_AND_A | INSIDER
+    provenance: str = OsintProvenance.SEC_EDGAR
 
 
 @dataclass
 class OsintSummary:
     symbol: str
     as_of: str
-    sentiment_verdict: str  # BULLISH | NEUTRAL | BEARISH | NOISE
+    sentiment_verdict: str  # BULLISH | NEUTRAL | BEARISH | NOISE | STRONG_BULLISH | STRONG_BEARISH
     composite_sentiment: float
     catalysts: List[CatalystItem] = field(default_factory=list)
     clickbait_count: int = 0
     macro_backdrop: Dict[str, Any] = field(default_factory=dict)
     provenance: str = "TIER1_VERIFIED"
+    dossier: Optional[OsintDossier] = None
 
     def render_cli(self) -> str:
         lines = [
@@ -77,8 +84,8 @@ class OsintSummary:
 
 def is_sensationalized(text: str) -> bool:
     """Detect whether a headline or snippet contains spam/clickbait tropes."""
-    lower = text.lower()
-    return any(re.search(pat, lower) for pat in CLICKBAIT_PATTERNS)
+    flagged, _ = _is_sens_tuple(text)
+    return flagged
 
 
 def analyze_osint_news(
@@ -87,74 +94,83 @@ def analyze_osint_news(
     vix: float = 15.4,
     us10y: float = 4.25,
 ) -> OsintSummary:
-    """Analyze real news catalysts and filings with provenance tracking."""
+    """Analyze news catalysts, filings, and alternative data with provenance tracking."""
     sym = symbol.strip().upper()
-    now_utc = datetime.now(timezone.utc).isoformat()
-
-    catalysts: List[CatalystItem] = []
-    clickbait_count = 0
-
-    # 1. Official Regulatory / SEC Filings
-    if include_filings:
-        catalysts.append(
-            CatalystItem(
-                headline=f"{sym} Periodic Disclosure Filing (Form 10-Q/10-K) Verified",
-                source="SEC EDGAR Corporate Filings System",
-                timestamp=now_utc,
-                sentiment_score=0.15,
-                is_clickbait=False,
-                relevance_score=0.98,
-                catalyst_type="REGULATORY",
-                provenance="TIER1_SEC",
-            )
-        )
-
-    # 2. Institutional Earnings & Consensus News
-    catalysts.append(
-        CatalystItem(
-            headline=f"{sym} Institutional Consensus Estimate & Capital Allocation Review",
-            source="Financial Newswire Consensus Wire",
-            timestamp=now_utc,
-            sentiment_score=0.10,
-            is_clickbait=False,
-            relevance_score=0.90,
-            catalyst_type="EARNINGS",
-            provenance="TIER2_NEWS",
-        )
+    dossier = analyze_osint(
+        symbol=sym,
+        include_filings=include_filings,
+        include_insiders=True,
+        include_news=True,
+        include_macro=True,
+        include_social=True,
+        vix=vix,
+        us10y=us10y,
     )
 
-    # Sentiment synthesis
-    scores = [c.sentiment_score for c in catalysts]
-    avg_score = sum(scores) / len(scores) if scores else 0.0
+    catalysts: List[CatalystItem] = []
 
-    if avg_score > 0.20:
-        verdict = "BULLISH"
-    elif avg_score < -0.20:
-        verdict = "BEARISH"
-    else:
-        verdict = "NEUTRAL"
+    # Map filings
+    if include_filings and dossier.filings:
+        for f in dossier.filings:
+            catalysts.append(
+                CatalystItem(
+                    headline=f.description,
+                    source="SEC EDGAR Corporate Filings System",
+                    timestamp=f.acceptance_time,
+                    sentiment_score=f.sentiment_polarity,
+                    is_clickbait=False,
+                    relevance_score=0.98,
+                    catalyst_type="REGULATORY",
+                    provenance=f.provenance,
+                )
+            )
 
-    macro = {
-        "regime": "LOW_VOLATILITY_EXPANSION" if vix < 18.0 else "HIGH_VOLATILITY",
-        "vix": f"{vix:.1f}",
-        "us10y": f"{us10y:.2f}%",
-    }
+    # Map news items
+    if dossier.news_catalysts:
+        for n in dossier.news_catalysts:
+            catalysts.append(
+                CatalystItem(
+                    headline=n.headline,
+                    source=n.publisher,
+                    timestamp=n.timestamp,
+                    sentiment_score=n.sentiment_score,
+                    is_clickbait=False,
+                    relevance_score=n.relevance_score,
+                    catalyst_type=n.catalyst_type,
+                    provenance=n.provenance,
+                )
+            )
+
+    macro_dict = {}
+    if dossier.macro:
+        macro_dict = {
+            "regime": dossier.macro.volatility_regime,
+            "vix": f"{dossier.macro.vix:.1f}",
+            "us10y": f"{dossier.macro.us10y_yield:.2f}%",
+            "us2y": f"{dossier.macro.us2y_yield:.2f}%",
+            "spread": f"{dossier.macro.yield_spread_10y_2y:+.2f}%",
+            "inverted": dossier.macro.is_curve_inverted,
+        }
 
     return OsintSummary(
         symbol=sym,
-        as_of=now_utc,
-        sentiment_verdict=verdict,
-        composite_sentiment=avg_score,
+        as_of=dossier.generated_at,
+        sentiment_verdict=dossier.sentiment_verdict,
+        composite_sentiment=dossier.composite_sentiment,
         catalysts=catalysts,
-        clickbait_count=clickbait_count,
-        macro_backdrop=macro,
+        clickbait_count=dossier.filtered_clickbait_count,
+        macro_backdrop=macro_dict,
         provenance="TIER1_VERIFIED",
+        dossier=dossier,
     )
 
 
 __all__ = [
+    "CLICKBAIT_PATTERNS",
     "CatalystItem",
     "OsintSummary",
     "is_sensationalized",
     "analyze_osint_news",
+    "OsintEngine",
+    "analyze_osint",
 ]

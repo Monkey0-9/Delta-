@@ -274,10 +274,10 @@ capabilities:
     blocker: null
 
   - id: osint_news_catalysts
-    canonical_impl: delta_os/osint_news.py (analyze_osint_news)
-    integration_path: "apps/cli/main.py catalyst + delta_os/repl.py"
-    tests: [tests/test_unified_cli.py::test_cli_catalyst]
-    evidence: {type: pytest, commit: HEAD, note: "SEC EDGAR filing tracking + FRED macro + clickbait filtering"}
+    canonical_impl: delta_os/osint/ (OsintEngine, SecEdgarClient, NewsCatalystEngine)
+    integration_path: "apps/cli/main.py osint/catalyst + delta_os/repl.py /osint"
+    tests: [tests/test_osint_engine.py, tests/test_osint_news.py, tests/test_unified_cli.py::test_cli_catalyst]
+    evidence: {type: pytest, commit: HEAD, note: "Full OSINT suite: SEC EDGAR 10-K/10-Q/8-K + Form 4 Insiders + FRED macro + Anti-Clickbait NLP + Social Divergence"}
     performance: null
     known_limitations: []
     release_status: validated
