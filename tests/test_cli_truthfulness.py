@@ -51,7 +51,9 @@ def test_default_doctor_does_not_require_training_stack(monkeypatch, capsys):
         raise AssertionError("delta doctor must not require PyTorch")
 
     monkeypatch.setattr(cli, "model_doctor", forbidden_model_probe)
-    cli.doctor()
+    # Typer's OptionInfo defaults are only resolved by the CLI framework;
+    # invoke the callback with explicit values in a unit test.
+    cli.doctor(display=False, connections=False, json_out=False, fix=False)
     output = capsys.readouterr().out
 
     assert "DELTA CLI DOCTOR" in output
