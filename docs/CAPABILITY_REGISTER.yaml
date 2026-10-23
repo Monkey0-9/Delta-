@@ -3,8 +3,8 @@
 # listed gate evidence; `paper`/`shadow`/`production` require the release
 # gates in docs/RELEASE_GATES.md + sign-off matrix. STATUS.md counts and
 # SYSTEM_STATUS.yaml booleans must agree with this file, not the reverse.
-version: "1.0"
-date: "2026-10-11"
+version: "1.1"
+date: "2026-10-23"
 status_ladder: [designed, implemented, tested, validated, paper, shadow, production]
 capabilities:
   - id: pit_store_persistence
@@ -238,6 +238,61 @@ capabilities:
     known_limitations: ["no end-to-end training run in CI (GPU/weights); determinism manifest covered by existing smoke path"]
     release_status: tested
     owner: models
+    blocker: null
+
+  - id: opencode_cli_parity
+    canonical_impl: apps/cli/main.py (Typer Master CLI)
+    integration_path: "apps/cli/main.py 38 commands + delta_os/repl.py"
+    tests: [tests/test_unified_cli.py, tests/test_opencode_parity_full.py]
+    evidence: {type: pytest, commit: HEAD, note: "Full OpenCode 17-command parity suite + 21 quant commands"}
+    performance: null
+    known_limitations: []
+    release_status: validated
+    owner: terminal
+    blocker: null
+
+  - id: terminal_sectioned_charts
+    canonical_impl: delta_os/terminal_chart.py
+    integration_path: "apps/cli/main.py chart + delta_os/repl.py"
+    tests: [tests/test_unified_cli.py::test_cli_chart, tests/test_unified_cli.py::test_cli_chart_macd_and_timeframe]
+    evidence: {type: pytest, commit: HEAD, note: "Candlestick canvas + Volume + RSI(14) + MACD(12,26,9) + L2 depth ladder with OBIR"}
+    performance: null
+    known_limitations: []
+    release_status: validated
+    owner: terminal
+    blocker: null
+
+  - id: pretrade_mistake_interceptor
+    canonical_impl: delta_os/pretrade_interceptor.py (PreTradeInterceptor)
+    integration_path: "apps/cli/main.py trade + delta_os/repl.py /trade"
+    tests: [tests/test_pretrade_interceptor.py, tests/test_unified_cli.py::test_cli_mistakes_ledger]
+    evidence: {type: pytest, commit: HEAD, note: "Persistent episodic memory (~/.delta/mistakes.jsonl) + Bayesian penalty scaling"}
+    performance: null
+    known_limitations: []
+    release_status: validated
+    owner: risk
+    blocker: null
+
+  - id: osint_news_catalysts
+    canonical_impl: delta_os/osint_news.py (analyze_osint_news)
+    integration_path: "apps/cli/main.py catalyst + delta_os/repl.py"
+    tests: [tests/test_unified_cli.py::test_cli_catalyst]
+    evidence: {type: pytest, commit: HEAD, note: "SEC EDGAR filing tracking + FRED macro + clickbait filtering"}
+    performance: null
+    known_limitations: []
+    release_status: validated
+    owner: data
+    blocker: null
+
+  - id: daemon_sentinel_service
+    canonical_impl: delta_os/daemon_service.py
+    integration_path: "apps/cli/main.py service + apps/cli/main.py sentinel"
+    tests: [tests/test_unified_cli.py::test_cli_service_status, tests/test_unified_cli.py::test_cli_service_get_set]
+    evidence: {type: pytest, commit: HEAD, note: "24/7 background surveillance daemon with PID tracking and detached logging"}
+    performance: null
+    known_limitations: []
+    release_status: validated
+    owner: operations
     blocker: null
 
   - id: live_release

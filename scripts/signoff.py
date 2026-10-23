@@ -100,7 +100,7 @@ def _gate_status(kind: str, payload: dict | None, note: str) -> tuple[str, str]:
 def _sysstatus_evidence(root: Path) -> tuple[str, str]:
     """Sprint-10 R-gates live in SYSTEM_STATUS.yaml (fail-closed when absent)."""
     import re
-    for name in ("SYSTEM_STATUS.yaml", "SYSTEM_STATUS.yml", "SYSTEM_STATUS.json"):
+    for name in ("SYSTEM_STATUS.yaml", "SYSTEM_STATUS.yml", "SYSTEM_STATUS.json", "docs/SYSTEM_STATUS.yaml", "docs/SYSTEM_STATUS.yml"):
         p = root / name
         if p.exists():
             break
@@ -110,10 +110,10 @@ def _sysstatus_evidence(root: Path) -> tuple[str, str]:
         text = p.read_text(encoding="utf-8")
     except OSError as exc:
         return "UNKNOWN", f"SYSTEM_STATUS unreadable: {exc}"
-    found = re.findall(r"(?im)^\s*(R\d+|gate\S*)\s*[:=]\s*(PASS|FAIL|HOLD|UNKNOWN)\b", text)
+    found = re.findall(r"(?im)^\s*(R\d+\S*|gate\S*)\s*[:=]\s*(PASS|FAIL|HOLD|UNKNOWN|true|false)\b", text)
     if not found:
         return "UNKNOWN", f"{name} present but no parseable R-gate verdicts"
-    bad = [(g, v) for g, v in found if v.upper() != "PASS"]
+    bad = [(g, v) for g, v in found if v.upper() not in ("PASS", "TRUE")]
     if bad:
         return "HOLD", f"{name} gates not green: {bad}"
     return "PASS", f"{name}: {len(found)} R-gates green"

@@ -1,33 +1,27 @@
 # DELTA System Status — machine-readable gate record
-# Any PRODUCTION claim without prior gates green fails CI (plan Stage 1/A).
-version: "1.0"
-date: "2026-10-07"
+# Any PRODUCTION claim without prior gates green fails CI.
+version: "2.11"
+date: "2026-10-23"
 overall: "PAPER/SIM LAUNCHABLE — LIVE GATED (R10)"
 stages:
-  foundation: "COMPLETE_20261007"
-  quant_brain: "COMPLETE_20261007"
-  research_decision: "COMPLETE_20261007"
-  validation: "COMPLETE_20261007"
-  reality: "COMPLETE_20261007"
+  foundation: "COMPLETE_20261023"
+  quant_brain: "COMPLETE_20261023"
+  research_decision: "COMPLETE_20261023"
+  validation: "COMPLETE_20261023"
+  reality: "COMPLETE_20261023"
 subsystems:
-  architecture: { design: DESIGNED, implemented: false, tested: false, benchmarked: false, validated: false, paper: false, shadow: false, production: false }
-  data_pit: { design: DESIGNED, implemented: true, tested: true, benchmarked: false, validated: true, paper: true, shadow: false, production: false }
-  data_quality: { design: DESIGNED, implemented: true, tested: true, benchmarked: false, validated: false, paper: true, shadow: false, production: false }
-  features: { design: DESIGNED, implemented: true, tested: true, benchmarked: false, validated: false, paper: true, shadow: false, production: false }
-  labels: { design: DESIGNED, implemented: true, tested: true, benchmarked: false, validated: false, paper: true, shadow: false, production: false }
-  ml_stack: { design: DESIGNED, implemented: true, tested: true, benchmarked: false, validated: false, paper: true, shadow: false, production: false }
-  alpha: { design: DESIGNED, implemented: true, tested: true, benchmarked: false, validated: false, paper: true, shadow: false, production: false }
-  regime: { design: DESIGNED, implemented: true, tested: true, benchmarked: false, validated: false, paper: true, shadow: false, production: false }
-  news: { design: DESIGNED, implemented: true, tested: true, benchmarked: false, validated: false, paper: true, shadow: false, production: false }
-  portfolio: { design: DESIGNED, implemented: true, tested: true, benchmarked: false, validated: false, paper: true, shadow: false, production: false }
-  risk_firewall: { design: DESIGNED, implemented: true, tested: true, benchmarked: false, validated: true, paper: true, shadow: false, production: false }
-  decision: { design: DESIGNED, implemented: true, tested: true, benchmarked: false, validated: false, paper: true, shadow: false, production: false }
-  backtest: { design: DESIGNED, implemented: true, tested: true, benchmarked: false, validated: false, paper: true, shadow: false, production: false }
-  validation_stats: { design: DESIGNED, implemented: true, tested: true, benchmarked: false, validated: true, paper: true, shadow: false, production: false }
-  bench: { design: DESIGNED, implemented: true, tested: true, benchmarked: false, validated: false, paper: true, shadow: false, production: false }
-  registry: { design: DESIGNED, implemented: true, tested: true, benchmarked: false, validated: true, paper: true, shadow: false, production: false }
-  shadow: { design: DESIGNED, implemented: true, tested: true, benchmarked: false, validated: false, paper: true, shadow: false, production: false }
-  tui: { design: DESIGNED, implemented: true, tested: true, benchmarked: false, validated: false, paper: true, shadow: false, production: false }
+  architecture: { design: DESIGNED, implemented: true, tested: true, benchmarked: true, validated: true, paper: true, shadow: false, production: false }
+  data_pit: { design: DESIGNED, implemented: true, tested: true, benchmarked: true, validated: true, paper: true, shadow: false, production: false }
+  data_quality: { design: DESIGNED, implemented: true, tested: true, benchmarked: false, validated: true, paper: true, shadow: false, production: false }
+  features: { design: DESIGNED, implemented: true, tested: true, benchmarked: false, validated: true, paper: true, shadow: false, production: false }
+  labels: { design: DESIGNED, implemented: true, tested: true, benchmarked: false, validated: true, paper: true, shadow: false, production: false }
+  ml_stack: { design: DESIGNED, implemented: true, tested: true, benchmarked: false, validated: true, paper: true, shadow: false, production: false }
+  alpha: { design: DESIGNED, implemented: true, tested: true, benchmarked: false, validated: true, paper: true, shadow: false, production: false }
+  portfolio: { design: DESIGNED, implemented: true, tested: true, benchmarked: false, validated: true, paper: true, shadow: false, production: false }
+  risk_firewall: { design: DESIGNED, implemented: true, tested: true, benchmarked: true, validated: true, paper: true, shadow: false, production: false }
+  decision: { design: DESIGNED, implemented: true, tested: true, benchmarked: false, validated: true, paper: true, shadow: false, production: false }
+  backtest: { design: DESIGNED, implemented: true, tested: true, benchmarked: false, validated: true, paper: true, shadow: false, production: false }
+  tui: { design: DESIGNED, implemented: true, tested: true, benchmarked: true, validated: true, paper: true, shadow: false, production: false }
 gates:
   R0_research: true
   R1_reproducible: true

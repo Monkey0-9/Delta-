@@ -68,7 +68,7 @@ class Vault:
                         zip(_machine_id(), secrets.token_bytes(32)))
             salt = mix
         key = _kdf(salt).derive(passphrase.encode())
-        if data:
+        if data and data.get("nonce") and data.get("ct"):
             try:
                 AESGCM(key).decrypt(bytes.fromhex(data["nonce"]),
                                     bytes.fromhex(data["ct"]), None)
@@ -77,8 +77,9 @@ class Vault:
             self._salt = salt
         else:
             self._salt = salt
-            self._write_file({"salt": salt.hex(), "nonce": "", "ct": "",
-                              "version": VAULT_VERSION, "providers": {}})
+            if not data:
+                self._write_file({"salt": salt.hex(), "nonce": "", "ct": "",
+                                  "version": VAULT_VERSION, "providers": {}})
         self._key = key
 
     @property

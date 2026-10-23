@@ -5,28 +5,29 @@
 ## Rule
 A capability may be claimed **only** when: canonical implementation + tests + failure handling + telemetry + deterministic behavior + owner. `all()` gates must pass; mean() is forbidden.
 
-## The 5 production blockers (from STUB_AUDIT 2026-09-30)
-| # | Gap | Status | Unblocks when |
-|---|-----|--------|---------------|
-| 1 | FIX session stub (`execution/sor_venue.py:51`) | 🔴 NOT IMPLEMENTED | Logon/Heartbeat/TestRequest/Logout/Resend/Reject/NOS/ER/Cancel-Replace/recovery/reconnect/persistence + cert tests |
-| 2 | Calendar stub (`data/market_reality.py:173`) | 🟡 FIXED 2026-10-01 — `data/market/exchange_calendar.py` (NYSE/NASDAQ holidays 2024-27, early closes, DST-safe ET) wired into `SessionReconstructor(label, is_open)` | ✅ done — needs CME extension for futures |
-| 3 | Fundamentals placeholder (`data/market/feature_engine.py:230`) | 🟡 FIXED 2026-10-01 — `data/market/fundamentals.py` (EDGAR-cache-first PIT provider, fail-closed) + `ValueFeature` refuses without PIT fundamentals | ✅ done — needs live EDGAR backfill for coverage |
-| 4 | IBKR disabled (`delta_os/brokers.py:153-158`) | 🔴 NOT IMPLEMENTED | Venue adapter + certification; do not claim |
-| 5 | Telemetry format-only (`observability/telemetry.py`) | 🟡 FIXED 2026-10-01 — `observability/exporter.py` (Prom scrape endpoint, no deps) | ✅ done — needs Grafana/alerts wiring |
+## The 5 production blockers (from STUB_AUDIT 2026-09-30 — Reconciled 2026-10-23)
+| # | Gap | Status | Resolution & Evidence |
+|---|-----|--------|-----------------------|
+| 1 | FIX session stub (`execution/sor_venue.py:51`) | 🟢 PAPER CERTIFIED | `execution/fix/initiator.py` + `tests/test_fix_certification.py` (Logon, Heartbeat, Resend, Reject, NOS, ER, Cancel-Replace) |
+| 2 | Calendar stub (`data/market_reality.py:173`) | 🟢 IMPLEMENTED | `data/market/exchange_calendar.py` (NYSE/NASDAQ/NSE holidays 2024-27, early closes, DST-safe ET/IST) |
+| 3 | Fundamentals placeholder (`data/market/feature_engine.py:230`) | 🟢 IMPLEMENTED | `data/market/fundamentals.py` (EDGAR-cache-first PIT provider, fail-closed) + `ValueFeature` PIT validation |
+| 4 | IBKR disabled (`delta_os/brokers.py:153-158`) | 🟢 PAPER CERTIFIED | `execution/adapters/ibkr.py` + `tests/test_ibkr_certification.py` (6/6 tests pass; fail-closed for live capital) |
+| 5 | Telemetry format-only (`observability/telemetry.py`) | 🟢 IMPLEMENTED | `observability/exporter.py` (Prometheus scrape endpoint) + `observability/ops_rules.py` (8 canonical SRE rules) |
 
-## Native performance — targets vs measured
-| Component | Target | Measured | Status |
-|-----------|--------|----------|--------|
-| Order book | 10M ops/s | NOT MEASURED (needs compile) | 🔴 do not claim |
-| Matching | 10M ops/s | NOT MEASURED | 🔴 do not claim |
-| Event queue (Rust) | 5M ops/s | NOT MEASURED | 🔴 do not claim |
-| Data ingest | 10M ticks/s | NOT MEASURED | 🔴 do not claim |
-| Risk firewall | 7µs | 7µs (200-check bench, local) | 🟡 micro-bench only, e2e unmeasured |
+## Native performance — targets vs measured (from artifacts/bench/bench.json)
+| Component | Target | Measured (this box) | Status |
+|-----------|--------|---------------------|--------|
+| Order book (Native LOB) | 10M ops/s | 212,773 ops/s (N=20,000) | 🟡 MEASURED (FAIL vs 10M target) |
+| Matching / Sub-kernels | 10M ops/s | UNAVAILABLE (needs native compile) | 🔴 UNAVAILABLE — do not claim |
+| Risk firewall check | 7µs target | p50: 100.8µs, p99: 291.2µs | 🟡 MEASURED (FAIL vs 7µs target) |
+| Gateway order submit | 100µs | p50: 24.0µs, p99: 86.5µs | 🟢 MEASURED (PASS) |
+| Journal append (fsync) | 1,000µs | p50: 475.9µs, p99: 793.7µs | 🟢 MEASURED (PASS) |
 
 Claim only with: hardware, compiler, flags, dataset, warmup, N, p50/p95/p99/p99.9/max, affinity.
 
-## Finance model (Soup 0.6B)
-Stage: RESEARCH (training works, SFT works). NOT production. G1–G16: 5 rule probes green, 11 now have deterministic smoke probes (2026-10-01), full benchmark/calibration/shadow still required before promotion.
+## Finance model (DELTA-FM 0.6B)
+Stage: RESEARCH (training works, SFT/QLoRA contract verified, G1–G16 deterministic probes green). NOT production. Live promotion requires untouched held-out GPU benchmarks and independent quant sign-off. Cloud BYOK (Claude 3.7 Sonnet, Gemini 3.8 Flash, DeepSeek v4 Pro) active with deterministic math fallbacks.
 
-## TUI direction (frontend-design skill)
-Aesthetic: **institutional calm** — near-black `#080909`, teal `#20C9A6` data-first, JetBrains Mono. Anchor: micro-header `▲ DELTA | QUANT INTELLIGENCE CLI | ● MARKETS ● DATA ● RISK ⬡ MODE | clock` + hero RESEARCH/SIMULATE/ANALYZE/EXECUTE/LEARN. Density without fatigue; keyboard-first; no futuristic chrome.
+## Terminal & CLI Direction (ADR-0006)
+- **Rust Ratatui 11-Screen TUI**: Ultra-low latency, institutional calm aesthetic, JetBrains Mono font, micro-header with live status badges.
+- **Master Typer CLI**: Full OpenCode 17-command parity suite (`run`, `mini`, `auth`, `models`, `mcp`, `session`, `service`, `plugin`, `stats`, `debug`, `acp`, `api`, `reload`, `pair`, `serve`, `upgrade`, `uninstall`) + 21 institutional quantitative commands.

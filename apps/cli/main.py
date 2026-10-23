@@ -556,14 +556,25 @@ def auth_cmd(
     token: str = typer.Argument(None, help="API key / secret token"),
 ) -> None:
     """Manage integrations and encrypted credentials in Vault."""
-    from delta_os.vault import Vault, default_path
+    import os
+    from delta_os.vault import Vault, default_path, VaultLocked
     v = Vault(default_path())
+    passphrase = os.environ.get("DELTA_VAULT_PASS", "delta-vault-default-key")
+    try:
+        v.unlock(passphrase)
+    except Exception:
+        pass
     act = action.lower()
     if act == "list":
         typer.echo("DELTA VAULT CREDENTIALS")
         typer.echo("──────────────────────────────────────────────────")
         for slot in ("alpaca", "ibkr", "openai", "anthropic", "gemini", "deepseek", "fred"):
-            creds = v.get(slot) or {}
+            creds = {}
+            if not v.locked:
+                try:
+                    creds = v.get(slot) or {}
+                except Exception:
+                    pass
             has_k = bool(creds.get("api_key") or creds.get("token"))
             mask = "••••••••" if has_k else "(empty)"
             typer.echo(f"  {slot:<14} : {mask}")
@@ -573,13 +584,17 @@ def auth_cmd(
         if not provider or not token:
             typer.echo("Usage: delta auth login <provider> <token>", err=True)
             raise typer.Exit(code=1)
-        v.put(provider.lower(), {"api_key": token.strip()})
+        if v.locked:
+            v.unlock(passphrase)
+        v.set(provider.lower(), {"api_key": token.strip()})
         typer.echo(f"✓ Saved credentials for {provider} into encrypted vault.")
     elif act == "logout":
         if not provider:
             typer.echo("Usage: delta auth logout <provider>", err=True)
             raise typer.Exit(code=1)
-        v.put(provider.lower(), {})
+        if v.locked:
+            v.unlock(passphrase)
+        v.delete(provider.lower())
         typer.echo(f"✓ Removed credentials for {provider} from vault.")
     elif act == "export":
         typer.echo("Vault export: encrypted at rest. Use master key to decrypt.")
