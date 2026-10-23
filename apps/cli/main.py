@@ -436,28 +436,87 @@ def plan_order(
 
 @app.command("learn")
 def learn(
-    decision_id: str = typer.Option("demo-1", "--decision"),
-    instrument: str = typer.Option("AAPL", "--instrument"),
-    expected: float = typer.Option(0.01, "--expected"),
-    actual: float = typer.Option(-0.02, "--actual"),
+    decision_id: str = typer.Option(..., "--decision", help="Existing decision identifier"),
+    instrument: str = typer.Option(..., "--instrument", help="Instrument/symbol"),
+    horizon: str = typer.Option(..., "--horizon", help="Outcome horizon, e.g. 1d|5d|1m"),
+    regime: str = typer.Option(..., "--regime", help="Observed regime label"),
+    expected: str = typer.Option(..., "--expected", help="Expected return ratio, e.g. 0.01"),
+    actual: str = typer.Option(..., "--actual", help="Realized return ratio, e.g. -0.02"),
+    model_version: str = typer.Option("unknown", "--model-version", help="Model/strategy version that produced the decision"),
 ) -> None:
-    """Record one trade outcome through attribution (no retraining)."""
-    from decimal import Decimal
+    """Record a MANUAL/UNVERIFIED outcome note. Does not train or promote a model."""
+    from decimal import Decimal, InvalidOperation
 
     from learning.closed_loop import ClosedLoopLedger
+    from learning.cli_outcome_store import append_outcome, verify_ledger
 
-    led = ClosedLoopLedger()
-    rec, exp = led.record_trade_outcome(
-        decision_id=decision_id,
-        instrument=instrument,
-        horizon="today",
-        regime="mixed",
-        expected_return=Decimal(str(expected)),
-        actual_return=Decimal(str(actual)),
-    )
+    try:
+        expected_value = Decimal(expected)
+        actual_value = Decimal(actual)
+        if not expected_value.is_finite() or not actual_value.is_finite():
+            raise ValueError("returns must be finite decimal ratios")
+        if not decision_id.strip() or not instrument.strip() or not horizon.strip() or not regime.strip():
+            raise ValueError("decision, instrument, horizon and regime cannot be blank")
+        led = ClosedLoopLedger()
+        rec, exp = led.record_trade_outcome(
+            decision_id=decision_id,
+            instrument=instrument.strip().upper(),
+            horizon=horizon.strip(),
+            regime=regime.strip(),
+            expected_return=expected_value,
+            actual_return=actual_value,
+            model_version=model_version.strip() or "unknown",
+        )
+        event = {
+            "decision_id": decision_id.strip(),
+            "instrument": instrument.strip().upper(),
+            "horizon": horizon.strip(),
+            "regime": regime.strip(),
+            "expected_return": str(expected_value),
+            "actual_return": str(actual_value),
+            "failure_type": rec.failure_type.value,
+            "lesson": rec.lesson,
+            "experience_id": exp.experience_id,
+            "model_version": model_version.strip() or "unknown",
+            "evidence_status": "MANUAL_UNVERIFIED",
+            "promotion_eligible": False,
+            "source": "cli-manual-entry",
+        }
+        receipt = append_outcome(event)
+        verification = verify_ledger(receipt.path)
+        if not verification.get("valid"):
+            typer.echo(
+                f"LEARNING LEDGER INTEGRITY FAILURE: {verification.get('reason')}",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+    except (InvalidOperation, ValueError) as exc:
+        typer.echo(f"invalid learning outcome: {exc}", err=True)
+        raise typer.Exit(code=2)
+
+    typer.echo("RECORDED: MANUAL OUTCOME — UNVERIFIED; NOT PROMOTION EVIDENCE")
+    typer.echo(f"decision: {decision_id} | instrument: {instrument.strip().upper()}")
     typer.echo(f"failure: {rec.failure_type.value}")
     typer.echo(f"lesson: {rec.lesson}")
-    typer.echo(f"experience: {exp.experience_id}")
+    typer.echo(f"event: {receipt.event_id} | sequence: {receipt.sequence}")
+    typer.echo(f"hash: {receipt.event_hash}")
+    typer.echo(f"ledger: {receipt.path} | verified records: {verification['count']}")
+    typer.echo("No model was trained or changed. Do not promote this entry without broker-reconciled evidence.")
+
+
+@app.command("learning-status")
+def learning_status() -> None:
+    """Verify the durable CLI learning ledger; this does not evaluate promotion."""
+    from learning.cli_outcome_store import verify_ledger
+
+    result = verify_ledger()
+    typer.echo("DELTA LEARNING LEDGER")
+    typer.echo(f"integrity: {'PASS' if result.get('valid') else 'FAIL'}")
+    typer.echo(f"records: {result.get('count', 0)}")
+    typer.echo(f"path: {result.get('path', 'unavailable')}")
+    if result.get("reason"):
+        typer.echo(f"reason: {result['reason']}")
+        raise typer.Exit(code=1)
 
 
 @app.command("promote")
