@@ -1,9 +1,9 @@
 """B9: CI security gates are pinned and honest.
 
 Pins .github/workflows/security.yml (jobs, triggers, pinned tool versions)
-so the gates cannot silently rot; verifies requirements.txt covers the
-heavy training imports whose absence broke quantbrain collection; runs the
-real secret_scan (must be clean).
+so the gates cannot silently rot; verifies that runtime/provider and optional
+training requirements are separated and the training imports are present;
+runs the real secret_scan (must be clean).
 """
 from __future__ import annotations
 
@@ -52,6 +52,7 @@ def test_security_workflow_scans_repo_scopes():
                   "finance_model"):
         assert scope in scopes, f"bandit scope missing {scope}"
     assert "requirements.txt" in t
+    assert "requirements-training.txt" in t
     assert "tui/Cargo.toml" in t
 
 
@@ -64,15 +65,32 @@ def test_security_workflow_pins_fresh():
     assert age.days <= 180, f"scanner pins {age.days}d old — refresh versions"
 
 
+def test_default_cli_install_excludes_training_and_scanner_toolchains():
+    req = (ROOT / "requirements.txt").read_text(encoding="utf-8").lower()
+    assert "-e .[providers]" in req, "default install must install the CLI and provider SDKs"
+    for heavy in ("peft", "accelerate", "trl", "transformers", "semgrep", "bandit", "pip-audit"):
+        assert heavy not in req, f"{heavy} must not be a default CLI dependency"
+
+
 def test_requirements_cover_training_imports():
-    req = (ROOT / "requirements.txt").read_text(encoding="utf-8")
-    for dep in ("datasets", "peft", "accelerate", "pyyaml"):
-        assert re.search(rf"(?m)^{dep}[>=<]", req), f"{dep} missing from requirements"
-    # And the modules genuinely import (collection can no longer ModuleNotFound).
+    req = (ROOT / "requirements-training.txt").read_text(encoding="utf-8")
+    assert "-e .[training]" in req, "optional training extra must be installable"
+    import tomllib
+
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    training = pyproject["project"]["optional-dependencies"]["training"]
+    declared = {item.split(">=")[0].split("<")[0].strip() for item in training}
+    for dep in ("torch", "datasets", "peft", "accelerate", "transformers", "trl"):
+        assert dep in declared, f"{dep} missing from the training extra"
+
+    # Run in the CI [dev,training] environment to catch missing imports early.
+    import torch  # noqa: F401
     import datasets  # noqa: F401
     import peft  # noqa: F401
     import yaml  # noqa: F401
     import accelerate  # noqa: F401
+    import transformers  # noqa: F401
+    import trl  # noqa: F401
 
 
 def test_secret_scan_scans_test_substring_dirs(tmp_path):
