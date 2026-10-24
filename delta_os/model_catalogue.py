@@ -29,6 +29,8 @@ class CatalogueEntry:
 BUILTIN: tuple[CatalogueEntry, ...] = (
     CatalogueEntry("delta-fm-research", "local", "local", "delta-fm-research",
                    "Local Quant Brain · 100% offline · no key needed"),
+    CatalogueEntry("ncm-fin-v1.0", "local", "local", "ncm-fin-v1.0-institutional",
+                   "Institutional Next-Concept Model · Rust accelerated · 100% offline · analytical only"),
     CatalogueEntry("claude-3-7-sonnet", "anthropic", "cloud", "claude-3-7-sonnet-20250219",
                    "Anthropic quant depth"),
     CatalogueEntry("claude-opus-5-5", "anthropic", "cloud", "claude-opus-5-5",

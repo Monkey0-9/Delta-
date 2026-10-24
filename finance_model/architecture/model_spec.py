@@ -16,6 +16,7 @@ class ModelCapability(StrEnum):
     UNCERTAINTY = "uncertainty"
     ABSTENTION = "abstention"
     FAILURE_ANALYSIS = "failure_analysis"
+    NEXT_CONCEPT_MODELING = "next_concept_modeling"
 
 
 @dataclass(frozen=True, slots=True)

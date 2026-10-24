@@ -1456,6 +1456,89 @@ def serve_cmd(
     run_network_server(hostname=hostname, port=port, cors=cors, timeout=timeout)
 
 
+@app.command("ncm")
+def ncm_cmd(
+    action: str = typer.Argument("trajectory", help="Action: trajectory | benchmark | concepts"),
+    symbol: str = typer.Option("SPY", "--symbol", "-s", help="Asset ticker symbol"),
+    macro: str = typer.Option("", "--macro", "-m", help="Macro narrative or economic context"),
+    horizon: int = typer.Option(3, "--horizon", "-h", help="Forecasting horizon steps (1-10)"),
+    samples: int = typer.Option(20, "--samples", help="Benchmark workload sample count"),
+    as_json: bool = typer.Option(False, "--json", help="Output raw JSON payload"),
+) -> None:
+    """Institutional Next-Concept Modeling (NCM) — discrete regime forecasting & multi-model benchmarks."""
+    import json
+    from finance_model.ncm import (
+        NextConceptModel,
+        NCMGenerationRequest,
+        NCMBenchmarkSuite,
+        list_concepts,
+    )
+
+    act = action.lower()
+    engine = NextConceptModel()
+
+    if act in ("concepts", "vocab", "list"):
+        concepts = list_concepts()
+        if as_json:
+            typer.echo(json.dumps([c.model_dump() for c in concepts], indent=2))
+            return
+        typer.echo("=== NCM DISCRETE CONCEPT ONTOLOGY (19 CANONICAL REGIMES) ===")
+        typer.echo(f"  {'Concept ID':<32} {'Category':<15} {'Decay (hrs)':<12} {'Vol Sens':<10}")
+        typer.echo("  " + "-" * 72)
+        for c in concepts:
+            typer.echo(f"  {c.concept_id:<32} {c.category.value:<15} {c.decay_half_life_hours:<12.1f} {c.volatility_sensitivity:<10.2f}")
+        return
+
+    if act in ("bench", "benchmark"):
+        suite = NCMBenchmarkSuite(engine)
+        rep = suite.run_benchmark(num_samples=samples)
+        if as_json:
+            typer.echo(json.dumps(rep.model_dump(), indent=2))
+            return
+        typer.echo(f"=== NCM EMPIRICAL MULTI-MODEL BENCHMARK REPORT ({rep.report_id}) ===")
+        typer.echo(f"  Timestamp UTC: {rep.timestamp_utc} | Total Workload Samples: {rep.total_samples}")
+        typer.echo(f"  Safety Verdict: {rep.safety_verdict}")
+        typer.echo(f"  Latency Winner: {rep.winner_for_latency} | Factuality Winner: {rep.winner_for_factuality} | Cost Winner: {rep.winner_for_cost}\n")
+        typer.echo(f"  {'Model':<30} {'Type':<8} {'p50 (µs)':<10} {'Factuality':<11} {'Halluc':<8} {'Inj Resist':<10} {'RAM':<8} {'$/1k':<6}")
+        typer.echo("  " + "-" * 95)
+        for name, m in rep.models.items():
+            typer.echo(
+                f"  {m.model_name:<30} {m.model_type:<8} {m.latency_p50_us:<10.1f} "
+                f"{m.factuality_score:<11.2%} {m.hallucination_rate:<8.2%} {m.prompt_injection_resistance:<10.2%} "
+                f"{m.ram_mb:<8.1f} ${m.cost_per_1k_queries_usd:<6.2f}"
+            )
+        return
+
+    if act == "trajectory":
+        req = NCMGenerationRequest(
+            symbol=symbol.upper(),
+            macro_context=macro,
+            horizon=horizon,
+        )
+        res = engine.generate_trajectory(req)
+        if as_json:
+            typer.echo(json.dumps(res.model_dump(), indent=2))
+            return
+        typer.echo(f"=== NEXT-CONCEPT MODEL FORECAST: {res.symbol} [{res.provenance_badge}] ===")
+        typer.echo(f"  Model: {res.model_version} (Kernel: {res.hardware_acceleration.upper()})")
+        typer.echo(f"  Authority: EXECUTION_ELIGIBLE={res.execution_eligibility} (Fail-Closed Analytical)")
+        typer.echo(f"  Observed Anchor: {res.trajectory.observed_concepts[0]}")
+        typer.echo("  Projected Concept Trajectory:")
+        for step, (cid, prob) in enumerate(res.trajectory.predicted_concepts, 1):
+            c_obj = engine._concepts.get(cid)
+            name = c_obj.name if c_obj else cid
+            typer.echo(f"    Step {step}: [{cid}] {name} (P={prob:.1%})")
+        typer.echo(f"  Trajectory Entropy: {res.trajectory.entropy:.3f} | Confidence: {res.trajectory.confidence:.1%}")
+        typer.echo(f"  Synthesized Thesis: {res.synthesized_thesis}")
+        typer.echo("  Structural Invalidating Conditions:")
+        for inv in res.invalidating_conditions:
+            typer.echo(f"    • {inv}")
+        return
+
+    typer.echo(f"Unknown NCM action: {action}. Valid actions: trajectory | benchmark | concepts", err=True)
+    raise typer.Exit(code=1)
+
+
 def main() -> None:
     app()
 

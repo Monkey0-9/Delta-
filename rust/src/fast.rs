@@ -578,6 +578,90 @@ pub extern "C" fn delta_macd(
     }
 }
 
+/// NCM Cosine Similarity Kernel: computes cosine similarity between a query embedding
+/// of length `dim` and `num_concepts` prototype concept embeddings stored row-wise in `matrix`.
+pub fn ncm_cosine_similarity(
+    query: &[f32],
+    matrix: &[f32],
+    dim: usize,
+    num_concepts: usize,
+    out_scores: &mut [f32],
+) {
+    if dim == 0 || num_concepts == 0 || query.len() < dim || matrix.len() < dim * num_concepts || out_scores.len() < num_concepts {
+        return;
+    }
+    let mut q_norm_sq = 0.0f32;
+    for &v in &query[..dim] {
+        q_norm_sq += v * v;
+    }
+    let q_norm = q_norm_sq.sqrt();
+    if q_norm < 1e-12 {
+        for s in &mut out_scores[..num_concepts] {
+            *s = 0.0;
+        }
+        return;
+    }
+
+    for c in 0..num_concepts {
+        let row = &matrix[c * dim..(c + 1) * dim];
+        let mut dot = 0.0f32;
+        let mut r_norm_sq = 0.0f32;
+        for i in 0..dim {
+            dot += query[i] * row[i];
+            r_norm_sq += row[i] * row[i];
+        }
+        let r_norm = r_norm_sq.sqrt();
+        if r_norm < 1e-12 {
+            out_scores[c] = 0.0;
+        } else {
+            out_scores[c] = dot / (q_norm * r_norm);
+        }
+    }
+}
+
+/// NCM Shannon Entropy Kernel: computes -\sum p_i \ln(p_i) for a probability distribution.
+pub fn ncm_transition_entropy(probs: &[f64]) -> f64 {
+    let mut entropy = 0.0f64;
+    for &p in probs {
+        if p > 1e-12 {
+            entropy -= p * p.ln();
+        }
+    }
+    entropy
+}
+
+#[no_mangle]
+pub extern "C" fn delta_ncm_similarity(
+    query: *const f32,
+    matrix: *const f32,
+    dim: usize,
+    num_concepts: usize,
+    out_scores: *mut f32,
+) {
+    if query.is_null() || matrix.is_null() || out_scores.is_null() || dim == 0 || num_concepts == 0 {
+        return;
+    }
+    unsafe {
+        ncm_cosine_similarity(
+            std::slice::from_raw_parts(query, dim),
+            std::slice::from_raw_parts(matrix, dim * num_concepts),
+            dim,
+            num_concepts,
+            std::slice::from_raw_parts_mut(out_scores, num_concepts),
+        );
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn delta_ncm_entropy(probs: *const f64, n: usize) -> f64 {
+    if probs.is_null() || n == 0 {
+        return 0.0;
+    }
+    unsafe {
+        ncm_transition_entropy(std::slice::from_raw_parts(probs, n))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -721,5 +805,25 @@ mod tests {
         let mut hist = [0.0; 5];
         macd(&prices, 2, 4, 2, &mut macd_line, &mut sig_line, &mut hist);
         assert!((macd_line[0] - 0.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn ncm_cosine_similarity_and_entropy_computations() {
+        let query = [1.0f32, 0.0f32, 0.0f32];
+        let matrix = [
+            1.0f32, 0.0f32, 0.0f32,  // identical -> 1.0
+            0.0f32, 1.0f32, 0.0f32,  // orthogonal -> 0.0
+            -1.0f32, 0.0f32, 0.0f32, // opposite -> -1.0
+        ];
+        let mut scores = [0.0f32; 3];
+        ncm_cosine_similarity(&query, &matrix, 3, 3, &mut scores);
+        assert!((scores[0] - 1.0).abs() < 1e-6);
+        assert!((scores[1] - 0.0).abs() < 1e-6);
+        assert!((scores[2] - (-1.0)).abs() < 1e-6);
+
+        // Uniform 2-state distribution entropy: -2 * 0.5 * ln(0.5) = ln(2) ~ 0.693147
+        let probs = [0.5f64, 0.5f64];
+        let ent = ncm_transition_entropy(&probs);
+        assert!((ent - 2.0f64.ln()).abs() < 1e-10);
     }
 }

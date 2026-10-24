@@ -573,6 +573,30 @@ class DeltaBridge:
                 "timestamp": now_iso,
             }
 
+    def ncm_generate(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Generate Next-Concept trajectory with zero order execution authority."""
+        from finance_model.ncm import NextConceptModel, NCMGenerationRequest
+        engine = NextConceptModel()
+        req = NCMGenerationRequest(
+            symbol=params.get("symbol", "SPY"),
+            macro_context=params.get("macro_context", ""),
+            news_headlines=params.get("news_headlines", []),
+            quant_metrics=params.get("quant_metrics", {}),
+            horizon=int(params.get("horizon", 3)),
+            temperature=float(params.get("temperature", 0.7)),
+            top_k=int(params.get("top_k", 5)),
+        )
+        res = engine.generate_trajectory(req)
+        return res.model_dump()
+
+    def ncm_benchmark(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Run standardized 10-dimension institutional NCM benchmark suite."""
+        from finance_model.ncm import NCMBenchmarkSuite
+        suite = NCMBenchmarkSuite()
+        samples = int(params.get("num_samples", 20))
+        report = suite.run_benchmark(num_samples=samples)
+        return report.model_dump()
+
 
 def run_ipc_loop():
     import concurrent.futures
@@ -597,6 +621,10 @@ def run_ipc_loop():
             elif method == "reconcile":
                 results = bridge.pipeline.reconcile()
                 resp_data = {"reconciliation": [r.status.value for r in results]}
+            elif method == "ncm_generate":
+                resp_data = bridge.ncm_generate(params)
+            elif method == "ncm_benchmark":
+                resp_data = bridge.ncm_benchmark(params)
             else:
                 resp_data = {"error": f"Unknown method {method}"}
             out = json.dumps({"id": req_id, "result": resp_data}, default=str)
@@ -942,6 +970,10 @@ class _BridgeHTTPRequestHandler(BaseHTTPRequestHandler):
                         self.end_headers()
                         self.wfile.write(body)
                         return
+                elif method == "ncm_generate":
+                    res = self.bridge.ncm_generate(params)
+                elif method == "ncm_benchmark":
+                    res = self.bridge.ncm_benchmark(params)
                 else:
                     err_resp = {
                         "jsonrpc": "2.0",

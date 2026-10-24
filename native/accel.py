@@ -126,6 +126,13 @@ if _rs is not None:
                 ctypes.c_size_t, ctypes.c_size_t,
                 ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
             ]
+        if hasattr(_rs, "delta_ncm_similarity"):
+            _rs.delta_ncm_similarity.argtypes = [
+                ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_size_t, ctypes.c_void_p
+            ]
+        if hasattr(_rs, "delta_ncm_entropy"):
+            _rs.delta_ncm_entropy.restype = ctypes.c_double
+            _rs.delta_ncm_entropy.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
     except Exception:
         _rs = None
 
@@ -596,4 +603,51 @@ def macd(
 
     macd_line = ema_fast - ema_slow
     return macd_line, out_sig, macd_line - out_sig
+
+
+def fast_ncm_similarity(query: np.ndarray, matrix: np.ndarray) -> np.ndarray:
+    """Calculate cosine similarity between query vector and matrix of concept vectors.
+
+    Accelerated via native Rust kernel with NumPy fallback.
+    """
+    q = np.ascontiguousarray(query, dtype=np.float32)
+    m = np.ascontiguousarray(matrix, dtype=np.float32)
+    dim = len(q)
+    num_concepts = len(m)
+    if dim == 0 or num_concepts == 0:
+        return np.empty(0, dtype=np.float32)
+
+    if _rs is not None and hasattr(_rs, "delta_ncm_similarity"):
+        out_scores = np.empty(num_concepts, dtype=np.float32)
+        _rs.delta_ncm_similarity(
+            q.ctypes.data, m.ctypes.data, dim, num_concepts, out_scores.ctypes.data
+        )
+        return out_scores
+
+    q_norm = np.linalg.norm(q)
+    if q_norm < 1e-12:
+        return np.zeros(num_concepts, dtype=np.float32)
+    m_norms = np.linalg.norm(m, axis=1)
+    dots = np.dot(m, q)
+    valid = m_norms > 1e-12
+    return np.where(valid, dots / (q_norm * np.maximum(m_norms, 1e-12)), 0.0).astype(np.float32)
+
+
+def fast_ncm_entropy(probs: np.ndarray) -> float:
+    """Calculate Shannon entropy for a probability distribution.
+
+    Accelerated via native Rust kernel with NumPy fallback.
+    """
+    p = np.ascontiguousarray(probs, dtype=np.float64)
+    if len(p) == 0:
+        return 0.0
+
+    if _rs is not None and hasattr(_rs, "delta_ncm_entropy"):
+        return float(_rs.delta_ncm_entropy(p.ctypes.data, len(p)))
+
+    pos = p[p > 1e-12]
+    if len(pos) == 0:
+        return 0.0
+    return float(-np.sum(pos * np.log(pos)))
+
 

@@ -273,6 +273,7 @@ class Terminal:
             "doctor": self._c_doctor, "status": self._c_status, "data": self._c_data,
             "ask": self._c_ask, "key": self._c_key, "crash": self._c_crash,
             "fdata": self._c_quote, "fetch": self._c_fetch,
+            "ncm": self._c_ncm,
             "fork": self._c_fork, "init": self._c_init,
             "quit": lambda a: "bye", "exit": lambda a: "bye"
         }
@@ -1969,9 +1970,135 @@ class Terminal:
             lines.append(f"  • [{f.failure_type}] {f.details} (Severity: {f.severity})")
         return "\n".join(lines)
 
+    def _c_ncm(self, args: list) -> str:
+        """Institutional Next-Concept Modeling (NCM) trajectory generation and benchmarking."""
+        from finance_model.ncm import (
+            NextConceptModel,
+            NCMGenerationRequest,
+            NCMBenchmarkSuite,
+            list_concepts,
+        )
+
+        subcmd = args[0].lower() if args else "help"
+        engine = NextConceptModel()
+
+        if subcmd in ("help", "-h", "--help"):
+            return (
+                "=== NEXT-CONCEPT MODELING (NCM) EXPERIMENTAL INTERFACE ===\n"
+                "  Status: PROVENANCE: NCM_EXPERIMENTAL | Zero Execution Authority\n"
+                "  Commands:\n"
+                "    /ncm trajectory <symbol> [macro_context...]  - Forecast multi-step discrete concept path\n"
+                "    /ncm benchmark [num_samples]                - Run 10-dimension benchmark vs LLM/SLM/Baselines\n"
+                "    /ncm concepts                               - View canonical discrete concept ontology\n"
+                "  Example:\n"
+                "    /ncm trajectory SPY Treasury curve inverted, CPI accelerating\n"
+                "    /ncm benchmark 25"
+            )
+
+        if subcmd in ("concepts", "vocab", "list"):
+            concepts = list_concepts()
+            lines = [
+                "=== NCM DISCRETE CONCEPT ONTOLOGY (19 CANONICAL REGIMES) ===",
+                f"  {'Concept ID':<32} {'Category':<15} {'Decay (hrs)':<12} {'Vol Sens':<10}",
+                "  " + "-" * 72,
+            ]
+            for c in concepts:
+                lines.append(f"  {c.concept_id:<32} {c.category.value:<15} {c.decay_half_life_hours:<12.1f} {c.volatility_sensitivity:<10.2f}")
+            return "\n".join(lines)
+
+        if subcmd in ("bench", "benchmark"):
+            samples = 20
+            if len(args) > 1 and args[1].isdigit():
+                samples = int(args[1])
+            suite = NCMBenchmarkSuite(engine)
+            rep = suite.run_benchmark(num_samples=samples)
+            lines = [
+                f"=== NCM EMPIRICAL MULTI-MODEL BENCHMARK REPORT ({rep.report_id}) ===",
+                f"  Timestamp UTC: {rep.timestamp_utc} | Total Workload Samples: {rep.total_samples}",
+                f"  Safety Verdict: {rep.safety_verdict}",
+                f"  Latency Winner: {rep.winner_for_latency} | Factuality Winner: {rep.winner_for_factuality} | Cost Winner: {rep.winner_for_cost}",
+                "",
+                f"  {'Model':<30} {'Type':<8} {'p50 (µs)':<10} {'Factuality':<11} {'Halluc':<8} {'Inj Resist':<10} {'RAM':<8} {'$/1k':<6}",
+                "  " + "-" * 95,
+            ]
+            for name, m in rep.models.items():
+                lines.append(
+                    f"  {m.model_name:<30} {m.model_type:<8} {m.latency_p50_us:<10.1f} "
+                    f"{m.factuality_score:<11.2%} {m.hallucination_rate:<8.2%} {m.prompt_injection_resistance:<10.2%} "
+                    f"{m.ram_mb:<8.1f} ${m.cost_per_1k_queries_usd:<6.2f}"
+                )
+            return "\n".join(lines)
+
+        # Default or 'trajectory':
+        sym = "SPY"
+        macro_text = ""
+        if subcmd == "trajectory":
+            sym = args[1].upper() if len(args) > 1 else "SPY"
+            macro_text = " ".join(args[2:]) if len(args) > 2 else ""
+        else:
+            sym = args[0].upper()
+            macro_text = " ".join(args[1:]) if len(args) > 1 else ""
+
+        # Fetch current market metrics if symbol is valid
+        metrics = {}
+        try:
+            q = self.data.quote(sym)
+            if hasattr(q, "frame") and not q.frame.empty:
+                close = float(q.frame["close"].iloc[-1])
+                metrics["close"] = close
+        except Exception:
+            pass
+
+        try:
+            req = NCMGenerationRequest(
+                symbol=sym,
+                macro_context=macro_text,
+                quant_metrics=metrics,
+                horizon=3,
+            )
+            res = engine.generate_trajectory(req)
+        except Exception as e:
+            return f"NCM_ERROR: {e}"
+
+        lines = [
+            f"=== NEXT-CONCEPT MODEL FORECAST: {res.symbol} [{res.provenance_badge}] ===",
+            f"  Model: {res.model_version} (Kernel: {res.hardware_acceleration.upper()})",
+            f"  Authority: EXECUTION_ELIGIBLE={res.execution_eligibility} (Fail-Closed Analytical)",
+            f"  Observed Anchor: {res.trajectory.observed_concepts[0]}",
+            "  Projected Concept Trajectory:",
+        ]
+        for step, (cid, prob) in enumerate(res.trajectory.predicted_concepts, 1):
+            c_obj = engine._concepts.get(cid)
+            name = c_obj.name if c_obj else cid
+            lines.append(f"    Step {step}: [{cid}] {name} (P={prob:.1%})")
+
+        lines.extend([
+            f"  Trajectory Entropy: {res.trajectory.entropy:.3f} | Confidence: {res.trajectory.confidence:.1%}",
+            f"  Synthesized Thesis: {res.synthesized_thesis}",
+            "  Structural Invalidating Conditions:",
+        ])
+        for inv in res.invalidating_conditions:
+            lines.append(f"    • {inv}")
+
+        return "\n".join(lines)
+
     # -- nl --
     def _ask(self, question: str) -> str:
         # 1. Direct local quant FM brain (100% offline, zero cloud keys)
+        if "ncm" in self.model_name.lower():
+            from finance_model.ncm import NextConceptModel, NCMGenerationRequest
+            engine = NextConceptModel()
+            req = NCMGenerationRequest(
+                symbol="SPY",
+                macro_context=question,
+                horizon=3,
+            )
+            try:
+                res = engine.generate_trajectory(req)
+                return f"[NCM_EXPERIMENTAL] {res.synthesized_thesis}"
+            except Exception as e:
+                return f"BLOCKED: {e}"
+
         if "delta" in self.model_name.lower():
             return self.brain.chat(question)
 

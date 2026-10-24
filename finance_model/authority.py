@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import re
 
-_ORDER_RE = re.compile(r"\b(buy|sell|short|cover|flatten|cancel)\b[^.\n]{0,60}\b\d+\b|\b(order|place order)\b",
-                        re.IGNORECASE)
+_ORDER_RE = re.compile(
+    r"\b(buy|sell|short|cover|flatten|cancel)\b[^.\n]{0,60}\b(\d+|all|everything|positions?|portfolio)\b|\b(order|place order)\b",
+    re.IGNORECASE,
+)
 
 
 class AuthorityRefused(RuntimeError):

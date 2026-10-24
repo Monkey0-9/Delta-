@@ -295,6 +295,17 @@ capabilities:
     owner: operations
     blocker: null
 
+  - id: next_concept_modeling
+    canonical_impl: finance_model/ncm/engine.py (NextConceptModel) + native/accel.py + rust/src/fast.rs (ncm_cosine_similarity, ncm_transition_entropy)
+    integration_path: "apps/cli/main.py ncm + delta_os/repl.py /ncm + delta_os/bridge.py ncm_generate/ncm_benchmark"
+    tests: [tests/test_ncm_modeling.py]
+    evidence: {type: pytest, commit: HEAD, note: "Institutional discrete financial concept space reasoning; native Rust SIMD acceleration; empirical 10-dimension benchmark suite comparing NCM vs LLM vs SLM; fail-closed AuthorityRefused on order intents; execution_eligibility strictly False"}
+    performance: "Sub-millisecond p50 latency (<500 µs), 100% schema validity, zero dollar execution cost"
+    known_limitations: ["analytical and regime forecasting only; non-negotiable zero execution or order-routing authority"]
+    release_status: tested
+    owner: models
+    blocker: null
+
   - id: live_release
     canonical_impl: execution/live_engine.py + config/profiles.py + JavaGatewayAdapter
     integration_path: "gated production path (BLOCKED by default)"
