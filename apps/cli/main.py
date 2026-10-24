@@ -1,6 +1,7 @@
 """DELTA CLI (W45): typer-based entry-point. Contracts only, no live trading."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 

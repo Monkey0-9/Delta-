@@ -1143,8 +1143,14 @@ def run_network_server(
         server.server_close()
 
 
-def main() -> int:
-    """Bridge process entry: HTTP server or stdio IPC loop with fail-closed delivery."""
+def main(argv: list[str] | None = None) -> int:
+    """Bridge process entry: HTTP server or stdio IPC loop with fail-closed delivery.
+
+    ``argv`` defaults to ``sys.argv[1:]``. Unknown arguments are tolerated so that
+    an embedding harness (pytest, process supervisor, RPC host) cannot abort the
+    process before the fail-closed audit-tamper path is evaluated. Argument
+    errors must never be able to mask a tampered audit ledger.
+    """
     import argparse
     parser = argparse.ArgumentParser(description="DELTA OS Protocol Bridge Server")
     parser.add_argument("--serve", action="store_true", help="Serve JSON-RPC over HTTP")
@@ -1153,7 +1159,7 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=8765, help="Port to listen on")
     parser.add_argument("--cors", default="http://127.0.0.1:*,http://localhost:*", help="Allowed CORS origins")
     parser.add_argument("--timeout", type=float, default=None, help="Auto-shutdown timeout in seconds")
-    args = parser.parse_args()
+    args, _ignored = parser.parse_known_args(sys.argv[1:] if argv is None else argv)
 
     if args.serve:
         try:

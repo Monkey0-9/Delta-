@@ -44,6 +44,8 @@ target_test/
 *.sqlite
 *.sqlite3
 data/pit_store.db
+# Runtime-append research ledger: state, not authored source.
+data/research/ledger.jsonl
 
 # Local & secret configs
 *.local.json

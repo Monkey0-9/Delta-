@@ -176,13 +176,19 @@ def test_cli_session_export_and_list():
     assert "workspace" in res_exp.stdout
 
 
-def test_cli_service_get_set():
-    res_get = runner.invoke(app, ["service", "get"])
+def test_cli_service_get_set(monkeypatch, tmp_path):
+    # Isolate config state: the risk-loosening gate compares against the
+    # persisted on-disk value, so a shared ~/.delta makes this test order-dependent.
+    monkeypatch.setenv("DELTA_HOME", str(tmp_path))
+    env = {"DELTA_UNLOCK_TOKEN": "test-unlock-token"}
+
+    res_get = runner.invoke(app, ["service", "get"], env=env)
     assert res_get.exit_code == 0
     assert "max_dd" in res_get.stdout
 
-    res_set = runner.invoke(app, ["service", "set", "max_dd", "3.5"])
-    assert res_set.exit_code == 0
+    # 3.5% exceeds the 2.0% default -> requires unlock authority.
+    res_set = runner.invoke(app, ["service", "set", "max_dd", "3.5"], env=env)
+    assert res_set.exit_code == 0, res_set.stdout
     assert "3.5" in res_set.stdout
 
 

@@ -91,25 +91,30 @@ def test_cmd_session_lifecycle(tmp_path: Path):
     assert res_clr.exit_code == 0
 
 
-def test_cmd_service_configuration():
+def test_cmd_service_configuration(monkeypatch, tmp_path):
+    # Isolate config state: the risk-loosening gate compares against the
+    # persisted on-disk value, so a shared ~/.delta makes this test order-dependent.
+    monkeypatch.setenv("DELTA_HOME", str(tmp_path))
+    env = {"DELTA_UNLOCK_TOKEN": "test-unlock-token"}
+
     # 1. status
-    res_st = runner.invoke(app, ["service", "status"])
+    res_st = runner.invoke(app, ["service", "status"], env=env)
     assert res_st.exit_code == 0
     assert "DELTA BACKGROUND SERVICE STATUS" in res_st.stdout
 
     # 2. get
-    res_get = runner.invoke(app, ["service", "get"])
+    res_get = runner.invoke(app, ["service", "get"], env=env)
     assert res_get.exit_code == 0
 
-    # 3. set
-    res_set = runner.invoke(app, ["service", "set", "max_dd", "2.5"])
-    assert res_set.exit_code == 0
-    assert "Updated service configuration" in res_set.stdout
+    # 3. set (2.5% exceeds the 2.0% default -> requires unlock authority)
+    res_set = runner.invoke(app, ["service", "set", "max_dd", "2.5"], env=env)
+    assert res_set.exit_code == 0, res_set.stdout
+    assert "Updated max_dd_pct = 2.5" in res_set.stdout
 
     # 4. unset
-    res_unset = runner.invoke(app, ["service", "unset", "max_dd"])
-    assert res_unset.exit_code == 0
-    assert "Reset service configuration" in res_unset.stdout
+    res_unset = runner.invoke(app, ["service", "unset", "max_dd"], env=env)
+    assert res_unset.exit_code == 0, res_unset.stdout
+    assert "Updated max_dd_pct = 2.0" in res_unset.stdout
 
 
 def test_cmd_plugin():
