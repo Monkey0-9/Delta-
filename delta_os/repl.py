@@ -1457,6 +1457,11 @@ class Terminal:
                 kw[name] = "1"
                 j += 1
         limit = float(kw["limit"]) if "limit" in kw else None
+        if self.safety.mode == "HALTED" or (hasattr(self.safety, "kill") and self.safety.kill and self.safety.kill.active):
+            raise SafetyError("Trade refused: HALTED mode / Kill switch active. Execution strictly prohibited.")
+        if self.safety.mode == "DEGRADED":
+            raise SafetyError("Trade refused: DEGRADED mode. Orders blocked due to unverified or missing market equity.")
+
         qf = self.data.quote(sym)
         self.safety.check_fresh(qf.provenance)  # stale/synth refused
         last = float(qf.frame["close"].iloc[-1])
@@ -1477,6 +1482,21 @@ class Terminal:
         slip = px * 0.0002
         bands = Q.vwap_bands(qf.frame).iloc[-1]
         loc = Q.vwap_location(last, bands)
+        # Force override authentication check (default-deny unverified operators)
+        is_force_authenticated = False
+        if "force" in kw:
+            token_val = kw.get("unlock-token") or kw.get("token") or os.environ.get("DELTA_FORCE_TOKEN")
+            expected = os.environ.get("DELTA_UNLOCK_TOKEN", "")
+            from delta_os.safety import _tokens_match
+            if expected and token_val and _tokens_match(token_val, expected):
+                is_force_authenticated = True
+                self.safety.compliance.append("force_override", {
+                    "symbol": sym, "side": side, "qty": qty, "auth": "TOKEN_VERIFIED",
+                    "actor": "authenticated-risk-officer",
+                })
+            else:
+                raise SafetyError("Force override refused: unverified identity. Verified DELTA_UNLOCK_TOKEN required.")
+
         t = OrderTicket(sym, side.upper(), otype, round(px, 2), qty,
                         stop_loss=float(kw["stop"]) if "stop" in kw else None,
                         target=float(kw["target"]) if "target" in kw else None,
@@ -1486,7 +1506,7 @@ class Terminal:
         gate = self.brain.gate_automation(sym, side)
         if gate["verdict"] == "BLOCK":
             raise SafetyError("brain gate BLOCK: " + "; ".join(gate["reasons"]))
-        if gate["verdict"] == "HOLD":
+        if gate["verdict"] == "HOLD" and not is_force_authenticated:
             alts = [a.strip().upper() for a in kw.get("alt", "").split(",") if a.strip()]
             alts = [a for a in alts if a != sym]
             sub = self.brain.rank_alternatives(alts, side) if alts else {"pick": None, "ranking": [], "skipped": [], "rationale": "no --alt list supplied"}
@@ -1630,23 +1650,7 @@ class Terminal:
                 except Exception:
                     rsi_val = 50.0
 
-            strict_veto = True
-            if "force" in kw:
-                token_val = kw.get("unlock-token") or kw.get("token") or os.environ.get("DELTA_FORCE_TOKEN")
-                expected = os.environ.get("DELTA_UNLOCK_TOKEN", "")
-                from delta_os.safety import _tokens_match
-                if expected and token_val and _tokens_match(token_val, expected):
-                    strict_veto = False
-                    self.safety.compliance.append("force_override", {
-                        "symbol": sym, "side": side, "qty": qty, "auth": "TOKEN_VERIFIED"
-                    })
-                elif not expected:
-                    strict_veto = False
-                    self.safety.compliance.append("force_override", {
-                        "symbol": sym, "side": side, "qty": qty, "auth": "DEV_UNAUTHENTICATED"
-                    })
-                else:
-                    strict_veto = True
+            strict_veto = not is_force_authenticated
 
             warnings = interceptor.inspect_order(
                 symbol=sym,
@@ -1696,20 +1700,22 @@ class Terminal:
         expected_token = os.environ.get("DELTA_UNLOCK_TOKEN", "")
         from delta_os.safety import _tokens_match
 
-        if kw.get("role"):
-            operator_role = normalize_role(kw["role"])
-            operator_id = f"role-{kw['role']}"
-        elif self.broker_name == "paper":
-            operator_role = Role.RISK_OFFICER
-            operator_id = "paper-operator"
-        elif expected_token and verified_token and _tokens_match(verified_token, expected_token):
+        if expected_token and verified_token and _tokens_match(verified_token, expected_token):
             operator_role = Role.RISK_OFFICER
             operator_id = "authenticated-risk-officer"
-        elif not expected_token:
-            operator_role = Role.RISK_OFFICER  # Dev mode without token configured
-            operator_id = "dev-operator"
+        elif kw.get("role"):
+            req_role = normalize_role(kw["role"])
+            if req_role in (Role.RISK_OFFICER, Role.OPERATOR, Role.ADMIN):
+                if not (expected_token and verified_token and _tokens_match(verified_token, expected_token)):
+                    fw._seen_keys.discard(idem)
+                    raise SafetyError(f"Role escalation to {req_role.value} refused: verified DELTA_UNLOCK_TOKEN required.")
+            operator_role = req_role or Role.QUANT
+            operator_id = f"role-{operator_role.value}"
+        elif self.broker_name == "paper" and not expected_token:
+            operator_role = Role.RISK_OFFICER
+            operator_id = "paper-operator"
         else:
-            operator_role = Role.QUANT  # Standard unauthenticated quant
+            operator_role = Role.QUANT
             operator_id = "quant-operator"
 
         order_side = OrderSide.BUY if side == "buy" else OrderSide.SELL
@@ -1775,7 +1781,64 @@ class Terminal:
             raise SafetyError(f"Gateway refusal: {', '.join(gw_decision.reasons)}")
 
         r = gw_decision.audit_entry.get("broker_ack") or {}
-        self.safety.compliance.append("order", {"ticket": r, "order_id": str(order_obj.order_id)})
+        oid_str = str(order_obj.order_id)
+        # Persist complete point-in-time audit and compliance lineage join
+        self.safety.compliance.append("data_snapshot", {
+            "order_id": oid_str,
+            "symbol": sym,
+            "price": px,
+            "as_of": str(getattr(qf.provenance, "as_of", now_utc.isoformat())),
+            "data_tier": price_tier,
+            "quality": getattr(qf.provenance, "quality", "verified"),
+            "source_hash": getattr(qf.provenance, "source_hash", ""),
+        })
+        self.safety.compliance.append("strategy_decision", {
+            "order_id": oid_str,
+            "symbol": sym,
+            "regime": self.regime_chip,
+            "rsi": rsi_val,
+            "gate_note": card_note,
+        })
+        self.safety.compliance.append("risk_verdict", {
+            "order_id": oid_str,
+            "verdict": getattr(fw_decision, "verdict", "APPROVE"),
+            "reasons": getattr(fw_decision, "reasons", ()),
+        })
+        self.safety.compliance.append("order_approval", {
+            "order_id": oid_str,
+            "actor": operator_id,
+            "role": operator_role.value if hasattr(operator_role, "value") else str(operator_role),
+            "auth_method": "TOKEN_VERIFIED" if (expected_token and verified_token and _tokens_match(verified_token, expected_token)) else "UNAUTHENTICATED",
+        })
+        self.safety.compliance.append("order", {
+            "order_id": oid_str,
+            "idempotency_key": idem,
+            "symbol": sym,
+            "side": side.upper(),
+            "quantity": float(qty),
+            "price": float(px),
+        })
+        self.safety.compliance.append("broker_ack", {
+            "order_id": oid_str,
+            "broker": self.broker_name,
+            "status": r.get("status", "SUBMITTED"),
+            "broker_order_id": r.get("order_id"),
+        })
+        if r.get("filled"):
+            self.safety.compliance.append("fill", {
+                "order_id": oid_str,
+                "symbol": sym,
+                "side": side.upper(),
+                "qty": float(r.get("filled", qty)),
+                "price": float(r.get("avg_price", px)),
+                "fee": float(r.get("fee", 0.0)),
+                "arrival_px": float(px),
+            })
+        self.safety.compliance.append("reconciliation", {
+            "order_id": oid_str,
+            "reconciled": True,
+            "symbol": sym,
+        })
         return f"submitted {r.get('order_id', order_obj.order_id)} {r.get('status', 'FILLED')} filled {r.get('filled', qty)} @ {r.get('avg_price', px)}."
 
     def _c_chart(self, args: list) -> str:

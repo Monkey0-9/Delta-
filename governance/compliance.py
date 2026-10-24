@@ -183,6 +183,100 @@ class ComplianceLog:
                 "violation_rate": round(bad / fills, 4) if fills else 0.0,
                 "tolerance_bps": tolerance_bps, "rows": rows}
 
+    def get_order_lineage(self, order_id: str) -> dict | None:
+        """Reconstruct full point-in-time order lineage across compliance records.
+
+        Joins:
+          data_snapshot -> strategy_decision -> risk_verdict -> approval ->
+          order -> broker_ack -> fills -> reconciliation -> realized_outcome.
+        """
+        data_snapshot = {}
+        strategy_decision = {}
+        risk_verdict = {}
+        approval = {}
+        order_intent = {}
+        broker_ack = {}
+        fills = []
+        reconciliation = {}
+        found = False
+
+        for r in self._records:
+            p = r.payload
+            if p.get("order_id") == order_id or p.get("idempotency_key") == order_id:
+                found = True
+                k = r.kind
+                if k in ("data_snapshot", "snapshot"):
+                    data_snapshot.update(p)
+                elif k in ("strategy_decision", "strategy"):
+                    strategy_decision.update(p)
+                elif k in ("risk_verdict", "risk_decision"):
+                    risk_verdict.update(p)
+                elif k in ("order_approval", "force_override", "approval"):
+                    approval.update(p)
+                elif k in ("order", "order_intent", "order_gateway"):
+                    order_intent.update(p)
+                elif k in ("broker_ack", "ack"):
+                    broker_ack.update(p)
+                elif k in ("fill", "trade"):
+                    fills.append(p)
+                elif k in ("reconciliation", "reconcile"):
+                    reconciliation.update(p)
+
+        if not found:
+            return None
+
+        # Compute realized outcome metrics
+        total_fees = sum(float(f.get("fee", 0.0)) for f in fills)
+        total_fill_qty = sum(float(f.get("qty", 0.0)) for f in fills)
+        arrival_px = float(data_snapshot.get("price", 0.0) or order_intent.get("price", 0.0) or 0.0)
+
+        avg_fill_px = (
+            sum(float(f.get("price", 0.0)) * float(f.get("qty", 0.0)) for f in fills) / total_fill_qty
+            if total_fill_qty > 0 else 0.0
+        )
+        slip_bps = 0.0
+        if arrival_px > 0 and avg_fill_px > 0:
+            side = order_intent.get("side", "BUY").upper()
+            slip_bps = (avg_fill_px - arrival_px) / arrival_px * 1e4 * (1 if side == "BUY" else -1)
+
+        realized_outcome = {
+            "filled_qty": total_fill_qty,
+            "avg_fill_price": round(avg_fill_px, 4),
+            "total_fees": round(total_fees, 2),
+            "slip_bps": round(slip_bps, 2),
+            "status": broker_ack.get("status", "SUBMITTED" if order_intent else "PENDING"),
+        }
+
+        return {
+            "order_id": order_id,
+            "symbol": order_intent.get("symbol") or data_snapshot.get("symbol", ""),
+            "side": order_intent.get("side", ""),
+            "quantity": float(order_intent.get("quantity", 0.0)),
+            "data_snapshot": data_snapshot,
+            "strategy_decision": strategy_decision,
+            "risk_verdict": risk_verdict,
+            "approval": approval,
+            "order": order_intent,
+            "broker_ack": broker_ack,
+            "fills": fills,
+            "reconciliation": reconciliation,
+            "realized_outcome": realized_outcome,
+        }
+
+    def list_lineages(self, limit: int = 100) -> list[dict]:
+        """List all unique order lineages recorded in compliance log."""
+        order_ids: list[str] = []
+        for r in self._records:
+            oid = r.payload.get("order_id")
+            if oid and oid not in order_ids:
+                order_ids.append(oid)
+        lineages: list[dict] = []
+        for oid in order_ids[-limit:]:
+            lin = self.get_order_lineage(oid)
+            if lin:
+                lineages.append(lin)
+        return lineages
+
     def __len__(self) -> int:
         return len(self._records)
 

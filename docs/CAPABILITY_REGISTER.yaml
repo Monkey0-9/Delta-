@@ -78,11 +78,11 @@ capabilities:
   - id: compliance_durability
     canonical_impl: governance/compliance.py (ComplianceLog, file-backed)
     integration_path: "delta_os/safety.py compliance ledger at ~/.delta/compliance.jsonl"
-    tests: [tests/test_p1_compliance_durability.py]
-    evidence: {type: pytest, commit: HEAD, note: "restart reload + tamper-refuse-with-backup + torn-tail refuse"}
+    tests: [tests/test_p1_compliance_durability.py, tests/test_p0_auth_lineage.py]
+    evidence: {type: pytest, commit: HEAD, note: "restart reload + tamper-refuse + end-to-end order lineage query"}
     performance: null
-    known_limitations: ["order->fill->snapshot lineage join not yet queryable (P1 remainder)"]
-    release_status: tested
+    known_limitations: []
+    release_status: validated
     owner: audit
     blocker: null
 
