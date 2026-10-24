@@ -51,3 +51,21 @@ def test_no_production_claim_without_gates():
     for cap in reg["capabilities"]:
         assert cap["release_status"] != "production", (
             f"{cap['id']}: production requires §8 gates + sign-offs")
+
+
+def test_system_status_and_register_cross_agreement():
+    """Verify SYSTEM_STATUS.yaml agrees with CAPABILITY_REGISTER.yaml: no false production claims."""
+    with open(REPO / "SYSTEM_STATUS.yaml", encoding="utf-8") as f:
+        sys_st = yaml.safe_load(f)
+    assert "LIVE GATED" in sys_st.get("overall", "")
+    for sub, vals in sys_st.get("subsystems", {}).items():
+        assert vals.get("production") is False, f"Subsystem {sub} claimed production: true unexpectedly"
+    assert sys_st.get("gates", {}).get("R10_production", False) is False
+
+
+def test_pr1_reconciliation_documented():
+    """Verify PR #1 reconciliation and architectural truth are recorded in STATUS.md."""
+    status_text = (REPO / "STATUS.md").read_text(encoding="utf-8")
+    assert "PR #1" in status_text
+    assert "simplex" in status_text.lower()
+

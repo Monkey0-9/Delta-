@@ -1,0 +1,23 @@
+# Institutional Code Owners for DELTA OS
+# Changes to these paths require mandatory sign-off from designated domain leads.
+
+# Order Management & Gateway
+/core/oms/                     @Monkey0-9
+/execution/                    @Monkey0-9
+
+# Risk Management & Limits
+/risk/                         @Monkey0-9
+/delta_os/safety.py            @Monkey0-9
+/delta_os/service_config.py    @Monkey0-9
+
+# Governance & Tamper-Evident Ledgers
+/governance/                   @Monkey0-9
+/provenance/                   @Monkey0-9
+
+# Capability Register & Release Gates
+/docs/CAPABILITY_REGISTER.yaml @Monkey0-9
+/docs/RELEASE_GATES.md         @Monkey0-9
+
+# CI/CD Workflows & Rulesets
+/.github/workflows/            @Monkey0-9
+/.github/CODEOWNERS            @Monkey0-9
