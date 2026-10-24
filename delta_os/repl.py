@@ -976,42 +976,27 @@ class Terminal:
             f"● {track}"
         )
 
-    def _ledger_equity(self) -> float | None:
-        """Live ledger equity for the active broker. None = UNAVAILABLE."""
+    def _get_quote_price(self, symbol: str) -> float | None:
         try:
-            cur = self.router.current()
-            ledger = getattr(cur, "_ledger", None)
-            if ledger is None:
+            return float(self.data.quote(symbol).frame["close"].iloc[-1])
+        except Exception:
+            return None
+
+    def _ledger_equity(self) -> float | None:
+        """Live ledger equity for the active broker via canonical AccountSnapshot. None = UNAVAILABLE."""
+        try:
+            snap = self.router.get_account_snapshot(price_provider=self._get_quote_price)
+            if snap.degraded or snap.equity is None:
                 return None
-            positions = self._ledger_positions()
-            prices = {}
-            for s in positions:
-                try:
-                    prices[s] = float(self.data.quote(s).frame["close"].iloc[-1])
-                except Exception:
-                    return None
-            rec = ledger.reconcile(prices)
-            eq = rec.get("equity", None)
-            return float(eq) if eq is not None else None
+            return float(snap.equity)
         except Exception:
             return None
 
     def _ledger_positions(self) -> dict:
-        """Live ledger positions {symbol: qty}. {} = none/unreadable (never demo).
-
-        PaperLedger stores plain floats; broker adapters may store objects —
-        both shapes accepted.
-        """
+        """Live ledger positions {symbol: qty} via canonical AccountSnapshot. {} = none/unreadable."""
         try:
-            cur = self.router.current()
-            ledger = getattr(cur, "_ledger", None)
-            if ledger is None:
-                return {}
-            out = {}
-            for s, pos in ledger.positions.items():
-                q = getattr(pos, "qty", pos)
-                out[s] = float(q)
-            return out
+            snap = self.router.get_account_snapshot(price_provider=self._get_quote_price)
+            return dict(snap.positions)
         except Exception:
             return {}
 
@@ -1037,10 +1022,19 @@ class Terminal:
                                  compliance=self.safety.compliance)
             from delta_os.safety import _session_path
 
+            active_adapters = []
+            if hasattr(self.router, "current"):
+                cur = self.router.current()
+                if cur:
+                    active_adapters.append(cur)
+            if not active_adapters and hasattr(self.router, "paper"):
+                active_adapters.append(self.router.paper)
+
             self.sentinel = DeltaSentinel(
                 brain=self.brain, safety_state=self.safety,
                 equity_fn=self._ledger_equity,
                 positions_fn=self._ledger_positions,
+                broker_adapters=active_adapters,
                 alert_sink=lambda a: fanout.broadcast(a),
                 state_path=str(_session_path().parent / "sentinel.json"),
             )

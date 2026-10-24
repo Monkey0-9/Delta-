@@ -393,6 +393,8 @@ class SafetyState:
         if self.mode == "HALTED" or read_persisted_safety_mode() == "HALTED":
             self.mode = "HALTED"
             return False, "HALTED"
+        if self.mode == "DEGRADED":
+            return False, "DEGRADED: new orders blocked due to unverified or missing market equity"
         if equity <= 0:
             return False, "no equity"
         if ticket.notional() / equity > MAX_POSITION_PCT:

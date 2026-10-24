@@ -1,7 +1,7 @@
 """Universal Broker Adapter: paper / Alpaca / IBKR behind one interface.
 
 - PaperAdapter: wraps research.real_loop.paper_broker.PaperLedger (deterministic
-  seed) with cancel-all + positions/cash. Always available.
+  seed) with cancel-all + positions/cash + canonical AccountSnapshot. Always available.
 - AlpacaAdapter: Trade API v2 over httpx. Default base = paper URL. test()
   calls GET /v2/account (auth check, returns buying power). Orders via POST
   /v2/orders. Live base URL REFUSED unless live_armed=True AND explicit
@@ -12,16 +12,34 @@
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from decimal import Decimal
+from typing import Any, Callable, Dict, Optional
 
-UBA_VERSION = "uba-v1"
+UBA_VERSION = "uba-v2"
 ALPACA_PAPER = "https://paper-api.alpaca.markets"
 ALPACA_LIVE = "https://api.alpaca.markets"
 
 
 class BrokerError(Exception):
     pass
+
+
+@dataclass
+class AccountSnapshot:
+    """Authoritative point-in-time account and portfolio snapshot across brokers."""
+    broker: str
+    connected: bool
+    cash: float
+    equity: Optional[float]
+    positions: Dict[str, float]
+    market_values: Dict[str, float]
+    prices: Dict[str, float]
+    degraded: bool
+    degraded_reason: Optional[str] = None
+    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
 @dataclass
@@ -58,6 +76,61 @@ class PaperAdapter:
 
     def positions(self, prices: dict) -> dict:
         return self._ledger.reconcile(prices)
+
+    def get_account_snapshot(
+        self, price_provider: Optional[Callable[[str], Optional[float]]] = None
+    ) -> AccountSnapshot:
+        cash = float(self._ledger.cash)
+        positions: Dict[str, float] = {}
+        market_values: Dict[str, float] = {}
+        prices: Dict[str, float] = {}
+        degraded = False
+        degraded_reason = None
+
+        for sym, pos in self._ledger.positions.items():
+            if isinstance(pos, (int, float)):
+                qty = float(pos)
+            else:
+                qty = float(getattr(pos, "quantity", getattr(pos, "qty", getattr(pos, "shares", 0.0))))
+            if abs(qty) < 1e-9:
+                continue
+            positions[sym] = qty
+
+            px: Optional[float] = None
+            if price_provider is not None:
+                try:
+                    px = price_provider(sym)
+                except Exception:
+                    px = None
+
+            if px is None or not (isinstance(px, (int, float)) and math.isfinite(px) and px > 0):
+                degraded = True
+                degraded_reason = (
+                    f"Missing or unverified quote for position {sym}; cannot compute equity without live price."
+                )
+                prices[sym] = 0.0
+                market_values[sym] = 0.0
+            else:
+                prices[sym] = float(px)
+                market_values[sym] = qty * float(px)
+
+        if degraded:
+            equity = None
+        else:
+            equity = cash + sum(market_values.values())
+
+        return AccountSnapshot(
+            broker="paper",
+            connected=True,
+            cash=cash,
+            equity=equity,
+            positions=positions,
+            market_values=market_values,
+            prices=prices,
+            degraded=degraded,
+            degraded_reason=degraded_reason,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
 
 
 @dataclass
@@ -116,7 +189,23 @@ class AlpacaAdapter:
             raise BrokerError(f"Alpaca submit failed: {exc}") from exc
 
     def cancel(self, order_id: str) -> dict:
-        return self._ledger.cancel(order_id)
+        import httpx
+
+        try:
+            r = httpx.delete(
+                f"{self.base_url}/v2/orders/{order_id}",
+                headers=self._headers(),
+                timeout=self.timeout_s,
+            )
+            if r.status_code in (200, 204):
+                return {"order_id": order_id, "status": "CANCELLED"}
+            if r.status_code == 404:
+                return {"order_id": order_id, "status": "NOT_FOUND", "error": r.text[:200]}
+            raise BrokerError(f"Alpaca cancel failed HTTP {r.status_code}: {r.text[:200]}")
+        except BrokerError:
+            raise
+        except Exception as exc:
+            raise BrokerError(f"Alpaca cancel failed: {exc}") from exc
 
     def cancel_all(self) -> dict:
         import httpx
@@ -131,6 +220,84 @@ class AlpacaAdapter:
             raise
         except Exception as exc:
             raise BrokerError(f"Alpaca cancel-all failed: {exc}") from exc
+
+    def get_account_snapshot(
+        self, price_provider: Optional[Callable[[str], Optional[float]]] = None
+    ) -> AccountSnapshot:
+        import httpx
+
+        st = self.status()
+        if not st.get("connected"):
+            return AccountSnapshot(
+                broker="alpaca",
+                connected=False,
+                cash=0.0,
+                equity=None,
+                positions={},
+                market_values={},
+                prices={},
+                degraded=True,
+                degraded_reason=f"Alpaca disconnected: {st.get('error', 'unknown error')}",
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            )
+
+        try:
+            r = httpx.get(f"{self.base_url}/v2/positions", headers=self._headers(), timeout=self.timeout_s)
+            pos_list = r.json() if r.status_code == 200 else []
+            positions: Dict[str, float] = {}
+            market_values: Dict[str, float] = {}
+            prices: Dict[str, float] = {}
+            degraded = False
+            degraded_reason = None
+
+            for p in pos_list:
+                sym = p.get("symbol", "")
+                qty = float(p.get("qty", 0.0))
+                positions[sym] = qty
+                px = None
+                if price_provider:
+                    px = price_provider(sym)
+                if px is None:
+                    try:
+                        px = float(p.get("current_price"))
+                    except (ValueError, TypeError):
+                        px = None
+                if px is None or not math.isfinite(px):
+                    degraded = True
+                    degraded_reason = f"Missing quote for {sym}"
+                    prices[sym] = 0.0
+                    market_values[sym] = 0.0
+                else:
+                    prices[sym] = px
+                    market_values[sym] = qty * px
+
+            cash = float(st.get("cash", 0.0) or 0.0)
+            equity = cash + sum(market_values.values()) if not degraded else None
+            return AccountSnapshot(
+                broker="alpaca",
+                connected=True,
+                cash=cash,
+                equity=equity,
+                positions=positions,
+                market_values=market_values,
+                prices=prices,
+                degraded=degraded,
+                degraded_reason=degraded_reason,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            )
+        except Exception as exc:
+            return AccountSnapshot(
+                broker="alpaca",
+                connected=False,
+                cash=0.0,
+                equity=None,
+                positions={},
+                market_values={},
+                prices={},
+                degraded=True,
+                degraded_reason=f"Failed to query Alpaca account: {exc}",
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            )
 
 
 @dataclass
@@ -168,7 +335,12 @@ class IBKRAdapter:
             raise BrokerError(f"IBKR order submission failed: {exc}") from exc
 
     def cancel(self, order_id: str) -> dict:
-        return self._ledger.cancel(order_id)
+        if not self.host:
+            raise BrokerError("IBKR gateway host not configured.")
+        try:
+            return self._client().cancel_order(order_id)
+        except Exception as exc:
+            raise BrokerError(f"IBKR cancel order failed: {exc}") from exc
 
     def cancel_all(self) -> dict:
         if not self.host:
@@ -177,6 +349,37 @@ class IBKRAdapter:
             return self._client().cancel_all()
         except Exception as exc:
             raise BrokerError(f"IBKR cancel_all failed: {exc}") from exc
+
+    def get_account_snapshot(
+        self, price_provider: Optional[Callable[[str], Optional[float]]] = None
+    ) -> AccountSnapshot:
+        st = self.status()
+        if not st.get("connected"):
+            return AccountSnapshot(
+                broker="ibkr",
+                connected=False,
+                cash=0.0,
+                equity=None,
+                positions={},
+                market_values={},
+                prices={},
+                degraded=True,
+                degraded_reason=f"IBKR disconnected: {st.get('error', 'unknown error')}",
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            )
+        # IBKR status returns portfolio cash / equity if available
+        cash = float(st.get("cash", 0.0) or 0.0)
+        return AccountSnapshot(
+            broker="ibkr",
+            connected=True,
+            cash=cash,
+            equity=float(st.get("equity", cash) or cash),
+            positions={},
+            market_values={},
+            prices={},
+            degraded=False,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
 
 
 @dataclass
@@ -201,6 +404,21 @@ class BrokerRouter:
         return {"paper": self.paper, "alpaca": self.alpaca,
                 "ibkr": self.ibkr}[self.active]
 
+    def get_account_snapshot(
+        self, price_provider: Optional[Callable[[str], Optional[float]]] = None
+    ) -> AccountSnapshot:
+        cur = self.current()
+        if hasattr(cur, "get_account_snapshot"):
+            return cur.get_account_snapshot(price_provider=price_provider)
+        raise NotImplementedError(f"Broker adapter {cur} does not support get_account_snapshot")
 
-__all__ = ["UBA_VERSION", "BrokerError", "PaperAdapter", "AlpacaAdapter",
-           "IBKRAdapter", "BrokerRouter"]
+
+__all__ = [
+    "UBA_VERSION",
+    "BrokerError",
+    "AccountSnapshot",
+    "PaperAdapter",
+    "AlpacaAdapter",
+    "IBKRAdapter",
+    "BrokerRouter",
+]

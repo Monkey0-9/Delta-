@@ -1393,14 +1393,21 @@ class DeltaSentinel:
         if self.equity_fn is not None:
             equity = self.equity_fn()
         if equity is None or not np.isfinite(equity):
-            self._emit("WARNING", "EQUITY_UNAVAILABLE",
-                       "Ledger equity unreadable: monitoring only, no automated action.")
+            if self.safety.mode != "HALTED":
+                self.safety.mode = "DEGRADED"
+            self._emit("CRITICAL", "EQUITY_UNAVAILABLE",
+                       "Ledger equity unreadable or degraded: entering DEGRADED/BLOCK_NEW_ORDERS mode.")
             self.last_tick_utc = datetime.now(timezone.utc).isoformat()
-            outcome["actions"].append("monitor-only (equity unavailable)")
+            outcome["actions"].append("degraded (block new orders)")
             self._persist_state()
             return outcome
         equity = float(equity)
         self.current_equity = equity
+        if self.safety.mode == "DEGRADED":
+            self.safety.mode = "MANUAL"
+            self._emit("INFO", "EQUITY_RESTORED",
+                       "Ledger equity restored: recovering safety mode from DEGRADED to MANUAL.")
+            outcome["actions"].append("recovered from degraded")
         if self.peak_equity is None:
             self.peak_equity = equity  # first live read initialises the peak
             self.last_tick_utc = datetime.now(timezone.utc).isoformat()
