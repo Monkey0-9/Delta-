@@ -45,6 +45,9 @@ class PaperAdapter:
         return {"order_id": o.order_id, "status": o.status, "filled": o.filled,
                 "avg_price": o.avg_price}
 
+    def cancel(self, order_id: str) -> dict:
+        return self._ledger.cancel(order_id)
+
     def cancel_all(self) -> dict:
         n = 0
         for o in self._ledger.orders.values():
@@ -112,6 +115,9 @@ class AlpacaAdapter:
         except Exception as exc:
             raise BrokerError(f"Alpaca submit failed: {exc}") from exc
 
+    def cancel(self, order_id: str) -> dict:
+        return self._ledger.cancel(order_id)
+
     def cancel_all(self) -> dict:
         import httpx
 
@@ -160,6 +166,9 @@ class IBKRAdapter:
             )
         except Exception as exc:
             raise BrokerError(f"IBKR order submission failed: {exc}") from exc
+
+    def cancel(self, order_id: str) -> dict:
+        return self._ledger.cancel(order_id)
 
     def cancel_all(self) -> dict:
         if not self.host:

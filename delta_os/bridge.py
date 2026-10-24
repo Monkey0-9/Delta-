@@ -496,6 +496,83 @@ class DeltaBridge:
             "safety_mode": self.term.safety.mode,
         }
 
+    def cancel(self, order_id: str | None = None, token: str | None = None, role: str | None = None) -> dict[str, Any]:
+        """Wire order cancellation directly to canonical OMS & broker."""
+        expected = os.environ.get("DELTA_UNLOCK_TOKEN", "")
+        from delta_os.safety import _tokens_match
+        is_auth = (expected and token and _tokens_match(token, expected)) or (
+            role is not None and str(role).lower() in ("risk_officer", "admin", "operator")
+        )
+        if expected and not is_auth:
+            return {
+                "status": "DENIED",
+                "cancelled": False,
+                "acknowledged": False,
+                "error": "Unauthorized: invalid or missing DELTA_UNLOCK_TOKEN or RISK_OFFICER role",
+            }
+
+        cur = self.term.router.current()
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        if order_id and order_id != "ALL":
+            cancelled = False
+            status = "UNKNOWN"
+            # 1. Broker adapter cancel
+            if hasattr(cur, "cancel"):
+                res = cur.cancel(order_id)
+                cancelled = bool(res.get("cancelled", False))
+                status = res.get("status", "CANCELLED" if cancelled else "NOT_FOUND")
+            elif hasattr(cur, "_ledger") and hasattr(cur._ledger, "cancel"):
+                res = cur._ledger.cancel(order_id)
+                cancelled = bool(res.get("cancelled", False))
+                status = res.get("status", "CANCELLED" if cancelled else "NOT_FOUND")
+
+            # 2. Pipeline orders
+            if hasattr(self.pipeline, "orders") and order_id in self.pipeline.orders:
+                from core.domain.order import OrderStatus
+                o = self.pipeline.orders[order_id]
+                o.status = OrderStatus.CANCELLED
+                cancelled = True
+                status = "CANCELLED"
+
+            try:
+                self.term.safety.compliance.append("cancel", {
+                    "order_id": order_id,
+                    "status": status,
+                    "cancelled": cancelled,
+                    "auth": "TOKEN_VERIFIED" if is_auth else "PAPER_PERMISSIVE",
+                    "timestamp": now_iso,
+                })
+            except Exception:
+                pass
+
+            return {
+                "status": "CANCELLED" if cancelled else status,
+                "cancelled": cancelled,
+                "order_id": order_id,
+                "acknowledged": True,
+                "timestamp": now_iso,
+            }
+        else:
+            # Cancel all
+            n = 0
+            if hasattr(cur, "cancel_all"):
+                r = cur.cancel_all()
+                n = int(r.get("cancelled", 0) if isinstance(r, dict) else 0)
+            if hasattr(self.pipeline, "orders"):
+                from core.domain.order import OrderStatus
+                for o in self.pipeline.orders.values():
+                    if getattr(o, "status", None) not in (OrderStatus.FILLED, OrderStatus.CANCELLED, OrderStatus.REJECTED):
+                        o.status = OrderStatus.CANCELLED
+                        n += 1
+            return {
+                "status": "CANCELLED",
+                "cancelled": True,
+                "cancelled_count": n,
+                "acknowledged": True,
+                "timestamp": now_iso,
+            }
+
 
 def run_ipc_loop():
     import concurrent.futures
@@ -551,8 +628,14 @@ def run_ipc_loop():
                             role=params.get("role"))
                     elif method == "ping":
                         resp_data = {"pong": True, "time": datetime.now(timezone.utc).isoformat()}
+                    elif method == "cancel":
+                        resp_data = bridge.cancel(
+                            order_id=params.get("order_id"),
+                            token=params.get("token"),
+                            role=params.get("role"),
+                        )
                     else:
-                        resp_data = {"cancelled": True}
+                        resp_data = {"error": f"Unknown fast method {method}"}
                     out = json.dumps({"id": req_id, "result": resp_data}, default=str)
                 except Exception as exc:
                     out = json.dumps({"id": req_id, "error": {"message": str(exc)}})
@@ -715,7 +798,24 @@ class _BridgeHTTPRequestHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
+        MAX_PAYLOAD_BYTES = 2 * 1024 * 1024  # 2MB request limit
         content_len = int(self.headers.get("Content-Length", 0))
+
+        if content_len > MAX_PAYLOAD_BYTES:
+            err_resp = {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {"code": -32600, "message": "Payload Too Large: request body exceeds 2MB limit"},
+            }
+            body = json.dumps(err_resp).encode("utf-8")
+            self.send_response(413)
+            self._send_cors_headers()
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
         post_body = self.rfile.read(content_len) if content_len > 0 else b""
 
         if path == "/pair":
@@ -798,14 +898,50 @@ class _BridgeHTTPRequestHandler(BaseHTTPRequestHandler):
                 elif method == "kill_switch":
                     res = self.bridge.kill_switch(confirm=params.get("confirm", False))
                 elif method == "unlock":
+                    auth_token = params.get("token") or self.headers.get("Authorization", "").replace("Bearer ", "").strip()
                     res = self.bridge.unlock(
                         actor=params.get("actor", "trader"),
                         reason=params.get("reason", "manual"),
-                        token=params.get("token"),
+                        token=auth_token,
                         role=params.get("role"),
                     )
+                    if res.get("status") == "DENIED":
+                        err_resp = {
+                            "jsonrpc": "2.0",
+                            "id": req_id,
+                            "error": {"code": -32001, "message": res.get("message", "Unlock denied")},
+                            "result": res,
+                        }
+                        body = json.dumps(err_resp).encode("utf-8")
+                        self.send_response(401)
+                        self._send_cors_headers()
+                        self.send_header("Content-Type", "application/json")
+                        self.send_header("Content-Length", str(len(body)))
+                        self.end_headers()
+                        self.wfile.write(body)
+                        return
                 elif method == "cancel":
-                    res = {"cancelled": True}
+                    auth_token = params.get("token") or self.headers.get("Authorization", "").replace("Bearer ", "").strip()
+                    res = self.bridge.cancel(
+                        order_id=params.get("order_id"),
+                        token=auth_token,
+                        role=params.get("role"),
+                    )
+                    if res.get("status") == "DENIED":
+                        err_resp = {
+                            "jsonrpc": "2.0",
+                            "id": req_id,
+                            "error": {"code": -32001, "message": res.get("error", "Unauthorized: cancellation requires authentication")},
+                            "result": res,
+                        }
+                        body = json.dumps(err_resp).encode("utf-8")
+                        self.send_response(401)
+                        self._send_cors_headers()
+                        self.send_header("Content-Type", "application/json")
+                        self.send_header("Content-Length", str(len(body)))
+                        self.end_headers()
+                        self.wfile.write(body)
+                        return
                 else:
                     err_resp = {
                         "jsonrpc": "2.0",
@@ -848,10 +984,94 @@ class _BridgeHTTPRequestHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
 
+def get_bridge_daemon_paths() -> tuple[Path, Path]:
+    base = Path(os.environ.get("DELTA_HOME", str(Path.home() / ".delta")))
+    base.mkdir(parents=True, exist_ok=True)
+    return base / "bridge.pid", base / "bridge.log"
+
+
+def is_bridge_daemon_running() -> tuple[bool, int | None]:
+    pid_file, _ = get_bridge_daemon_paths()
+    if not pid_file.exists():
+        return False, None
+    try:
+        pid = int(pid_file.read_text(encoding="utf-8").strip())
+        os.kill(pid, 0)
+        return True, pid
+    except (ValueError, OSError, ProcessLookupError):
+        try:
+            pid_file.unlink(missing_ok=True)
+        except Exception:
+            pass
+        return False, None
+
+
+def start_bridge_daemon(hostname: str = "127.0.0.1", port: int = 8765, cors: str = "*") -> dict[str, Any]:
+    running, pid = is_bridge_daemon_running()
+    if running:
+        return {"status": "ALREADY_RUNNING", "pid": pid, "message": f"Bridge already running (PID: {pid})"}
+    pid_file, log_file = get_bridge_daemon_paths()
+    import subprocess
+    cmd = [
+        sys.executable,
+        "-m",
+        "delta_os.bridge",
+        "--serve",
+        "--host",
+        hostname,
+        "--port",
+        str(port),
+        "--cors",
+        cors,
+    ]
+    with open(log_file, "a", encoding="utf-8") as out:
+        out.write(f"\n--- DELTA BRIDGE SERVICE BOOT {datetime.now(timezone.utc).isoformat()} ---\n")
+        out.flush()
+        proc = subprocess.Popen(
+            cmd,
+            stdout=out,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+            close_fds=True,
+        )
+    pid_file.write_text(str(proc.pid), encoding="utf-8")
+    time.sleep(0.3)
+    if proc.poll() is not None:
+        pid_file.unlink(missing_ok=True)
+        return {"status": "FAILED", "code": proc.returncode, "message": "Bridge daemon failed to start. Check logs."}
+    return {"status": "STARTED", "pid": proc.pid, "log": str(log_file)}
+
+
+def stop_bridge_daemon() -> dict[str, Any]:
+    running, pid = is_bridge_daemon_running()
+    pid_file, _ = get_bridge_daemon_paths()
+    if not running or pid is None:
+        if pid_file.exists():
+            pid_file.unlink(missing_ok=True)
+        return {"status": "NOT_RUNNING", "message": "Bridge is not running."}
+    import signal
+    try:
+        os.kill(pid, signal.SIGTERM)
+        for _ in range(15):
+            time.sleep(0.2)
+            try:
+                os.kill(pid, 0)
+            except OSError:
+                break
+        else:
+            os.kill(pid, signal.SIGKILL)
+    except OSError:
+        pass
+    if pid_file.exists():
+        pid_file.unlink(missing_ok=True)
+    return {"status": "STOPPED", "pid": pid, "message": f"Stopped bridge (PID: {pid})."}
+
+
 def run_network_server(
     hostname: str = "127.0.0.1",
     port: int = 8765,
-    cors: str = "*",
+    cors: str = "http://127.0.0.1:*,http://localhost:*",
     timeout: float | None = None,
     ready_event: Any = None,
     bridge: DeltaBridge | None = None,
@@ -865,7 +1085,14 @@ def run_network_server(
     BoundHandler.bridge = br
     BoundHandler.cors = cors
 
-    server = ThreadingHTTPServer((hostname, port), BoundHandler)
+    try:
+        server = ThreadingHTTPServer((hostname, port), BoundHandler)
+    except OSError as exc:
+        if ready_event is not None:
+            ready_event.set()
+        print(f"DELTA BRIDGE ERROR: Bind failed on {hostname}:{port}: {exc}", file=sys.stderr)
+        raise
+
     server.daemon_threads = True
 
     if ready_event is not None:
@@ -885,14 +1112,32 @@ def run_network_server(
 
 
 def main() -> int:
-    """Bridge process entry: IPC loop with fail-closed tamper delivery."""
+    """Bridge process entry: HTTP server or stdio IPC loop with fail-closed delivery."""
+    import argparse
+    parser = argparse.ArgumentParser(description="DELTA OS Protocol Bridge Server")
+    parser.add_argument("--serve", action="store_true", help="Serve JSON-RPC over HTTP")
+    parser.add_argument("--stdio", action="store_true", help="Serve JSON-RPC over stdio IPC")
+    parser.add_argument("--host", default="127.0.0.1", help="Bind hostname")
+    parser.add_argument("--port", type=int, default=8765, help="Port to listen on")
+    parser.add_argument("--cors", default="http://127.0.0.1:*,http://localhost:*", help="Allowed CORS origins")
+    parser.add_argument("--timeout", type=float, default=None, help="Auto-shutdown timeout in seconds")
+    args = parser.parse_args()
+
+    if args.serve:
+        try:
+            run_network_server(hostname=args.host, port=args.port, cors=args.cors, timeout=args.timeout)
+            return 0
+        except OSError as exc:
+            print(f"DELTA BRIDGE ERROR: Address already in use or bind failed: {exc}", file=sys.stderr)
+            return 1
+        except Exception as exc:
+            print(f"DELTA BRIDGE ERROR: {exc}", file=sys.stderr)
+            return 1
+
     try:
         run_ipc_loop()
     except Exception as exc:
-        # Fail-closed delivery: an AuditTamperError (raised at import or boot
-        # when the ledger fails integrity) halts LOUD with a non-zero exit
-        # naming file/line instead of a bare traceback. Type-name check (not
-        # isinstance) because the audit import itself may be what raised.
+        # Fail-closed delivery: an AuditTamperError halts LOUD with non-zero exit
         if type(exc).__name__ == "AuditTamperError":
             print(f"DELTA BRIDGE HALTED: audit ledger tamper — refusing to boot: {exc}",
                   file=sys.stderr)

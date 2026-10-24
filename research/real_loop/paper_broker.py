@@ -70,6 +70,16 @@ class PaperLedger:
                            "seq": self._seq, "seed": self.seed})
         return order
 
+    def cancel(self, order_id: str) -> dict[str, Any]:
+        """Cancel an existing working or partial order."""
+        o = self.orders.get(order_id)
+        if not o:
+            return {"order_id": order_id, "cancelled": False, "status": "NOT_FOUND", "reason": "Order not found"}
+        if o.status in ("CANCELLED", "REJECTED"):
+            return {"order_id": order_id, "cancelled": False, "status": o.status, "reason": f"Order already {o.status}"}
+        o.status = "CANCELLED"
+        return {"order_id": order_id, "cancelled": True, "status": "CANCELLED"}
+
     def reconcile(self, prices: dict[str, float]) -> dict:
         """OMS/EMS/custodian-style reconciliation: positions vs fills, cash, fees."""
         equity = self.cash + sum(q * prices.get(s, 0.0) for s, q in self.positions.items())

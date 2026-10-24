@@ -1410,9 +1410,9 @@ def serve_cmd(
         return
 
     if service:
-        from delta_os import daemon_service as ds
-        res = ds.start_daemon()
-        typer.echo(f"Service status: {res.get('status')} (PID: {res.get('pid')})")
+        from delta_os.bridge import start_bridge_daemon
+        res = start_bridge_daemon(hostname=hostname, port=port, cors=cors)
+        typer.echo(f"Bridge service status: {res.get('status')} (PID: {res.get('pid')})")
         return
 
     import os
