@@ -1585,7 +1585,13 @@ class Terminal:
             data_age_s = max(0.0, (now_utc - as_of).total_seconds())
         else:
             data_age_s = 0.0
-        price_source = "real" if getattr(qf.provenance, "tier", "") in ("TIER1", "TIER2") else "paper"
+        price_tier = getattr(qf.provenance, "tier", "")
+        if price_tier in ("TIER1", "TIER2"):
+            price_source = "real"
+        elif "SYNTH" in price_tier:
+            price_source = "synthetic"
+        else:
+            price_source = "stale"
 
         fw = self.__dict__.setdefault("_firewall", RiskFirewall())
         idem = f"os-{sym}-{side}-{qty}-{px}"

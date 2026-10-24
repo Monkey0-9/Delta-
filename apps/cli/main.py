@@ -559,9 +559,9 @@ def run_cmd(
 def chart_cmd(
     symbol: str = typer.Argument(..., help="Symbol e.g. NVDA, AAPL, RELIANCE"),
     days: int = typer.Option(30, "--days", "-d", help="Number of bars"),
-    depth: bool = typer.Option(True, "--depth", help="Include L2 order book depth ladder"),
-    rsi: bool = typer.Option(True, "--rsi", help="Include RSI subplot"),
-    macd: bool = typer.Option(True, "--macd", help="Include MACD histogram subplot"),
+    depth: bool = typer.Option(True, "--depth/--no-depth", help="Include L2 order book depth ladder"),
+    rsi: bool = typer.Option(True, "--rsi/--no-rsi", help="Include RSI subplot"),
+    macd: bool = typer.Option(True, "--macd/--no-macd", help="Include MACD histogram subplot"),
     timeframe: str = typer.Option("1D", "--timeframe", "-t", help="Timeframe (1D, 1H, 15M)"),
 ) -> None:
     """Render in-terminal sectioned candlestick, indicator, and depth charts."""
@@ -602,11 +602,12 @@ def chart_cmd(
 
     if rsi:
         rsi_hist = q.get("rsi_history", [])
-        if not rsi_hist and "rsi" in q:
-            rsi_val = float(q["rsi"])
-            rsi_hist = [50.0 + (rsi_val - 50.0) * (j / 20.0) for j in range(20)]
         if rsi_hist:
             typer.echo(render_rsi_subplot(rsi_hist, width=70))
+        elif "rsi" in q and q["rsi"] is not None:
+            typer.echo(f"  RSI(14): {float(q['rsi']):.2f} [PROVENANCE: SCALAR_ONLY]")
+        else:
+            typer.echo("  RSI: UNAVAILABLE (Insufficient historical bars)")
 
     if macd and (bars_data or spark):
         closes = [float(b["close"]) for b in bars_data] if bars_data else [float(p) for p in spark]

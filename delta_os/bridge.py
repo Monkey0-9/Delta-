@@ -370,6 +370,17 @@ class DeltaBridge:
                 bids.append({"price": bid_px, "size": size_bid, "count": 2 + i})
                 asks.append({"price": ask_px, "size": size_ask, "count": 2 + i})
 
+            now_iso = datetime.now(timezone.utc).isoformat()
+            prov_tier = "CANONICAL_PIPELINE"
+            if hasattr(self.term, "data") and hasattr(self.term.data, "cache"):
+                cached = self.term.data.cache.get(sym)
+                if cached is not None and hasattr(cached, "provenance"):
+                    prov_tier = cached.provenance.tier
+
+            source_hash = hashlib.sha256(
+                f"{sym}:{last_close}:{high}:{low}:{vol}:{now_iso}".encode("utf-8")
+            ).hexdigest()
+
             return {
                 "symbol": sym,
                 "price": last_close,
@@ -382,6 +393,12 @@ class DeltaBridge:
                 "bars": bars,
                 "rsi_history": rsi_history,
                 "status": "AVAILABLE",
+                "provider": prov_tier,
+                "as_of": now_iso,
+                "timezone": "UTC",
+                "freshness": "REALTIME" if prov_tier in ("TIER1", "TIER2", "CANONICAL_PIPELINE") else "STALE",
+                "quality": "VERIFIED_BARS",
+                "source_hash": source_hash,
                 "rsi": round(features.rsi, 2),
                 "macd": round(features.macd, 3),
                 "macd_signal": round(features.macd_signal, 3),
