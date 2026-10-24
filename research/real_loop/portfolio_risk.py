@@ -38,7 +38,13 @@ def _cap(w: np.ndarray, max_weight: float) -> np.ndarray:
 
     Uses exact iterative water-filling. Guarantees that no asset exceeds max_weight
     after normalization, eliminating weight re-inflation bugs.
+    Accelerated via native Rust kernel with Python/NumPy fallback.
     """
+    try:
+        from native import accel as _acc
+        return _acc.simplex_cap(w, max_weight)
+    except Exception:
+        pass
     w = np.clip(np.asarray(w, dtype=float), 0.0, None)
     n = len(w)
     if n == 0:

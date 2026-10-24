@@ -12,6 +12,7 @@ DLLs (built by this repo, not downloaded):
 from __future__ import annotations
 
 import ctypes
+import math
 import os
 
 import numpy as np
@@ -102,6 +103,29 @@ if _rs is not None:
                                           ctypes.c_void_p, ctypes.c_void_p]
         _rs.delta_erc_sweep.restype = ctypes.c_double
         _rs.delta_erc_sweep.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p]
+        if hasattr(_rs, "delta_simplex_cap"):
+            _rs.delta_simplex_cap.restype = ctypes.c_int32
+            _rs.delta_simplex_cap.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_double]
+        if hasattr(_rs, "delta_black_scholes_greeks"):
+            _rs.delta_black_scholes_greeks.restype = ctypes.c_int32
+            _rs.delta_black_scholes_greeks.argtypes = [
+                ctypes.c_double, ctypes.c_double, ctypes.c_double,
+                ctypes.c_double, ctypes.c_double, ctypes.c_int32, ctypes.c_void_p,
+            ]
+        if hasattr(_rs, "delta_var_cvar"):
+            _rs.delta_var_cvar.restype = ctypes.c_int32
+            _rs.delta_var_cvar.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_double, ctypes.c_void_p]
+        if hasattr(_rs, "delta_vwap_bands"):
+            _rs.delta_vwap_bands.argtypes = [
+                ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t,
+                ctypes.c_void_p, ctypes.c_void_p,
+            ]
+        if hasattr(_rs, "delta_macd"):
+            _rs.delta_macd.argtypes = [
+                ctypes.c_void_p, ctypes.c_size_t, ctypes.c_size_t,
+                ctypes.c_size_t, ctypes.c_size_t,
+                ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
+            ]
     except Exception:
         _rs = None
 
@@ -344,3 +368,232 @@ def erc_sweep(cov: np.ndarray, w: np.ndarray) -> float:
         maxd = max(maxd, abs(nw - w[i]))
         w[i] = nw
     return maxd
+
+
+def simplex_cap(w: np.ndarray, max_weight: float) -> np.ndarray:
+    """Project weights onto bounded simplex {w in [0, max_weight]^n : sum(w) = 1}.
+
+    Uses exact iterative water-filling, eliminating weight re-inflation.
+    Accelerated via native Rust kernel with Python/NumPy fallback.
+    """
+    w_arr = np.clip(np.asarray(w, dtype=np.float64), 0.0, None).copy()
+    n = len(w_arr)
+    if n == 0:
+        return w_arr
+    if n * max_weight < 1.0 - 1e-9:
+        raise ValueError(
+            f"Infeasible weight cap: {n} assets with max_weight={max_weight:.4f} "
+            f"cannot sum to 1.0 (maximum feasible sum is {n * max_weight:.4f})"
+        )
+    if _rs is not None and hasattr(_rs, "delta_simplex_cap"):
+        w_c = np.ascontiguousarray(w_arr, dtype=np.float64)
+        ret = int(_rs.delta_simplex_cap(w_c.ctypes.data, n, float(max_weight)))
+        if ret == 0:
+            return w_c
+
+    # Python/NumPy fallback
+    if w_arr.sum() == 0:
+        w_arr = np.ones(n, dtype=np.float64) / n
+    else:
+        w_arr = w_arr / w_arr.sum()
+
+    fixed = np.zeros(n, dtype=bool)
+    for _ in range(n + 1):
+        violators = (~fixed) & (w_arr > max_weight + 1e-12)
+        if not np.any(violators):
+            break
+        fixed |= violators
+        w_arr[fixed] = max_weight
+        rem_sum = 1.0 - float(fixed.sum()) * max_weight
+        free = ~fixed
+        if np.any(free):
+            free_sum = float(w_arr[free].sum())
+            if free_sum > 1e-15:
+                w_arr[free] *= rem_sum / free_sum
+            else:
+                w_arr[free] = rem_sum / float(free.sum())
+    return np.clip(w_arr, 0.0, max_weight)
+
+
+def black_scholes(
+    spot: float,
+    strike: float,
+    expiry_years: float,
+    vol: float,
+    risk_free: float = 0.05,
+    is_call: bool = True,
+) -> dict[str, float]:
+    """Calculate European option price and analytical Greeks.
+
+    Accelerated via native Rust kernel with pure Python fallback.
+    """
+    import math
+
+    if spot <= 0.0 or strike <= 0.0 or expiry_years <= 0.0 or vol <= 0.0:
+        return {
+            "price": 0.0,
+            "delta": 0.0,
+            "gamma": 0.0,
+            "vega": 0.0,
+            "theta": 0.0,
+            "rho": 0.0,
+        }
+
+    if _rs is not None and hasattr(_rs, "delta_black_scholes_greeks"):
+        out = np.zeros(6, dtype=np.float64)
+        ret = _rs.delta_black_scholes_greeks(
+            float(spot), float(strike), float(expiry_years),
+            float(vol), float(risk_free), 1 if is_call else 0,
+            out.ctypes.data,
+        )
+        if ret == 1:
+            return {
+                "price": float(out[0]),
+                "delta": float(out[1]),
+                "gamma": float(out[2]),
+                "vega": float(out[3]),
+                "theta": float(out[4]),
+                "rho": float(out[5]),
+            }
+
+    # Python analytical fallback
+    sqrt_t = math.sqrt(expiry_years)
+    d1 = (math.log(spot / strike) + (risk_free + 0.5 * vol * vol) * expiry_years) / (vol * sqrt_t)
+    d2 = d1 - vol * sqrt_t
+
+    def norm_cdf(x: float) -> float:
+        return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+    def norm_pdf(x: float) -> float:
+        return (1.0 / math.sqrt(2.0 * math.pi)) * math.exp(-0.5 * x * x)
+
+    nd1 = norm_cdf(d1)
+    nd2 = norm_cdf(d2)
+    pdf_d1 = norm_pdf(d1)
+    disc = math.exp(-risk_free * expiry_years)
+
+    if is_call:
+        price = spot * nd1 - strike * disc * nd2
+        delta = nd1
+        theta = -(spot * pdf_d1 * vol) / (2.0 * sqrt_t) - risk_free * strike * disc * nd2
+        rho = strike * expiry_years * disc * nd2 / 100.0
+    else:
+        price = strike * disc * norm_cdf(-d2) - spot * norm_cdf(-d1)
+        delta = nd1 - 1.0
+        theta = -(spot * pdf_d1 * vol) / (2.0 * sqrt_t) + risk_free * strike * disc * norm_cdf(-d2)
+        rho = -strike * expiry_years * disc * norm_cdf(-d2) / 100.0
+
+    gamma = pdf_d1 / (spot * vol * sqrt_t)
+    vega = (spot * sqrt_t * pdf_d1) / 100.0
+    theta /= 365.0
+
+    return {
+        "price": max(0.0, price),
+        "delta": delta,
+        "gamma": gamma,
+        "vega": vega,
+        "theta": theta,
+        "rho": rho,
+    }
+
+
+def var_cvar(returns: np.ndarray, alpha: float = 0.05) -> tuple[float, float]:
+    """Calculate historical Value at Risk (VaR) and Conditional VaR (Expected Shortfall).
+
+    Accelerated via native Rust kernel with NumPy fallback.
+    Returns (var, cvar) where positive values represent losses.
+    """
+    arr = np.ascontiguousarray(returns, dtype=np.float64)
+    if len(arr) < 5:
+        return 0.0, 0.0
+    if _rs is not None and hasattr(_rs, "delta_var_cvar"):
+        out = np.zeros(2, dtype=np.float64)
+        ret = _rs.delta_var_cvar(arr.ctypes.data, len(arr), float(alpha), out.ctypes.data)
+        if ret == 1:
+            return float(out[0]), float(out[1])
+
+    # NumPy fallback
+    sorted_r = np.sort(arr)
+    cutoff = max(1, min(len(sorted_r) - 1, int(math.floor(len(sorted_r) * alpha))))
+    var = max(0.0, float(-sorted_r[cutoff - 1]))
+    cvar = max(var, float(-sorted_r[:cutoff].mean()))
+    return var, cvar
+
+
+def vwap_bands(prices: np.ndarray, volumes: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Calculate cumulative Volume-Weighted Average Price and rolling standard deviation.
+
+    Accelerated via native Rust kernel with NumPy fallback.
+    """
+    p = np.ascontiguousarray(prices, dtype=np.float64)
+    v = np.ascontiguousarray(volumes, dtype=np.float64)
+    n = min(len(p), len(v))
+    if n == 0:
+        return np.empty(0, dtype=np.float64), np.empty(0, dtype=np.float64)
+
+    if _rs is not None and hasattr(_rs, "delta_vwap_bands"):
+        out_vwap = np.empty(n, dtype=np.float64)
+        out_std = np.empty(n, dtype=np.float64)
+        _rs.delta_vwap_bands(p.ctypes.data, v.ctypes.data, n, out_vwap.ctypes.data, out_std.ctypes.data)
+        return out_vwap, out_std
+
+    cum_v = np.cumsum(np.clip(v, 0.0, None))
+    cum_pv = np.cumsum(p * np.clip(v, 0.0, None))
+    cum_pv2 = np.cumsum(p * p * np.clip(v, 0.0, None))
+    valid = cum_v > 0
+    vwap = np.where(valid, cum_pv / np.maximum(cum_v, 1e-12), p)
+    var = np.clip(np.where(valid, cum_pv2 / np.maximum(cum_v, 1e-12) - vwap * vwap, 0.0), 0.0, None)
+    return vwap, np.sqrt(var)
+
+
+def macd(
+    prices: np.ndarray,
+    fast_p: int = 12,
+    slow_p: int = 26,
+    signal_p: int = 9,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Calculate single-pass Moving Average Convergence Divergence.
+
+    Accelerated via native Rust kernel with NumPy fallback.
+    Returns (macd_line, signal_line, histogram).
+    """
+    p = np.ascontiguousarray(prices, dtype=np.float64)
+    n = len(p)
+    if n == 0:
+        return (np.empty(0), np.empty(0), np.empty(0))
+
+    if _rs is not None and hasattr(_rs, "delta_macd"):
+        out_macd = np.empty(n, dtype=np.float64)
+        out_sig = np.empty(n, dtype=np.float64)
+        out_hist = np.empty(n, dtype=np.float64)
+        _rs.delta_macd(
+            p.ctypes.data, n, fast_p, slow_p, signal_p,
+            out_macd.ctypes.data, out_sig.ctypes.data, out_hist.ctypes.data,
+        )
+        return out_macd, out_sig, out_hist
+
+    k_fast = 2.0 / (fast_p + 1.0)
+    k_slow = 2.0 / (slow_p + 1.0)
+    k_sig = 2.0 / (signal_p + 1.0)
+    ema_fast = np.empty(n, dtype=np.float64)
+    ema_slow = np.empty(n, dtype=np.float64)
+    out_sig = np.empty(n, dtype=np.float64)
+
+    cur_f = p[0]
+    cur_s = p[0]
+    cur_sig = 0.0
+    for i in range(n):
+        cur_f = p[i] * k_fast + cur_f * (1.0 - k_fast)
+        cur_s = p[i] * k_slow + cur_s * (1.0 - k_slow)
+        ema_fast[i] = cur_f
+        ema_slow[i] = cur_s
+        m = cur_f - cur_s
+        if i == 0:
+            cur_sig = m
+        else:
+            cur_sig = m * k_sig + cur_sig * (1.0 - k_sig)
+        out_sig[i] = cur_sig
+
+    macd_line = ema_fast - ema_slow
+    return macd_line, out_sig, macd_line - out_sig
+

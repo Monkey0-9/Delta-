@@ -90,3 +90,62 @@ def test_accel_backends_report():
     x = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
     m, s = accel.roll_mean_std(x, 3)
     assert abs(m[2] - 2.0) < 1e-9
+
+
+def test_simplex_cap_rust_matches_numpy():
+    from native import accel
+
+    w = np.array([0.50, 0.30, 0.10, 0.10])
+    res = accel.simplex_cap(w, 0.35)
+    assert abs(res.sum() - 1.0) < 1e-12
+    assert np.all(res <= 0.35 + 1e-12)
+    assert abs(res[0] - 0.35) < 1e-12
+    assert abs(res[1] - 0.35) < 1e-12
+    assert abs(res[2] - 0.15) < 1e-12
+
+
+def test_black_scholes_rust_matches_analytical():
+    from native import accel
+
+    res = accel.black_scholes(100.0, 100.0, 1.0, 0.2, 0.05, is_call=True)
+    # Check Call price and analytical Greeks against standard benchmarks
+    assert abs(res["price"] - 10.4506) < 0.02
+    assert abs(res["delta"] - 0.6368) < 0.01
+    assert 0.015 < res["gamma"] < 0.025
+    assert 0.35 < res["vega"] < 0.40
+    assert res["theta"] < 0.0
+    assert res["rho"] > 0.0
+
+    put_res = accel.black_scholes(100.0, 100.0, 1.0, 0.2, 0.05, is_call=False)
+    # Put-call parity: C - P = S - K * exp(-rT) = 100 - 100*exp(-0.05) ~ 4.877
+    import math
+    disc_diff = (res["price"] - put_res["price"]) - (100.0 - 100.0 * math.exp(-0.05))
+    assert abs(disc_diff) < 0.02
+
+
+def test_var_cvar_rust_matches_numpy():
+    from native import accel
+
+    rng = np.random.default_rng(42)
+    rets = rng.normal(-0.001, 0.02, 500)
+    var, cvar = accel.var_cvar(rets, 0.05)
+    assert var > 0.0
+    assert cvar >= var
+
+
+def test_vwap_and_macd_rust_matches_numpy():
+    from native import accel
+
+    prices = np.array([100.0, 102.0, 101.0, 103.0, 105.0])
+    volumes = np.array([10.0, 20.0, 15.0, 25.0, 30.0])
+    vwap, std = accel.vwap_bands(prices, volumes)
+    assert len(vwap) == len(prices)
+    assert vwap[0] == 100.0
+    assert np.all(std >= 0.0)
+
+    m, s, h = accel.macd(prices, 2, 4, 2)
+    assert len(m) == len(prices)
+    assert len(s) == len(prices)
+    assert len(h) == len(prices)
+    assert np.allclose(m - s, h, atol=1e-12)
+
