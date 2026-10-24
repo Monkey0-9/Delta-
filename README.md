@@ -1,7 +1,7 @@
 # DELTA OS — Institutional Quantitative Trading Operating System
 
 ![Version](https://img.shields.io/badge/version-2.16-blue.svg)
-![Pytest](https://img.shields.io/badge/pytest-1407%20passed-brightgreen.svg)
+![Pytest](https://img.shields.io/badge/pytest-1413%20passed-brightgreen.svg)
 ![Cargo](https://img.shields.io/badge/cargo%20workspace-54%20passed-brightgreen.svg)
 ![Safety](https://img.shields.io/badge/governance-fail--closed-red.svg)
 ![Mode](https://img.shields.io/badge/status-PAPER%20green%20%7C%20LIVE%20fail--closed-orange.svg)

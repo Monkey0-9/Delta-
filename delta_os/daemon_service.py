@@ -263,6 +263,19 @@ def _run_worker(max_dd: float, interval_s: float) -> None:
     elif hasattr(term.router, "paper"):
         broker_adapters.append(term.router.paper)
 
+    def _durable_alert_sink(alert: Dict[str, Any]) -> None:
+        """Durable alert delivery to daemon log and append-only alert ledger."""
+        ts = alert.get("timestamp", datetime.now(timezone.utc).isoformat())
+        lvl = alert.get("level", "WARNING")
+        msg = alert.get("message", "")
+        print(f"[{ts}] [SENTINEL-ALERT:{lvl}] {msg}", file=sys.stderr, flush=True)
+        alerts_file = _delta_dir() / "alerts.jsonl"
+        try:
+            with open(alerts_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(alert, default=str) + "\n")
+        except Exception:
+            pass
+
     sentinel = DeltaSentinel(
         brain=term.brain,
         safety_state=safety,
@@ -270,6 +283,7 @@ def _run_worker(max_dd: float, interval_s: float) -> None:
         check_interval_s=eff_interval,
         equity_fn=_read_portfolio_equity,
         positions_fn=_read_portfolio_positions,
+        alert_sink=_durable_alert_sink,
         broker_adapters=broker_adapters,
         state_path=state_path,
     )

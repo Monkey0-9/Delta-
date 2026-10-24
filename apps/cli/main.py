@@ -164,8 +164,9 @@ def research(
     cost_model: str = typer.Option("realistic-v1", "--cost-model"),
     seed: int = typer.Option(42, "--seed"),
     out: str = typer.Option("artifacts", "--out", help="Manifest output dir"),
+    execute: bool = typer.Option(False, "--execute", "-x", help="Execute full research cycle with real backtest & walk-forward"),
 ) -> None:
-    """W45: validate contracts + emit deterministic research manifest (no backtest yet; W48 runs it)."""
+    """Validate contracts + emit research manifest; execute full quant research cycle when --execute is passed."""
     from research.contracts import ResearchSpec
     from research.ledger.experiment import ExperimentSpec
     from research.ledger.registry import ResearchRegistry
@@ -178,6 +179,32 @@ def research(
     except ValueError as exc:
         typer.echo(f"contract violation: {exc}", err=True)
         raise typer.Exit(code=2)
+
+    if execute:
+        from research.real_loop.cycle import run_full_cycle
+        universe_map = {
+            "SP500": ["SPY", "AAPL", "MSFT", "NVDA", "AMZN"],
+            "EQUITY_US": ["AAPL", "MSFT", "GOOGL", "META"],
+            "ETF_US": ["SPY", "QQQ", "IWM", "TLT"],
+            "TREASURY": ["SHY", "IEF", "TLT"],
+        }
+        symbols = universe_map.get(asset_universe.upper(), ["AAPL", "MSFT"])
+        typer.echo(f"Executing quantitative research cycle for {strategy} on {symbols}...")
+        try:
+            cycle_res = run_full_cycle(
+                question=f"{strategy} factor research across {asset_universe}",
+                symbols=symbols,
+                horizon="week",
+                allow_template=True,
+            )
+            typer.echo(f"EXP-{cycle_res.fingerprint[:8].upper()} fingerprint={cycle_res.fingerprint}")
+            typer.echo(f"manifest: {cycle_res.manifest_path}")
+            typer.echo(f"Critic Verdict: {'PASS' if cycle_res.critic_passed else 'FAIL'}")
+            typer.echo(f"Backtests evaluated: {len(cycle_res.backtests)}")
+            typer.echo(f"Status: EXECUTED_CYCLE (Data Mode: {cycle_res.data_mode})")
+            return
+        except Exception as exc:
+            typer.echo(f"Research execution degraded to staged plan: {exc}", err=True)
 
     kwargs = spec.to_experiment_kwargs(
         code_commit=_git_commit(), dataset_id=f"{asset_universe.lower()}-pit-v1", dataset_hash="pending-w46"
@@ -749,21 +776,66 @@ def chart_cmd(
         typer.echo(render_depth_ladder(q.get("depth_bids", []), q.get("depth_asks", []), provenance=depth_prov))
 
 
+def _resolve_vault_passphrase(require_unlock: bool = False) -> str | None:
+    """Resolve vault master passphrase without hardcoded secret fallbacks.
+
+    Priority:
+    1. DELTA_VAULT_PASS environment variable
+    2. DELTA_UNLOCK_TOKEN environment variable (if authorized operator)
+    3. Host-local protected key file (~/.delta/.vault_key, mode 0o600)
+    4. Interactive masked prompt if stdin is a TTY and unlock required.
+    """
+    passphrase = os.environ.get("DELTA_VAULT_PASS")
+    if passphrase:
+        return passphrase
+    token = os.environ.get("DELTA_UNLOCK_TOKEN")
+    if token:
+        return token
+    key_file = Path(os.path.expanduser("~")) / ".delta" / ".vault_key"
+    if key_file.exists():
+        try:
+            stored = key_file.read_text(encoding="utf-8").strip()
+            if stored:
+                return stored
+        except Exception:
+            pass
+    import sys
+    if sys.stdin and hasattr(sys.stdin, "isatty") and sys.stdin.isatty() and require_unlock:
+        try:
+            return typer.prompt("Enter Vault Master Passphrase", hide_input=True)
+        except Exception:
+            return None
+    # Initialize host-local protected key if none exists
+    try:
+        import secrets
+        key_file.parent.mkdir(parents=True, exist_ok=True)
+        gen = secrets.token_hex(32)
+        key_file.write_text(gen, encoding="utf-8")
+        try:
+            os.chmod(key_file, 0o600)
+        except OSError:
+            pass
+        return gen
+    except Exception:
+        return None
+
+
 @app.command("auth")
 def auth_cmd(
     action: str = typer.Argument("list", help="list|login|logout|export"),
     provider: str = typer.Argument(None, help="Provider name: alpaca|ibkr|openai|anthropic|gemini|deepseek"),
-    token: str = typer.Argument(None, help="API key / secret token"),
+    token: str = typer.Argument(None, help="API key / secret token (leave empty for secure masked prompt)"),
 ) -> None:
     """Manage integrations and encrypted credentials in Vault."""
-    import os
+    import sys
     from delta_os.vault import Vault, default_path, VaultLocked
     v = Vault(default_path())
-    passphrase = os.environ.get("DELTA_VAULT_PASS", "delta-vault-default-key")
-    try:
-        v.unlock(passphrase)
-    except Exception:
-        pass
+    passphrase = _resolve_vault_passphrase(require_unlock=(action.lower() in ("login", "logout", "export")))
+    if passphrase:
+        try:
+            v.unlock(passphrase)
+        except Exception:
+            pass
     act = action.lower()
     if act == "list":
         typer.echo("DELTA VAULT CREDENTIALS")
@@ -779,12 +851,25 @@ def auth_cmd(
             mask = "••••••••" if has_k else "(empty)"
             typer.echo(f"  {slot:<14} : {mask}")
         typer.echo("──────────────────────────────────────────────────")
-        typer.echo("Login: delta auth login <provider> <token>")
+        typer.echo("Login: delta auth login <provider> [token]")
     elif act == "login":
-        if not provider or not token:
-            typer.echo("Usage: delta auth login <provider> <token>", err=True)
+        if not provider:
+            typer.echo("Usage: delta auth login <provider> [token]", err=True)
             raise typer.Exit(code=1)
+        if not token:
+            if sys.stdin and hasattr(sys.stdin, "isatty") and sys.stdin.isatty():
+                token = typer.prompt(f"Enter API key / secret token for {provider}", hide_input=True)
+            elif sys.stdin:
+                token = sys.stdin.read().strip()
+            if not token:
+                typer.echo("Error: API key / token required.", err=True)
+                raise typer.Exit(code=1)
+        else:
+            typer.echo("[SECURITY NOTICE] Token provided via command line; consider interactive prompt for secure masking.", err=True)
         if v.locked:
+            if not passphrase:
+                typer.echo("Error: Vault is locked. Provide DELTA_VAULT_PASS or enter passphrase.", err=True)
+                raise typer.Exit(code=1)
             v.unlock(passphrase)
         v.set(provider.lower(), {"api_key": token.strip()})
         typer.echo(f"✓ Saved credentials for {provider} into encrypted vault.")
@@ -793,6 +878,9 @@ def auth_cmd(
             typer.echo("Usage: delta auth logout <provider>", err=True)
             raise typer.Exit(code=1)
         if v.locked:
+            if not passphrase:
+                typer.echo("Error: Vault is locked. Provide DELTA_VAULT_PASS.", err=True)
+                raise typer.Exit(code=1)
             v.unlock(passphrase)
         v.delete(provider.lower())
         typer.echo(f"✓ Removed credentials for {provider} from vault.")

@@ -322,9 +322,16 @@ impl App {
 ● Master Salt   : ~/.delta/vault.salt (cryptographically random 32 bytes)\n\
 ● Plaintext Disk: ZERO plaintext credentials stored anywhere\n\
 ● Memory Safety : Secrets cleared and zeroized on session termination\n\
-● Key Status    : UNAVAILABLE locally — run /auth via bridge for per-provider [configured]/[missing] (never assumed; no secrets echoed)".into(),
+● Key Status    : Querying runtime bridge for provider credential status...".into(),
                     ));
-                    self.state.nav.current_view = ViewId::Home;
+                    self.state.nav.current_view = ViewId::System;
+                    if let Some(bridge) = &self.bridge {
+                        let b = bridge.clone();
+                        let cmd = text.clone();
+                        tokio::spawn(async move {
+                            b.dispatch_command(&cmd).await;
+                        });
+                    }
                     return;
                 } else if text.starts_with("/system") {
                     self.state.nav.current_view = ViewId::System;
@@ -333,7 +340,18 @@ impl App {
                     self.state.nav.current_view = ViewId::Logs;
                     return;
                 } else if text.starts_with("/research") {
-                    self.state.nav.current_view = ViewId::Home;
+                    self.state.nav.current_view = ViewId::Research;
+                    self.state.research.turns.push((
+                        text.clone(),
+                        "QUANTITATIVE RESEARCH LAB — loading research workspace, alpha contracts & factor models from bridge...".into(),
+                    ));
+                    if let Some(bridge) = &self.bridge {
+                        let b = bridge.clone();
+                        let cmd = text.clone();
+                        tokio::spawn(async move {
+                            b.dispatch_command(&cmd).await;
+                        });
+                    }
                     return;
                 } else if text.starts_with("/session") || text.starts_with("/ws") {
                     let parts: Vec<&str> = text.split_whitespace().collect();
@@ -580,7 +598,7 @@ impl App {
             }
             Action::SelectorNext => {
                 if self.state.ui.model_selector_open {
-                    let count = 9;
+                    let count = self.state.model.available_models.len().max(1);
                     self.state.ui.model_selected_idx = (self.state.ui.model_selected_idx + 1) % count;
                 } else if self.state.ui.agent_selector_open {
                     let count = 5;
@@ -592,7 +610,7 @@ impl App {
             }
             Action::SelectorPrev => {
                 if self.state.ui.model_selector_open {
-                    let count = 9;
+                    let count = self.state.model.available_models.len().max(1);
                     self.state.ui.model_selected_idx = (self.state.ui.model_selected_idx + count - 1) % count;
                 } else if self.state.ui.agent_selector_open {
                     let count = 5;
@@ -604,24 +622,25 @@ impl App {
             }
             Action::ExecuteSelector => {
                 if self.state.ui.model_selector_open {
-                    let models = [
-                        "delta-fm-research",
-                        "claude-3-7-sonnet",
-                        "claude-3-5-sonnet",
-                        "claude-5-5-preview",
-                        "astro-6-0-quantum",
-                        "gpt-4o",
-                        "deepseek-r1-quant",
-                        "qwen-2.5-72b-instruct",
-                        "groq-llama3-70b-fast",
-                    ];
-                    if let Some(m) = models.get(self.state.ui.model_selected_idx) {
-                        self.state.model.active_model = m.to_string();
-                        if m.contains("delta") {
-                            self.state.add_log("INFO", "MODEL", "Switched active quant model to delta-fm-research (Local Quant FM · 100% Offline · No API Key Needed)");
-                        } else {
-                            self.state.add_log("INFO", "MODEL", &format!("Switched active quant model to {m} [Frontier Cloud: Requires API Key via /key]"));
-                        }
+                    let target = if let Some(m) = self.state.model.available_models.get(self.state.ui.model_selected_idx) {
+                        m.clone()
+                    } else {
+                        "delta-fm-research".to_string()
+                    };
+
+                    self.state.model.active_model = target.clone();
+                    self.state.add_log("INFO", "MODEL", &format!("Requested model switch to {} via runtime bridge", target));
+                    self.state.research.turns.push((
+                        format!("/model switch {}", target),
+                        format!("MODEL SWITCH PENDING: {} — awaiting runtime confirm (UNAVAILABLE until bridge responds).", target),
+                    ));
+
+                    if let Some(bridge) = &self.bridge {
+                        let b = bridge.clone();
+                        let cmd = format!("/model switch {}", target);
+                        tokio::spawn(async move {
+                            b.dispatch_command(&cmd).await;
+                        });
                     }
                     self.state.ui.model_selector_open = false;
                 } else if self.state.ui.agent_selector_open {

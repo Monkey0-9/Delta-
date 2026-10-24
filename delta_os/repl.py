@@ -1092,7 +1092,12 @@ class Terminal:
     def _c_algo(self, args: list) -> str:
         strat = args[0] if args else "statarb"
         code = self.brain.generate_algo_code(strategy_type=strat)
-        return f"=== TOP 0.001% QUANTITATIVE TRADING ALGORITHM ({strat.upper()}) ===\n\n{code}"
+        return (
+            f"=== TOP 0.001% QUANTITATIVE TRADING ALGORITHM ({strat.upper()}) ===\n"
+            f"[SANDBOX/RESEARCH PROVENANCE — Requires Walk-Forward & Out-Of-Sample Validation Before Promotion]\n\n"
+            f"{code}\n\n"
+            f"Note: Generated algorithms cannot self-promote to execution. Run /research to backtest and register."
+        )
 
     def _c_ask(self, args: list) -> str:
         if not args:

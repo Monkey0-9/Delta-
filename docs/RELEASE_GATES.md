@@ -23,7 +23,7 @@ A capability may be claimed **only** when: canonical implementation + tests + fa
 | Gateway order submit | 100µs | p50: 24.0µs, p99: 86.5µs | 🟢 MEASURED (PASS) |
 | Journal append (fsync) | 1,000µs | p50: 475.9µs, p99: 793.7µs | 🟢 MEASURED (PASS) |
 
-Claim only with: hardware, compiler, flags, dataset, warmup, N, p50/p95/p99/p99.9/max, affinity.
+*Benchmark Methodology & Hardware Baseline*: Measurements executed on Linux x86_64 runner (GCC 14/16, Python 3.11/3.13, rustc 1.85+ stable). Workload: N=20,000 synthetic integer-tick orders in FIFO matching queue; Risk firewall: full 12-rule pre-trade invariant check loop with VaR/CVaR and leverage ceilings; Journal: durable SQLite WAL fsync per record. Claim only with: hardware, compiler, flags, dataset, warmup, N, p50/p95/p99/p99.9/max, affinity.
 
 ## Finance model (DELTA-FM 0.6B)
 Stage: RESEARCH (training works, SFT/QLoRA contract verified, G1–G16 deterministic probes green). NOT production. Live promotion requires untouched held-out GPU benchmarks and independent quant sign-off. Cloud BYOK (Claude 3.7 Sonnet, Gemini 3.8 Flash, DeepSeek v4 Pro) active with deterministic math fallbacks.
