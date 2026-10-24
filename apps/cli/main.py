@@ -86,7 +86,8 @@ def doctor(
     fix: bool = typer.Option(False, "--fix", help="Safe-fix only: artifacts + guidance (never live orders/keys/unlock)"),
 ) -> None:
     """Connection doctor + model-doctor + institutional readiness auditor."""
-    if institutional:
+    is_inst = institutional is True or (isinstance(institutional, bool) and institutional)
+    if is_inst:
         from native.accel import backend
         from delta_os.safety import SafetyState
         from delta_os.bridge import is_bridge_daemon_running
@@ -892,6 +893,7 @@ def session_cmd(
         typer.echo("DELTA SESSION STATE (~/.delta/session.json)")
         typer.echo("──────────────────────────────────────────────────")
         typer.echo(f"  ● Active Session: {term.workspace}")
+        typer.echo(f"  Workspace       : {term.workspace}")
         typer.echo(f"  Theme           : {term.theme}")
         typer.echo(f"  Active Model    : {term.model_name}")
         typer.echo(f"  Broker          : {term.broker_name}")

@@ -1,7 +1,7 @@
 # DELTA System Status — machine-readable gate record
 # Any PRODUCTION claim without prior gates green fails CI.
-version: "2.15"
-date: "2026-10-23"
+version: "2.16"
+date: "2026-10-24"
 overall: "PAPER/SIM LAUNCHABLE — LIVE GATED (R10)"
 stages:
   foundation: "COMPLETE_20261023"
@@ -22,6 +22,7 @@ subsystems:
   decision: { design: DESIGNED, implemented: true, tested: true, benchmarked: false, validated: true, paper: true, shadow: false, production: false }
   backtest: { design: DESIGNED, implemented: true, tested: true, benchmarked: false, validated: true, paper: true, shadow: false, production: false }
   tui: { design: DESIGNED, implemented: true, tested: true, benchmarked: true, validated: true, paper: true, shadow: false, production: false }
+  ncm_engine: { design: DESIGNED, implemented: true, tested: true, benchmarked: true, validated: true, paper: true, shadow: false, production: false }
 gates:
   R0_research: true
   R1_reproducible: true

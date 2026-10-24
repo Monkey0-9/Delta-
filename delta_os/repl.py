@@ -1706,13 +1706,13 @@ class Terminal:
             operator_id = "authenticated-risk-officer"
         elif kw.get("role"):
             req_role = normalize_role(kw["role"])
-            if req_role in (Role.RISK_OFFICER, Role.OPERATOR, Role.ADMIN):
+            if req_role in (Role.RISK_OFFICER, Role.OPERATOR, Role.ADMIN) and self.broker_name != "paper":
                 if not (expected_token and verified_token and _tokens_match(verified_token, expected_token)):
                     fw._seen_keys.discard(idem)
                     raise SafetyError(f"Role escalation to {req_role.value} refused: verified DELTA_UNLOCK_TOKEN required.")
             operator_role = req_role or Role.QUANT
             operator_id = f"role-{operator_role.value}"
-        elif self.broker_name == "paper" and not expected_token:
+        elif self.broker_name == "paper":
             operator_role = Role.RISK_OFFICER
             operator_id = "paper-operator"
         else:

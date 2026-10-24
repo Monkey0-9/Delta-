@@ -67,10 +67,10 @@ def test_recon_audit_screens_honest():
         assert "SOURCE/" in text  # provenance badge mandatory
 
 
-def test_repl_unlock_token_gated():
+def test_repl_unlock_token_gated(monkeypatch):
     import os
     from delta_os.repl import Terminal
-    os.environ["DELTA_UNLOCK_TOKEN"] = "PROBE-TOKEN-9"
+    monkeypatch.setenv("DELTA_UNLOCK_TOKEN", "PROBE-TOKEN-9")
     t = Terminal()
     t.handle("/kill")
     assert t.safety.mode == "HALTED"
