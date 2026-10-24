@@ -100,11 +100,13 @@ def test_cmd_shell_completion():
 
 
 def test_cmd_doctor_institutional_audit():
+    from native import accel
+
     res = runner.invoke(app, ["doctor", "--institutional"])
     assert res.exit_code == 0
     assert "INSTITUTIONAL QUANTITATIVE AUDIT & READINESS REPORT" in res.stdout
     assert "1. Native C-ABI Kernel" in res.stdout
-    assert "Backend: RUST" in res.stdout
+    assert f"Backend: {accel.backend().upper()}" in res.stdout
     assert "2. Temporal PIT Data" in res.stdout
     assert "3. Canonical OMS Journal" in res.stdout
     assert "VERDICT: GO-PAPER / INSTITUTIONAL_AUDIT_PASS" in res.stdout
