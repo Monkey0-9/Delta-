@@ -113,6 +113,35 @@ def tool_reasonforge(symbol: str, days: int = 252,
             "card": v.render()}
 
 
+def tool_ncm_trajectory(symbol: str, macro_context: str = "", horizon: int = 3) -> dict:
+    """Institutional Next-Concept Modeling (NCM) regime trajectory generator."""
+    from finance_model.ncm import NextConceptModel, NCMGenerationRequest
+    engine = NextConceptModel()
+    req = NCMGenerationRequest(
+        symbol=symbol.strip().upper(),
+        macro_context=macro_context or "",
+        horizon=min(max(int(horizon), 1), 10),
+    )
+    res = engine.generate_trajectory(req)
+    return {
+        "domain": "next-concept-modeling",
+        "symbol": res.symbol,
+        "model_version": res.model_version,
+        "provenance_badge": res.provenance_badge,
+        "observed_anchor": res.trajectory.observed_concepts[0],
+        "trajectory": [
+            {"step": i + 1, "concept_id": cid, "probability": prob}
+            for i, (cid, prob) in enumerate(res.trajectory.predicted_concepts)
+        ],
+        "entropy": res.trajectory.entropy,
+        "confidence": res.trajectory.confidence,
+        "thesis": res.synthesized_thesis,
+        "invalidating_conditions": res.invalidating_conditions,
+        "execution_eligibility": res.execution_eligibility,
+        "hardware_acceleration": res.hardware_acceleration,
+    }
+
+
 TOOLS = {
     "financial_data": tool_financial_data,
     "india_market": tool_india_market,
@@ -120,8 +149,9 @@ TOOLS = {
     "indicators": tool_indicators,
     "statistics": tool_statistics,
     "reasonforge": tool_reasonforge,
+    "ncm_trajectory": tool_ncm_trajectory,
 }
 
 __all__ = ["BRIDGE_VERSION", "TOOLS", "tool_financial_data",
            "tool_india_market", "tool_india_universe", "tool_indicators",
-           "tool_statistics", "tool_reasonforge"]
+           "tool_statistics", "tool_reasonforge", "tool_ncm_trajectory"]

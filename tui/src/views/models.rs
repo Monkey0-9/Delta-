@@ -90,6 +90,8 @@ fn render_models_list(frame: &mut Frame, area: Rect, state: &ApplicationState) {
 
             let (status_span, tier_str) = if m.contains("free") || m.contains("groq") {
                 (Span::styled(" FREE TIER ", InstitutionalTheme::pill_green()), "Public API / Zero Cost")
+            } else if m.contains("ncm") {
+                (Span::styled(" NCM RUST ", InstitutionalTheme::pill_green()), "Discrete Regime Transitions / SIMD")
             } else if m.contains("delta") {
                 (Span::styled(" EMBEDDED ", InstitutionalTheme::pill_green()), "Local Quant weights")
             } else if m.contains("qwen") || m.contains("deepseek") {

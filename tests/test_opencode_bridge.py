@@ -63,7 +63,7 @@ def test_reasonforge_scoring_pure():
 def test_bridge_tools_registered():
     from delta_os import opencode_tools as OT
     assert set(OT.TOOLS) == {"financial_data", "india_market", "india_universe",
-                             "indicators", "statistics", "reasonforge"}
+                             "indicators", "statistics", "reasonforge", "ncm_trajectory"}
 
 
 def test_repl_new_commands_routed():
@@ -82,3 +82,15 @@ def test_research_tools_include_five_domains():
     names = {tool.name for tool in research_tools(DataRouter())}
     assert {"india_quote", "get_indicators", "get_statistics",
             "synthesize_reason"} <= names
+
+
+def test_ncm_mcp_tool_execution():
+    from tools.delta_mcp import _tools_spec, _call
+    specs = {t["name"] for t in _tools_spec()}
+    assert "delta_ncm_trajectory" in specs
+
+    res = _call("delta_ncm_trajectory", {"symbol": "SPY", "macro_context": "Yield curve inverted", "horizon": 2})
+    assert res["domain"] == "next-concept-modeling"
+    assert res["symbol"] == "SPY"
+    assert len(res["trajectory"]) == 2
+    assert res["execution_eligibility"] is False

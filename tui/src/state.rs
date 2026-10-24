@@ -358,6 +358,7 @@ impl Default for ModelState {
             active_model: "delta".into(),
             available_models: vec![
                 "delta-fm-research".into(),
+                "ncm-fin-v1.0".into(),
                 "qwen-3.6".into(),
                 "groq-free".into(),
                 "claude-3.7".into(),

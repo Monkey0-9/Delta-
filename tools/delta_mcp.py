@@ -62,6 +62,13 @@ def _tools_spec():
                                         "days": {"type": "number"},
                                         "exchange": {"type": "string"}},
                          "required": ["symbol"]}},
+        {"name": "delta_ncm_trajectory",
+         "description": "Next-Concept Model (NCM) discrete regime forecasting. Analytical only. Args: symbol, macro_context?, horizon?.",
+         "inputSchema": {"type": "object",
+                         "properties": {"symbol": {"type": "string"},
+                                        "macro_context": {"type": "string"},
+                                        "horizon": {"type": "number"}},
+                         "required": ["symbol"]}},
     ]
 
 
@@ -74,6 +81,7 @@ def _call(name: str, args: dict) -> dict:
         "delta_indicators": OT.tool_indicators,
         "delta_statistics": OT.tool_statistics,
         "delta_reasonforge": OT.tool_reasonforge,
+        "delta_ncm_trajectory": OT.tool_ncm_trajectory,
     }.get(name)
     if fn is None:
         raise ValueError(f"unknown tool {name}")

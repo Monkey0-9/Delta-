@@ -243,7 +243,7 @@ capabilities:
   - id: opencode_cli_parity
     canonical_impl: apps/cli/main.py (Typer Master CLI)
     integration_path: "apps/cli/main.py 38 commands + delta_os/repl.py"
-    tests: [tests/test_unified_cli.py, tests/test_opencode_parity_full.py, tests/test_bridge_network_server.py, tests/test_service_config.py, tests/test_cli_truthfulness.py, tests/test_cli_learning_ledger.py, tests/test_bridge_dispatch_status.py]
+    tests: [tests/test_unified_cli.py, tests/test_opencode_parity_full.py, tests/test_opencode_advanced_parity.py, tests/test_bridge_network_server.py, tests/test_service_config.py, tests/test_cli_truthfulness.py, tests/test_cli_learning_ledger.py, tests/test_bridge_dispatch_status.py]
     evidence: {type: pytest, commit: HEAD, note: "Full OpenCode 17-command parity suite + 21 quant commands + JSON-RPC bridge + model doctor honesty + durable learning ledger"}
     performance: null
     known_limitations: []
