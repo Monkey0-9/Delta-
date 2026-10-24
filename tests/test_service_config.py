@@ -26,9 +26,10 @@ def test_service_config_defaults(tmp_path, monkeypatch):
 
 def test_service_config_set_and_get(tmp_path, monkeypatch):
     monkeypatch.setenv("DELTA_HOME", str(tmp_path))
+    monkeypatch.setenv("DELTA_UNLOCK_TOKEN", "TEST_UNLOCK_TOKEN")
 
-    # Test setting valid values with aliases
-    ok, msg, cfg = sc.set_value("max_dd", "4.5")
+    # Test setting valid values with aliases (risk-loosening requires auth_token)
+    ok, msg, cfg = sc.set_value("max_dd", "4.5", auth_token="TEST_UNLOCK_TOKEN")
     assert ok, msg
     assert cfg["max_dd_pct"] == 4.5
     assert sc.get_value("max_dd") == 4.5
@@ -72,11 +73,12 @@ def test_service_config_out_of_bounds_rejection(tmp_path, monkeypatch):
 
 def test_service_config_unset(tmp_path, monkeypatch):
     monkeypatch.setenv("DELTA_HOME", str(tmp_path))
+    monkeypatch.setenv("DELTA_UNLOCK_TOKEN", "TEST_UNLOCK_TOKEN")
 
-    sc.set_value("max_dd", "5.0")
+    sc.set_value("max_dd", "5.0", auth_token="TEST_UNLOCK_TOKEN")
     assert sc.get_value("max_dd") == 5.0
 
-    ok, msg, cfg = sc.unset_value("max_dd")
+    ok, msg, cfg = sc.unset_value("max_dd", auth_token="TEST_UNLOCK_TOKEN")
     assert ok, msg
     assert cfg["max_dd_pct"] == 2.0
     assert sc.get_value("max_dd") == 2.0

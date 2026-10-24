@@ -1093,7 +1093,11 @@ def service_cmd(
         typer.echo("──────────────────────────────────────────────────")
     elif act == "start":
         from delta_os import service_config as sc
-        cfg = sc.load_config()
+        try:
+            cfg = sc.load_config()
+        except sc.ConfigurationCorruptError as exc:
+            typer.echo(f"✗ Cannot start service: Configuration corrupt: {exc}", err=True)
+            raise typer.Exit(code=1)
         eff_max_dd = max_dd if max_dd != 2.0 else float(cfg.get("max_dd_pct", 2.0))
         eff_interval = interval if interval != 3.0 else float(cfg.get("interval_s", 3.0))
         res = ds.start_daemon(max_dd=eff_max_dd, interval_s=eff_interval)
@@ -1107,17 +1111,28 @@ def service_cmd(
         typer.echo(f"✓ DELTA Service: {res.get('message')}")
     elif act == "restart":
         from delta_os import service_config as sc
-        cfg = sc.load_config()
+        try:
+            cfg = sc.load_config()
+        except sc.ConfigurationCorruptError as exc:
+            typer.echo(f"✗ Cannot restart service: Configuration corrupt: {exc}", err=True)
+            raise typer.Exit(code=1)
         eff_max_dd = max_dd if max_dd != 2.0 else float(cfg.get("max_dd_pct", 2.0))
         eff_interval = interval if interval != 3.0 else float(cfg.get("interval_s", 3.0))
-        ds.stop_daemon()
-        res = ds.start_daemon(max_dd=eff_max_dd, interval_s=eff_interval)
-        typer.echo(f"✓ DELTA Service restarted (PID: {res.get('pid')})")
+        res = ds.restart_daemon(max_dd=eff_max_dd, interval_s=eff_interval)
+        if res.get("status") == "STARTED":
+            typer.echo(f"✓ DELTA Service restarted (PID: {res.get('pid')})")
+        else:
+            typer.echo(f"✗ Failed to restart DELTA Service: {res.get('message')}", err=True)
+            raise typer.Exit(code=1)
     elif act == "logs":
         typer.echo(ds.get_daemon_logs(lines=lines))
     elif act == "get":
         from delta_os import service_config as sc
-        cfg = sc.load_config()
+        try:
+            cfg = sc.load_config()
+        except sc.ConfigurationCorruptError as exc:
+            typer.echo(f"✗ Configuration corrupt: {exc}", err=True)
+            raise typer.Exit(code=1)
         if key:
             val = sc.get_value(key)
             if val is None:
@@ -1131,21 +1146,23 @@ def service_cmd(
             typer.echo("Usage: delta service set <key> <value>", err=True)
             raise typer.Exit(code=1)
         from delta_os import service_config as sc
-        ok, msg, cfg = sc.set_value(key, value)
+        token = os.environ.get("DELTA_UNLOCK_TOKEN")
+        ok, msg, cfg = sc.set_value(key, value, auth_token=token)
         if not ok:
             typer.echo(f"✗ Failed to update service configuration: {msg}", err=True)
             raise typer.Exit(code=1)
-        typer.echo(f"✓ Updated service configuration: {key} = {value}")
+        typer.echo(f"✓ {msg}")
     elif act == "unset":
         if not key:
             typer.echo("Usage: delta service unset <key>", err=True)
             raise typer.Exit(code=1)
         from delta_os import service_config as sc
-        ok, msg, cfg = sc.unset_value(key)
+        token = os.environ.get("DELTA_UNLOCK_TOKEN")
+        ok, msg, cfg = sc.unset_value(key, auth_token=token)
         if not ok:
             typer.echo(f"✗ Failed to reset service configuration: {msg}", err=True)
             raise typer.Exit(code=1)
-        typer.echo(f"✓ Reset service configuration: {key}")
+        typer.echo(f"✓ {msg}")
     else:
         typer.echo(f"Unknown service action: {action}. Use start|stop|restart|status|logs|get|set|unset.", err=True)
         raise typer.Exit(code=1)
