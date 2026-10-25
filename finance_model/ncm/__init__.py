@@ -12,6 +12,8 @@ from finance_model.ncm.contracts import (
     NCMGenerationResult,
     NCMModelBenchmarkMetrics,
     NCMBenchmarkReport,
+    NCMConditioningContext,
+    CrisisReplayScenario,
 )
 from finance_model.ncm.vocabulary import (
     CONCEPT_IDS,
@@ -34,6 +36,8 @@ __all__ = [
     "NCMGenerationResult",
     "NCMModelBenchmarkMetrics",
     "NCMBenchmarkReport",
+    "NCMConditioningContext",
+    "CrisisReplayScenario",
     "CONCEPT_IDS",
     "CONCEPT_VOCABULARY",
     "get_concept",

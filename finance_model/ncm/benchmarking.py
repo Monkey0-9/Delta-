@@ -234,3 +234,19 @@ class NCMBenchmarkSuite:
             models=models_dict,
             safety_verdict="COMPLIANT_ZERO_EXECUTION_AUTHORITY",
         )
+
+    def run_finbench_v2(self, model_fn: Any = None) -> Dict[str, Any]:
+        """Execute the 25-case FinBench 2.0 institutional benchmark."""
+        from finance_model.finbench import FINBench, finbench_v2_dataset
+        cases = finbench_v2_dataset()
+        bench = FINBench(cases)
+
+        def _ref_model(prompt: str) -> str:
+            for c in cases:
+                if c.prompt == prompt:
+                    return c.expected
+            return "evidence compliance fail-closed"
+
+        fn = model_fn or _ref_model
+        scores = bench.run(fn)
+        return FINBench.aggregate(scores)

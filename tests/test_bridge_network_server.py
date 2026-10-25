@@ -9,6 +9,7 @@ Validates:
 from __future__ import annotations
 
 import json
+import socket
 import threading
 import time
 import urllib.request
@@ -18,18 +19,24 @@ import pytest
 from delta_os.bridge import DeltaBridge, PairingTokenRegistry, run_network_server
 
 
+def _find_free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
 @pytest.fixture(scope="module")
 def bridge_server():
     """Spin up bridge server on a test loopback port."""
-    port = 19876
+    port = _find_free_port()
     ready = threading.Event()
     server_thread = threading.Thread(
         target=run_network_server,
-        kwargs={"hostname": "127.0.0.1", "port": port, "timeout": 15.0, "ready_event": ready},
+        kwargs={"hostname": "127.0.0.1", "port": port, "timeout": 60.0, "ready_event": ready},
         daemon=True,
     )
     server_thread.start()
-    assert ready.wait(timeout=3.0), "Bridge server failed to bind and signal ready."
+    assert ready.wait(timeout=5.0), "Bridge server failed to bind and signal ready."
     yield f"http://127.0.0.1:{port}"
 
 

@@ -69,6 +69,42 @@ _RAW_CONCEPTS: List[Dict] = [
         "decay_half_life_hours": 720.0,
         "volatility_sensitivity": 1.10,
     },
+    {
+        "concept_id": "MACRO_QUANTITATIVE_TIGHTENING",
+        "category": ConceptCategory.MACRO,
+        "name": "Balance Sheet Runoff / QT",
+        "description": "Central bank actively reducing bond holdings, draining excess liquidity from commercial banking.",
+        "embedding": [0.6, 0.4, -0.5, -0.3, 0.5, 0.1, -0.2, -0.3],
+        "decay_half_life_hours": 360.0,
+        "volatility_sensitivity": 0.95,
+    },
+    {
+        "concept_id": "MACRO_YIELD_CURVE_STEEPENING",
+        "category": ConceptCategory.MACRO,
+        "name": "Curve Steepener Dislocation",
+        "description": "Long-term rates rising significantly faster than short rates reflecting term premium expansion.",
+        "embedding": [0.4, 0.1, -0.3, 0.4, 0.2, -0.2, 0.5, 0.1],
+        "decay_half_life_hours": 480.0,
+        "volatility_sensitivity": 0.80,
+    },
+    {
+        "concept_id": "MACRO_SOVEREIGN_SPREAD_WIDENING",
+        "category": ConceptCategory.MACRO,
+        "name": "Sovereign Debt Risk Premium",
+        "description": "Peripheral or emerging sovereign yield spreads widening sharply against benchmark reference bonds.",
+        "embedding": [0.3, -0.5, -0.6, -0.5, 0.7, -0.6, 0.2, -0.4],
+        "decay_half_life_hours": 240.0,
+        "volatility_sensitivity": 1.35,
+    },
+    {
+        "concept_id": "MACRO_DOLLAR_LIQUIDITY_SQUEEZE",
+        "category": ConceptCategory.MACRO,
+        "name": "Global USD Funding Squeeze",
+        "description": "Cross-currency basis swaps widening as global entities scramble for US dollar liquidity.",
+        "embedding": [0.5, -0.4, -0.7, -0.6, 0.8, -0.5, 0.1, -0.5],
+        "decay_half_life_hours": 120.0,
+        "volatility_sensitivity": 1.45,
+    },
 
     # 2. Microstructure Concepts
     {
@@ -107,6 +143,42 @@ _RAW_CONCEPTS: List[Dict] = [
         "decay_half_life_hours": 1.5,
         "volatility_sensitivity": 1.60,
     },
+    {
+        "concept_id": "MICRO_ORDER_FLOW_TOXICITY_VPIN",
+        "category": ConceptCategory.MICROSTRUCTURE,
+        "name": "Informed Toxic Order Flow / VPIN Spike",
+        "description": "Volume-synchronized probability of toxicity indicating aggressive informed order flow executing.",
+        "embedding": [-0.3, -0.6, -0.5, -0.7, 0.8, -0.7, 0.3, -0.4],
+        "decay_half_life_hours": 1.0,
+        "volatility_sensitivity": 1.70,
+    },
+    {
+        "concept_id": "MICRO_ICEBERG_ACCUMULATION",
+        "category": ConceptCategory.MICROSTRUCTURE,
+        "name": "Hidden Iceberg Order Accumulation",
+        "description": "Persistent native limit replenishment executing substantial hidden size without moving quote.",
+        "embedding": [0.2, 0.5, 0.4, 0.7, -0.3, 0.5, 0.1, 0.6],
+        "decay_half_life_hours": 3.0,
+        "volatility_sensitivity": 0.30,
+    },
+    {
+        "concept_id": "MICRO_ADVERSE_SELECTION_SPIKE",
+        "category": ConceptCategory.MICROSTRUCTURE,
+        "name": "Adverse Selection Risk Elevation",
+        "description": "Passive fills immediately followed by unfavorable price moves against market maker inventory.",
+        "embedding": [-0.2, -0.4, -0.3, -0.5, 0.6, -0.5, 0.2, -0.3],
+        "decay_half_life_hours": 1.5,
+        "volatility_sensitivity": 1.40,
+    },
+    {
+        "concept_id": "MICRO_CANCEL_REPLACE_CASCADE",
+        "category": ConceptCategory.MICROSTRUCTURE,
+        "name": "High-Frequency Cancel/Replace Wave",
+        "description": "Extreme quoting flicker with cancel-to-fill ratios exceeding 100:1 as algorithmic quotes re-peg.",
+        "embedding": [0.0, -0.3, -0.2, -0.4, 0.5, -0.3, 0.4, -0.2],
+        "decay_half_life_hours": 0.5,
+        "volatility_sensitivity": 1.30,
+    },
 
     # 3. Fundamentals Concepts
     {
@@ -136,6 +208,42 @@ _RAW_CONCEPTS: List[Dict] = [
         "decay_half_life_hours": 1080.0,
         "volatility_sensitivity": 0.35,
     },
+    {
+        "concept_id": "FUND_DEBT_ROLLOVER_CLIFF",
+        "category": ConceptCategory.FUNDAMENTALS,
+        "name": "Debt Refinancing Cliff Risk",
+        "description": "Significant portion of enterprise debt maturing in near term under higher prevailing interest rates.",
+        "embedding": [-0.6, -0.5, -0.8, -0.5, 0.7, -0.7, -0.1, -0.5],
+        "decay_half_life_hours": 1440.0,
+        "volatility_sensitivity": 1.25,
+    },
+    {
+        "concept_id": "FUND_WORKING_CAPITAL_STRAIN",
+        "category": ConceptCategory.FUNDAMENTALS,
+        "name": "Working Capital Bloat / Cash Burn",
+        "description": "Ballooning inventory and days sales outstanding (DSO) draining liquid operating reserves.",
+        "embedding": [-0.4, -0.3, -0.6, -0.3, 0.5, -0.5, -0.1, -0.3],
+        "decay_half_life_hours": 720.0,
+        "volatility_sensitivity": 0.85,
+    },
+    {
+        "concept_id": "FUND_SOLVENCY_DETERIORATION",
+        "category": ConceptCategory.FUNDAMENTALS,
+        "name": "Altman Z-Score Solvency Distress",
+        "description": "Credit risk metrics and interest coverage ratios decaying into distressed financial reorganization territory.",
+        "embedding": [-0.7, -0.8, -0.9, -0.6, 0.8, -0.8, 0.2, -0.6],
+        "decay_half_life_hours": 2160.0,
+        "volatility_sensitivity": 1.75,
+    },
+    {
+        "concept_id": "FUND_CAPEX_SUPERCYCLE",
+        "category": ConceptCategory.FUNDAMENTALS,
+        "name": "Productive Capex Supercycle",
+        "description": "Large-scale capital expenditures into high-ROIC capacity expanding future competitive moat.",
+        "embedding": [0.4, 0.5, 0.6, 0.3, -0.2, 0.6, 0.3, 0.3],
+        "decay_half_life_hours": 2160.0,
+        "volatility_sensitivity": 0.55,
+    },
 
     # 4. Valuation Concepts
     {
@@ -156,8 +264,91 @@ _RAW_CONCEPTS: List[Dict] = [
         "decay_half_life_hours": 480.0,
         "volatility_sensitivity": 1.15,
     },
+    {
+        "concept_id": "VAL_TERMINAL_GROWTH_COMPRESSION",
+        "category": ConceptCategory.VALUATION,
+        "name": "Terminal Growth Multiple Compression",
+        "description": "Long-term revenue growth expectations cut sharply as market maturity and saturation set in.",
+        "embedding": [-0.5, -0.3, -0.5, -0.2, 0.4, -0.5, -0.3, -0.2],
+        "decay_half_life_hours": 960.0,
+        "volatility_sensitivity": 0.90,
+    },
+    {
+        "concept_id": "VAL_HISTORICAL_QUINTILE_LOW",
+        "category": ConceptCategory.VALUATION,
+        "name": "Valuation Quintile 1 Floor",
+        "description": "Price-to-book and enterprise value multiples residing in bottom 5% decile of 10-year trading range.",
+        "embedding": [0.5, 0.3, 0.6, 0.3, -0.3, 0.7, 0.4, 0.2],
+        "decay_half_life_hours": 840.0,
+        "volatility_sensitivity": 0.60,
+    },
+    {
+        "concept_id": "VAL_BUBBLE_EXHAUSTION",
+        "category": ConceptCategory.VALUATION,
+        "name": "Speculative Bubble Exhaustion",
+        "description": "Extreme valuation dislocation detaching completely from underlying fundamental cash flow reality.",
+        "embedding": [-0.4, 0.0, -0.4, 0.0, 0.8, -0.5, -0.7, 0.1],
+        "decay_half_life_hours": 168.0,
+        "volatility_sensitivity": 1.65,
+    },
 
-    # 5. Risk Concepts
+    # 5. Volatility & Derivatives Concepts
+    {
+        "concept_id": "VOL_VARIANCE_PREMIUM_SPIKE",
+        "category": ConceptCategory.VOLATILITY,
+        "name": "Variance Risk Premium Expansion",
+        "description": "Implied volatility trading at massive spread over realized trailing volatility.",
+        "embedding": [-0.2, -0.3, -0.3, -0.4, 0.8, -0.4, 0.4, -0.2],
+        "decay_half_life_hours": 48.0,
+        "volatility_sensitivity": 1.50,
+    },
+    {
+        "concept_id": "VOL_SKEW_STEEPENING",
+        "category": ConceptCategory.VOLATILITY,
+        "name": "Downside Skew Steepening",
+        "description": "Out-of-the-money put options commanding heavy volatility premium over at-the-money options.",
+        "embedding": [-0.4, -0.5, -0.4, -0.5, 0.9, -0.6, 0.3, -0.4],
+        "decay_half_life_hours": 36.0,
+        "volatility_sensitivity": 1.60,
+    },
+    {
+        "concept_id": "VOL_GAMMA_SQUEEZE_CALL",
+        "category": ConceptCategory.VOLATILITY,
+        "name": "Positive Delta Call Gamma Squeeze",
+        "description": "Short-dated call option volume forcing dealer hedging into underlying asset spot buying.",
+        "embedding": [0.1, 0.5, 0.2, 0.7, 0.5, 0.1, -0.4, 0.7],
+        "decay_half_life_hours": 18.0,
+        "volatility_sensitivity": 1.40,
+    },
+    {
+        "concept_id": "VOL_GAMMA_SQUEEZE_PUT",
+        "category": ConceptCategory.VOLATILITY,
+        "name": "Negative Delta Put Gamma Cascade",
+        "description": "Dealer short put inventory forcing systematic delta selling as underlying price falls into strikes.",
+        "embedding": [-0.5, -0.7, -0.5, -0.7, 0.9, -0.7, 0.4, -0.7],
+        "decay_half_life_hours": 18.0,
+        "volatility_sensitivity": 1.90,
+    },
+    {
+        "concept_id": "VOL_CLUSTERING_EXPANSION",
+        "category": ConceptCategory.VOLATILITY,
+        "name": "Autoregressive Volatility Clustering",
+        "description": "High return dispersion regimes triggering sustained elevated volatility persistence.",
+        "embedding": [-0.3, -0.4, -0.4, -0.5, 0.7, -0.5, 0.3, -0.3],
+        "decay_half_life_hours": 96.0,
+        "volatility_sensitivity": 1.45,
+    },
+    {
+        "concept_id": "VOL_IMPLIED_REALIZED_DIVERGENCE",
+        "category": ConceptCategory.VOLATILITY,
+        "name": "IV/RV Divergence Dislocation",
+        "description": "Realized price volatility decoupling sharply from options implied volatility surfaces.",
+        "embedding": [0.0, -0.2, -0.2, -0.3, 0.6, -0.3, 0.2, -0.1],
+        "decay_half_life_hours": 48.0,
+        "volatility_sensitivity": 1.20,
+    },
+
+    # 6. Risk Concepts
     {
         "concept_id": "RISK_TAIL_EVENT_ELEVATED",
         "category": ConceptCategory.RISK,
@@ -176,8 +367,17 @@ _RAW_CONCEPTS: List[Dict] = [
         "decay_half_life_hours": 72.0,
         "volatility_sensitivity": 1.50,
     },
+    {
+        "concept_id": "RISK_LIQUIDITY_BLACK_HOLE",
+        "category": ConceptCategory.RISK,
+        "name": "Systemic Liquidity Black Hole",
+        "description": "Simultaneous evaporation of liquidity providers across cash, futures, and repo markets.",
+        "embedding": [-0.8, -0.9, -0.7, -0.8, 0.95, -0.9, 0.6, -0.8],
+        "decay_half_life_hours": 36.0,
+        "volatility_sensitivity": 2.00,
+    },
 
-    # 6. Sentiment Concepts
+    # 7. Sentiment Concepts
     {
         "concept_id": "SENT_CAPITULATION_BOTTOM",
         "category": ConceptCategory.SENTIMENT,
@@ -195,6 +395,15 @@ _RAW_CONCEPTS: List[Dict] = [
         "embedding": [-0.1, 0.2, -0.2, 0.3, 0.7, -0.2, -0.6, 0.4],
         "decay_half_life_hours": 24.0,
         "volatility_sensitivity": 1.40,
+    },
+    {
+        "concept_id": "SENT_SHORT_INTEREST_CROWDING",
+        "category": ConceptCategory.SENTIMENT,
+        "name": "Extreme Short Interest Crowding",
+        "description": "High borrow cost and utilization exceeding 90% creating explosive short covering squeeze potential.",
+        "embedding": [0.1, 0.4, 0.1, 0.5, 0.4, 0.2, -0.3, 0.5],
+        "decay_half_life_hours": 72.0,
+        "volatility_sensitivity": 1.35,
     },
 ]
 
@@ -259,6 +468,16 @@ def get_transition_priors(from_concept_id: str) -> Dict[str, float]:
             if tgt_cat == ConceptCategory.VALUATION:
                 weight = 0.40
             elif tgt_cat == ConceptCategory.FUNDAMENTALS:
+                weight = 0.30
+        elif src_cat == ConceptCategory.VALUATION:
+            if tgt_cat in (ConceptCategory.FUNDAMENTALS, ConceptCategory.SENTIMENT):
+                weight = 0.35
+            elif tgt_cat == ConceptCategory.VALUATION:
+                weight = 0.30
+        elif src_cat == ConceptCategory.VOLATILITY:
+            if tgt_cat in (ConceptCategory.RISK, ConceptCategory.MICROSTRUCTURE):
+                weight = 0.40
+            elif tgt_cat == ConceptCategory.VOLATILITY:
                 weight = 0.30
         elif src_cat == ConceptCategory.RISK:
             if tgt_cat in (ConceptCategory.SENTIMENT, ConceptCategory.MICROSTRUCTURE):

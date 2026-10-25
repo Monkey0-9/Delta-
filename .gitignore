@@ -38,6 +38,7 @@ target_test/
 .mypy_cache/
 .ruff_cache/
 .trunk/
+.commandcode/
 
 # Data databases & stores
 *.db

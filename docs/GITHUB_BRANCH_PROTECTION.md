@@ -40,16 +40,17 @@ ruleset:
       parameters:
         strict_required_status_checks_policy: true
         required_status_checks:
-          - context: "test (3.11)"
-          - context: "test (3.12)"
-          - context: "test (3.13)"
-          - context: "Rust Workspace Tests"
-          - context: "cargo-clippy"
-          - context: "Mathematical Invariant Checks"
-          - context: "delta-security-gates"
-          - context: "bandit-scan"
-          - context: "semgrep-scan"
-          - context: "Rust Wheels"
+          # delta-ci (.github/workflows/ci.yml)
+          - context: "math-invariants"
+          - context: "test"
+          - context: "rust"
+          - context: "wheels"
+          # delta-security-gates (.github/workflows/security.yml)
+          - context: "semgrep"
+          - context: "bandit"
+          - context: "secret-scan"
+          - context: "cargo-audit"
+          - context: "pip-audit"
 
     # 3. Block Force Pushes & Deletions
     - type: "non_fast_forward"

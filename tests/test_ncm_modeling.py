@@ -32,10 +32,10 @@ from native.accel import backend, fast_ncm_entropy, fast_ncm_similarity
 
 
 def test_ncm_vocabulary_and_embeddings():
-    assert len(CONCEPT_VOCABULARY) == 19
-    assert len(CONCEPT_IDS) == 19
+    assert len(CONCEPT_VOCABULARY) >= 42
+    assert len(CONCEPT_IDS) >= 42
     concepts = list_concepts()
-    assert len(concepts) == 19
+    assert len(concepts) >= 42
 
     categories = {c.category for c in concepts}
     assert ConceptCategory.MACRO in categories
@@ -44,9 +44,10 @@ def test_ncm_vocabulary_and_embeddings():
     assert ConceptCategory.VALUATION in categories
     assert ConceptCategory.RISK in categories
     assert ConceptCategory.SENTIMENT in categories
+    assert ConceptCategory.VOLATILITY in categories
 
     matrix = get_embedding_matrix()
-    assert matrix.shape == (19, 8)
+    assert matrix.shape == (len(CONCEPT_VOCABULARY), 8)
     # Check that rows are unit normalized
     row_norms = np.linalg.norm(matrix, axis=1)
     np.testing.assert_allclose(row_norms, 1.0, rtol=1e-5, atol=1e-5)

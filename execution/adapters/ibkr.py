@@ -139,12 +139,22 @@ class IBKRClientPortalAdapter:
         except Exception:
             return False
 
-    def resolve_contract(self, symbol: str) -> int:
-        """Search symbol to resolve IBKR ConId integer."""
+    def resolve_contract(
+        self,
+        symbol: str,
+        sec_type: str = "STK",
+        exchange: Optional[str] = None,
+        currency: Optional[str] = None,
+    ) -> int:
+        """Search symbol to resolve IBKR ConId integer across 150+ international markets."""
         import httpx
 
         url = f"{self._base_url()}/v1/api/iserver/secdef/search"
-        payload = {"symbol": symbol, "name": False, "secType": "STK"}
+        payload: Dict[str, Any] = {"symbol": symbol, "name": False, "secType": sec_type}
+        if exchange:
+            payload["exchange"] = exchange
+        if currency:
+            payload["currency"] = currency
         try:
             r = httpx.post(url, json=payload, timeout=self.timeout_s, verify=self._tls_verify())
             if r.status_code == 200:

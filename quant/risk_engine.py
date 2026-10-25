@@ -124,9 +124,18 @@ class RiskEngine:
                                        current_price: float,
                                        kelly_result: KellyResult,
                                        safety_fraction: float = 0.25) -> int:
-        """Calculate optimal position size using Kelly Criterion"""
+        """Calculate optimal position size using Kelly Criterion.
+        
+        Institutional invariant: never force a trade with negative or zero edge.
+        If expected value <= 0 or adjusted kelly <= 0, size is 0.
+        """
+        if kelly_result.expected_value <= 0 or current_price <= 0 or account_value <= 0:
+            return 0
+        
         # Use quarter or half Kelly for safety
         adjusted_kelly = kelly_result.quarter_kelly if safety_fraction == 0.25 else kelly_result.half_kelly
+        if adjusted_kelly <= 0:
+            return 0
         
         # Calculate position value
         position_value = account_value * adjusted_kelly
@@ -134,10 +143,7 @@ class RiskEngine:
         # Calculate number of shares
         shares = int(position_value / current_price)
         
-        # Ensure minimum of 1 share
-        shares = max(1, shares)
-        
-        return shares
+        return max(0, shares)
     
     def calculate_max_drawdown(self, equity_curve: List[float]) -> Dict[str, float]:
         """Calculate maximum drawdown and drawdown duration"""

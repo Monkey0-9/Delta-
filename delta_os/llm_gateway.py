@@ -245,6 +245,44 @@ class ModelGateway:
                 else self._cloud(provider, model_id, prompt, system))
         return {"text": text, "model": model, "backend": provider}
 
+    def reason_financial(
+        self,
+        symbol: str,
+        query: str,
+        macro_text: str = "",
+        headlines: list[str] | None = None,
+        metrics: dict[str, float] | None = None,
+    ) -> dict:
+        """Dual-Core NCM 2.0 conditioning + verified financial reasoning."""
+        from finance_model.financial_reasoner import FinancialReasoner
+        from finance_model.ncm.contracts import NCMGenerationRequest
+        from finance_model.ncm.engine import NextConceptModel
+
+        ncm = NextConceptModel()
+        req = NCMGenerationRequest(
+            symbol=symbol,
+            macro_context=macro_text or query,
+            news_headlines=headlines or [],
+            quant_metrics=metrics or {},
+        )
+        cond = ncm.generate_llm_conditioning(req)
+        reasoner = FinancialReasoner()
+        res = reasoner.reason(symbol, query, ncm_context=cond)
+
+        return {
+            "symbol": res.symbol,
+            "query": res.query,
+            "chain_of_thought": res.chain_of_thought,
+            "thesis": res.synthesized_thesis,
+            "active_regimes": list(res.active_regimes),
+            "projected_trajectory": [list(t) for t in res.projected_trajectory],
+            "math_claims_detected": res.math_verification_report.total_math_claims_detected,
+            "discrepancies_rectified": res.math_verification_report.discrepancies_rectified,
+            "execution_eligibility": res.execution_eligibility,
+            "provenance": res.provenance_badge,
+        }
+
+
     def ask_with_tools(self, role: str, question: str, tools,
                        max_steps: int = 4) -> dict:
         """ReAct loop: model may emit TOOL:{name}:{args-json} lines; tool

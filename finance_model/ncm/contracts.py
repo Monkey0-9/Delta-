@@ -15,6 +15,7 @@ class ConceptCategory(StrEnum):
     MICROSTRUCTURE = "microstructure"
     FUNDAMENTALS = "fundamentals"
     VALUATION = "valuation"
+    VOLATILITY = "volatility"
     RISK = "risk"
     SENTIMENT = "sentiment"
 
@@ -106,6 +107,36 @@ class NCMModelBenchmarkMetrics(BaseModel):
     ram_mb: float = Field(ge=0.0)
     cost_per_1k_queries_usd: float = Field(ge=0.0)
     safety_violation_count: int = 0
+
+
+class NCMConditioningContext(BaseModel):
+    """Priors passed into Financial LLM reasoning to bound search space.
+    
+    Prevents token-drift and macroeconomic hallucination by grounding the LLM
+    in discrete, mathematically verified regime trajectories.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    symbol: str = Field(min_length=1)
+    active_regimes: List[str]
+    forecast_trajectory: List[Tuple[str, float]]  # (concept_id, probability)
+    systemic_entropy: float = Field(ge=0.0)
+    volatility_regime: str = "NORMAL"
+    invalidating_conditions: List[str] = Field(default_factory=list)
+    semantic_guardrails: List[str] = Field(default_factory=list)
+
+
+class CrisisReplayScenario(BaseModel):
+    """Historical market crisis scenario for stress-testing and benchmark replays."""
+    model_config = ConfigDict(extra="forbid")
+
+    crisis_id: str
+    name: str
+    historical_date: str
+    macro_backdrop: str
+    microstructure_state: str
+    expected_concept_activations: List[str]
+    forbidden_claims: List[str]  # Statements that would violate truth/lookahead
 
 
 class NCMBenchmarkReport(BaseModel):

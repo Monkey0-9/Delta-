@@ -26,6 +26,7 @@ from finance_model.ncm.contracts import (
     FinancialConcept,
     NCMGenerationRequest,
     NCMGenerationResult,
+    NCMConditioningContext,
 )
 from finance_model.ncm.vocabulary import (
     CONCEPT_IDS,
@@ -37,27 +38,56 @@ from finance_model.ncm.vocabulary import (
 from native.accel import backend, fast_ncm_entropy, fast_ncm_similarity
 
 
-# Canonical keywords mapping directly to concept activations
+# Canonical keywords mapping directly to concept activations across 42 regimes
 _KEYWORD_CONCEPT_MAP: List[Tuple[re.Pattern, str, float]] = [
+    # Macro
     (re.compile(r"\b(inflation|cpi|ppi|pce|price surge|rising prices)\b", re.I), "MACRO_INFLATION_SURGE", 0.9),
     (re.compile(r"\b(rate hike|hike rates|hawkish|tightening|fed hikes)\b", re.I), "MACRO_RATE_HIKE_CYCLE", 0.95),
     (re.compile(r"\b(rate cut|dovish|easing|fed cuts|rate relief)\b", re.I), "MACRO_RATE_CUT_EXPECTED", 0.95),
     (re.compile(r"\b(recession|contraction|slowdown|gdp decline|pmi drop)\b", re.I), "MACRO_RECESSIONARY_DRAG", 0.9),
     (re.compile(r"\b(liquidity expansion|qe|quantitative easing|balance sheet)\b", re.I), "MACRO_LIQUIDITY_EXPANSION", 0.85),
     (re.compile(r"\b(inverted|inversion|yield curve 10y-2y|curve invert)\b", re.I), "MACRO_YIELD_CURVE_INVERSION", 0.95),
+    (re.compile(r"\b(quantitative tightening|qt|balance sheet runoff|draining reserves)\b", re.I), "MACRO_QUANTITATIVE_TIGHTENING", 0.9),
+    (re.compile(r"\b(curve steepening|steepener|term premium expansion|long yields rising)\b", re.I), "MACRO_YIELD_CURVE_STEEPENING", 0.85),
+    (re.compile(r"\b(sovereign spread|widening spread|peripheral debt|debt risk premium)\b", re.I), "MACRO_SOVEREIGN_SPREAD_WIDENING", 0.9),
+    (re.compile(r"\b(dollar shortage|usd squeeze|basis swap|global dollar liquidity)\b", re.I), "MACRO_DOLLAR_LIQUIDITY_SQUEEZE", 0.9),
+    # Microstructure
     (re.compile(r"\b(bid depth|order book bid|buying wall|institutional bid)\b", re.I), "MICRO_ORDER_BOOK_IMBALANCE_BID", 0.8),
     (re.compile(r"\b(ask depth|order book ask|selling wall|supply overhang)\b", re.I), "MICRO_ORDER_BOOK_IMBALANCE_ASK", 0.8),
     (re.compile(r"\b(spread tight|compressed spread|high liquidity)\b", re.I), "MICRO_SPREAD_COMPRESSION", 0.75),
     (re.compile(r"\b(liquidity vacuum|flash crash|gap down|illiquid|spread blowout)\b", re.I), "MICRO_LIQUIDITY_VACUUM", 0.9),
+    (re.compile(r"\b(vpin|toxic flow|order flow toxicity|informed trading)\b", re.I), "MICRO_ORDER_FLOW_TOXICITY_VPIN", 0.9),
+    (re.compile(r"\b(iceberg|hidden size|stealth liquidity|native replenishment)\b", re.I), "MICRO_ICEBERG_ACCUMULATION", 0.85),
+    (re.compile(r"\b(adverse selection|maker toxicity|toxic fills|unfavorable execution)\b", re.I), "MICRO_ADVERSE_SELECTION_SPIKE", 0.85),
+    (re.compile(r"\b(cancel replace|quote flicker|cancel to fill|hft flicker)\b", re.I), "MICRO_CANCEL_REPLACE_CASCADE", 0.8),
+    # Fundamentals
     (re.compile(r"\b(earnings beat|eps acceleration|revenue beat|strong guidance)\b", re.I), "FUND_EARNINGS_ACCELERATION", 0.85),
     (re.compile(r"\b(earnings miss|margin compression|downgrade|weak revenue)\b", re.I), "FUND_EARNINGS_CONTRACTION", 0.85),
     (re.compile(r"\b(free cash flow|fcf inflection|cash generative|buyback power)\b", re.I), "FUND_CASH_FLOW_SURPLUS", 0.8),
+    (re.compile(r"\b(debt maturity|debt cliff|refinancing risk|rollover risk)\b", re.I), "FUND_DEBT_ROLLOVER_CLIFF", 0.9),
+    (re.compile(r"\b(working capital strain|cash burn|inventory bloat|dso spike)\b", re.I), "FUND_WORKING_CAPITAL_STRAIN", 0.85),
+    (re.compile(r"\b(solvency distress|altman z|distressed debt|reorganization risk)\b", re.I), "FUND_SOLVENCY_DETERIORATION", 0.95),
+    (re.compile(r"\b(capex supercycle|capital expenditure boom|capacity expansion)\b", re.I), "FUND_CAPEX_SUPERCYCLE", 0.85),
+    # Valuation
     (re.compile(r"\b(undervalued|deep value|discount to nav|cheap pe)\b", re.I), "VAL_DISCOUNT_TO_INTRINSIC", 0.85),
     (re.compile(r"\b(overvalued|multiple expansion|bubble|expensive pe|stretched)\b", re.I), "VAL_EXTREME_PREMIUM", 0.85),
+    (re.compile(r"\b(terminal growth cut|growth compression|multiple de-rating)\b", re.I), "VAL_TERMINAL_GROWTH_COMPRESSION", 0.85),
+    (re.compile(r"\b(historical quintile low|bottom decile|10-year low multiple)\b", re.I), "VAL_HISTORICAL_QUINTILE_LOW", 0.85),
+    (re.compile(r"\b(bubble exhaustion|speculative mania collapse|extreme detachment)\b", re.I), "VAL_BUBBLE_EXHAUSTION", 0.95),
+    # Volatility & Derivatives
+    (re.compile(r"\b(variance risk premium|vrp|iv over rv|volatility premium)\b", re.I), "VOL_VARIANCE_PREMIUM_SPIKE", 0.9),
+    (re.compile(r"\b(skew steepening|put skew|downside skew|out of the money puts)\b", re.I), "VOL_SKEW_STEEPENING", 0.9),
+    (re.compile(r"\b(call gamma squeeze|gamma squeeze|dealer short calls|forced delta buying)\b", re.I), "VOL_GAMMA_SQUEEZE_CALL", 0.95),
+    (re.compile(r"\b(put gamma cascade|dealer short puts|forced delta selling)\b", re.I), "VOL_GAMMA_SQUEEZE_PUT", 0.95),
+    (re.compile(r"\b(volatility clustering|vol expansion|garch spike|sustained vol)\b", re.I), "VOL_CLUSTERING_EXPANSION", 0.85),
+    (re.compile(r"\b(iv rv divergence|implied realized dislocation|volatility decoupling)\b", re.I), "VOL_IMPLIED_REALIZED_DIVERGENCE", 0.85),
+    # Risk & Sentiment
     (re.compile(r"\b(tail risk|black swan|skew spike|downside protection|vix surge)\b", re.I), "RISK_TAIL_EVENT_ELEVATED", 0.95),
     (re.compile(r"\b(correlation 1|all assets down|contagion|systemic shock)\b", re.I), "RISK_CORRELATION_BREAKDOWN", 0.9),
+    (re.compile(r"\b(liquidity black hole|market freeze|zero bids|liquidity evaporation)\b", re.I), "RISK_LIQUIDITY_BLACK_HOLE", 0.95),
     (re.compile(r"\b(capitulation|panic selling|margin call|exhaustion bottom)\b", re.I), "SENT_CAPITULATION_BOTTOM", 0.9),
     (re.compile(r"\b(euphoria|fomo|parabolic|retail frenzy|blowoff top)\b", re.I), "SENT_EUPHORIC_BLOWOFF", 0.9),
+    (re.compile(r"\b(short interest|short squeeze|borrow fee|utilization 90%|crowded short)\b", re.I), "SENT_SHORT_INTEREST_CROWDING", 0.9),
 ]
 
 
@@ -73,6 +103,14 @@ class NextConceptModel:
         self._embed_matrix = get_embedding_matrix()
         self._concepts = CONCEPT_VOCABULARY
         self._backend = backend()
+
+    def detect_concepts_from_text(self, text: str) -> List[str]:
+        """Detect matched concepts from input text based on regex patterns."""
+        matched: List[str] = []
+        for pattern, concept_id, _ in _KEYWORD_CONCEPT_MAP:
+            if pattern.search(text) and concept_id not in matched:
+                matched.append(concept_id)
+        return matched
 
     def _infer_initial_embedding(
         self,
@@ -242,4 +280,47 @@ class NextConceptModel:
             invalidating_conditions=invalidating_conditions,
             execution_eligibility=False,
             hardware_acceleration=self._backend,
+        )
+
+    def generate_llm_conditioning(
+        self,
+        request: NCMGenerationRequest,
+    ) -> NCMConditioningContext:
+        """Export NCM discrete trajectory as semantic priors and guardrails for LLM reasoning.
+        
+        Binds open-ended text generation into mathematically sound, regime-consistent channels.
+        """
+        res = self.generate_trajectory(request)
+        traj = res.trajectory
+
+        vol_sens_avg = float(np.mean([
+            self._concepts[c[0]].volatility_sensitivity
+            for c in traj.predicted_concepts
+            if c[0] in self._concepts
+        ])) if traj.predicted_concepts else 1.0
+
+        if vol_sens_avg > 1.4:
+            vol_regime = "HIGH_VOLATILITY_EXPANSION"
+        elif vol_sens_avg < 0.6:
+            vol_regime = "LOW_VOLATILITY_COMPRESSION"
+        else:
+            vol_regime = "NORMAL_BALANCED"
+
+        guardrails = [
+            f"Adhere strictly to projected regime path: {' -> '.join([c[0] for c in traj.predicted_concepts])}",
+            f"Reject any claims assuming {vol_regime} reversal without explicit catalyst",
+            "Maintain Truth Over Polish: cite explicit [tool:id] or [evidence:id] for any metric",
+            "Zero direct order authority: candidate actions require downstream RiskFirewall approval",
+        ]
+
+        active = traj.observed_concepts if traj.observed_concepts else ([traj.predicted_concepts[0][0]] if traj.predicted_concepts else [])
+
+        return NCMConditioningContext(
+            symbol=request.symbol,
+            active_regimes=active,
+            forecast_trajectory=traj.predicted_concepts,
+            systemic_entropy=traj.entropy,
+            volatility_regime=vol_regime,
+            invalidating_conditions=res.invalidating_conditions,
+            semantic_guardrails=guardrails,
         )

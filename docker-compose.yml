@@ -1,0 +1,41 @@
+version: "3.8"
+
+services:
+  delta-bridge:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: delta-bridge
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8765:8765"
+      - "127.0.0.1:9108:9108"
+    environment:
+      - DELTA_UNLOCK_TOKEN=${DELTA_UNLOCK_TOKEN:-CHANGE_ME_IN_PRODUCTION}
+      - DELTA_VAULT_PASS=${DELTA_VAULT_PASS:-}
+      - DELTA_REQUIRE_RPC_AUTH=1
+      - OPENBLAS_NUM_THREADS=1
+      - OMP_NUM_THREADS=1
+    volumes:
+      - delta-data:/home/deltauser/.delta
+    command: ["serve", "--port", "8765"]
+
+  delta-sentinel:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: delta-sentinel
+    restart: unless-stopped
+    depends_on:
+      - delta-bridge
+    environment:
+      - DELTA_UNLOCK_TOKEN=${DELTA_UNLOCK_TOKEN:-CHANGE_ME_IN_PRODUCTION}
+      - OPENBLAS_NUM_THREADS=1
+      - OMP_NUM_THREADS=1
+    volumes:
+      - delta-data:/home/deltauser/.delta
+    command: ["sentinel", "--daemon"]
+
+volumes:
+  delta-data:
+    driver: local

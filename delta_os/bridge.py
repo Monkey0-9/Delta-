@@ -765,14 +765,22 @@ class PairingTokenRegistry:
 
 class _BridgeHTTPRequestHandler(BaseHTTPRequestHandler):
     bridge: DeltaBridge
-    cors: str = "*"
 
     def log_message(self, format: str, *args: Any) -> None:
         if os.environ.get("DELTA_LOG_HTTP"):
             super().log_message(format, *args)
 
+    def _get_cors_origin(self) -> str:
+        # P0-C: Eliminate wildcard CORS (*) to prevent drive-by RPC exploitation from malicious web origins.
+        origin = self.headers.get("Origin", "")
+        allowed_str = os.environ.get("DELTA_ALLOWED_ORIGINS", "http://127.0.0.1,http://localhost")
+        allowed = [a.strip() for a in allowed_str.split(",") if a.strip()]
+        if origin and origin in allowed:
+            return origin
+        return allowed[0] if allowed else "http://127.0.0.1"
+
     def _send_cors_headers(self) -> None:
-        self.send_header("Access-Control-Allow-Origin", self.cors)
+        self.send_header("Access-Control-Allow-Origin", self._get_cors_origin())
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
 
@@ -907,6 +915,40 @@ class _BridgeHTTPRequestHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(body)
                 return
+
+            # P0-C: Sensitive methods requiring explicit authentication & authorization
+            SENSITIVE_METHODS = {"dispatch", "run_cycle", "reconcile", "kill_switch"}
+            if method in SENSITIVE_METHODS:
+                auth_token = params.get("token") or self.headers.get("Authorization", "").replace("Bearer ", "").strip()
+                expected_token = os.environ.get("DELTA_UNLOCK_TOKEN") or os.environ.get("DELTA_RPC_KEY")
+                client_ip = self.client_address[0] if hasattr(self, "client_address") and self.client_address else "127.0.0.1"
+                is_loopback = client_ip in ("127.0.0.1", "::1", "localhost")
+                require_auth = (not is_loopback) or bool(os.environ.get("DELTA_REQUIRE_RPC_AUTH"))
+
+                if require_auth:
+                    from delta_os.safety import _tokens_match
+                    auth_ok = False
+                    if expected_token and _tokens_match(auth_token, expected_token):
+                        auth_ok = True
+                    elif auth_token:
+                        paired, _ = PairingTokenRegistry.redeem_token(auth_token)
+                        if paired:
+                            auth_ok = True
+
+                    if not auth_ok:
+                        err_resp = {
+                            "jsonrpc": "2.0",
+                            "id": req_id,
+                            "error": {"code": -32001, "message": f"Unauthorized: method '{method}' requires valid authorization token"},
+                        }
+                        body = json.dumps(err_resp).encode("utf-8")
+                        self.send_response(401)
+                        self._send_cors_headers()
+                        self.send_header("Content-Type", "application/json")
+                        self.send_header("Content-Length", str(len(body)))
+                        self.end_headers()
+                        self.wfile.write(body)
+                        return
 
             try:
                 if method == "ping":
@@ -1107,8 +1149,16 @@ def run_network_server(
     timeout: float | None = None,
     ready_event: Any = None,
     bridge: DeltaBridge | None = None,
+    allow_remote: bool = False,
 ) -> None:
     """Run an authentic asynchronous HTTP/JSON-RPC 2.0 network server for DELTA."""
+    if hostname not in ("127.0.0.1", "localhost", "::1") and not allow_remote:
+        msg = f"DELTA BRIDGE SECURITY ERROR: Refusing to bind to non-loopback interface '{hostname}' without --allow-remote."
+        print(msg, file=sys.stderr)
+        if ready_event is not None:
+            ready_event.set()
+        raise PermissionError(msg)
+
     br = bridge if bridge is not None else DeltaBridge()
 
     class BoundHandler(_BridgeHTTPRequestHandler):
@@ -1117,8 +1167,12 @@ def run_network_server(
     BoundHandler.bridge = br
     BoundHandler.cors = cors
 
+    class ReusableThreadingHTTPServer(ThreadingHTTPServer):
+        allow_reuse_address = True
+        daemon_threads = True
+
     try:
-        server = ThreadingHTTPServer((hostname, port), BoundHandler)
+        server = ReusableThreadingHTTPServer((hostname, port), BoundHandler)
     except OSError as exc:
         if ready_event is not None:
             ready_event.set()
@@ -1159,11 +1213,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=8765, help="Port to listen on")
     parser.add_argument("--cors", default="http://127.0.0.1:*,http://localhost:*", help="Allowed CORS origins")
     parser.add_argument("--timeout", type=float, default=None, help="Auto-shutdown timeout in seconds")
+    parser.add_argument("--allow-remote", action="store_true", help="Explicitly permit non-loopback network binding")
     args, _ignored = parser.parse_known_args(sys.argv[1:] if argv is None else argv)
 
     if args.serve:
         try:
-            run_network_server(hostname=args.host, port=args.port, cors=args.cors, timeout=args.timeout)
+            run_network_server(
+                hostname=args.host,
+                port=args.port,
+                cors=args.cors,
+                timeout=args.timeout,
+                allow_remote=args.allow_remote,
+            )
             return 0
         except OSError as exc:
             print(f"DELTA BRIDGE ERROR: Address already in use or bind failed: {exc}", file=sys.stderr)

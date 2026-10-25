@@ -103,3 +103,13 @@ class ResearchOrchestrator:
             )
             for finding in packet.findings
         )
+
+    @staticmethod
+    def synthesize_consensus(
+        packet: ResearchPacket,
+        synthesizer: Any = None,
+    ):
+        """Synthesize disciplined institutional consensus from the research packet."""
+        from agents.consensus import ConsensusSynthesizer
+        syn = synthesizer or ConsensusSynthesizer()
+        return syn.synthesize(packet)

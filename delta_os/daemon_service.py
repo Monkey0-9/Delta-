@@ -97,20 +97,34 @@ def start_daemon(max_dd: float = 2.0, interval_s: float = 3.0) -> Dict[str, Any]
 
     pid_file.write_text(str(proc.pid), encoding="utf-8")
 
-    # Wait up to 3 seconds for readiness probe or crash
+    # Wait up to 5 seconds for readiness probe with successful risk monitoring cycle
     start_wait = time.time()
-    while time.time() - start_wait < 3.0:
+    readiness_achieved = False
+    while time.time() - start_wait < 5.0:
         if proc.poll() is not None:
             pid_file.unlink(missing_ok=True)
             return {"status": "FAILED", "code": proc.returncode, "message": "Daemon failed to start. Check logs."}
         if hb_file.exists():
             try:
                 hb = json.loads(hb_file.read_text(encoding="utf-8"))
-                if hb.get("ready"):
+                if hb.get("ready") and hb.get("last_successful_cycle_utc"):
+                    readiness_achieved = True
                     break
             except Exception:
                 pass
         time.sleep(0.1)
+
+    if not readiness_achieved:
+        try:
+            proc.terminate()
+            proc.wait(timeout=1.0)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+        pid_file.unlink(missing_ok=True)
+        return {"status": "FAILED", "message": "Readiness deadline expired without a successful risk monitoring cycle."}
 
     return {"status": "STARTED", "pid": proc.pid, "log": str(log_file)}
 
@@ -263,18 +277,14 @@ def _run_worker(max_dd: float, interval_s: float) -> None:
     elif hasattr(term.router, "paper"):
         broker_adapters.append(term.router.paper)
 
+    from delta_os.paging import PagingDispatcher
+    pager = PagingDispatcher(ledger_path=_delta_dir() / "alerts.jsonl")
+
     def _durable_alert_sink(alert: Dict[str, Any]) -> None:
-        """Durable alert delivery to daemon log and append-only alert ledger."""
-        ts = alert.get("timestamp", datetime.now(timezone.utc).isoformat())
+        """Durable alert delivery to daemon log and append-only alert ledger via PagingDispatcher."""
         lvl = alert.get("level", "WARNING")
         msg = alert.get("message", "")
-        print(f"[{ts}] [SENTINEL-ALERT:{lvl}] {msg}", file=sys.stderr, flush=True)
-        alerts_file = _delta_dir() / "alerts.jsonl"
-        try:
-            with open(alerts_file, "a", encoding="utf-8") as f:
-                f.write(json.dumps(alert, default=str) + "\n")
-        except Exception:
-            pass
+        pager.dispatch(severity=lvl, component="SENTINEL", message=msg, metadata=alert)
 
     sentinel = DeltaSentinel(
         brain=term.brain,
@@ -300,14 +310,22 @@ def _run_worker(max_dd: float, interval_s: float) -> None:
 
     print(f"[{datetime.now(timezone.utc).isoformat()}] DELTA 24/7 Sentinel Service active. Interval: {eff_interval}s, MaxDD: {eff_max_dd}%, Rev: {active_revision}.")
 
-    def _write_heartbeat(status: str = "HEALTHY", ticks: int = 0) -> None:
+    last_successful_cycle_utc: Optional[str] = None
+    consecutive_errors = 0
+    last_error: Optional[str] = None
+
+    def _write_heartbeat(status: str = "INITIALIZING", ticks: int = 0) -> None:
+        is_ready = status == "HEALTHY" and last_successful_cycle_utc is not None
         hb_data = {
             "pid": os.getpid(),
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "status": status,
             "applied_revision": active_revision,
             "ticks": ticks,
-            "ready": True,
+            "ready": is_ready,
+            "last_successful_cycle_utc": last_successful_cycle_utc,
+            "consecutive_errors": consecutive_errors,
+            "last_error": last_error,
             "max_dd_pct": sentinel.max_drawdown_pct,
             "interval_s": sentinel.check_interval_s,
         }
@@ -318,8 +336,8 @@ def _run_worker(max_dd: float, interval_s: float) -> None:
         except Exception:
             pass
 
-    # Initial readiness heartbeat
-    _write_heartbeat(status="HEALTHY", ticks=0)
+    # Initial boot state (INITIALIZING — never claim HEALTHY or ready before cycle completion)
+    _write_heartbeat(status="INITIALIZING", ticks=0)
 
     tick_count = 0
     while keep_running:
@@ -342,15 +360,32 @@ def _run_worker(max_dd: float, interval_s: float) -> None:
         except Exception:
             pass
 
+        tick_count += 1
+        cycle_ok = False
         try:
             res = sentinel.tick_once()
             if res.get("halted"):
                 print(f"[{datetime.now(timezone.utc).isoformat()}] CRITICAL: Circuit Breaker TRIPPED! Halted: {res}")
+                pager.dispatch(severity="CRITICAL", component="CIRCUIT_BREAKER", message=f"Automated circuit breaker tripped: {res}", metadata=res, force=True)
+            last_successful_cycle_utc = datetime.now(timezone.utc).isoformat()
+            consecutive_errors = 0
+            last_error = None
+            cycle_ok = True
         except Exception as exc:
-            print(f"[{datetime.now(timezone.utc).isoformat()}] Sentinel tick error: {exc}")
+            consecutive_errors += 1
+            last_error = str(exc)
+            print(f"[{datetime.now(timezone.utc).isoformat()}] Sentinel tick error ({consecutive_errors}): {exc}")
+            if consecutive_errors == 3:
+                pager.dispatch(severity="CRITICAL", component="SENTINEL_DAEMON", message=f"Sentinel monitoring entered FAILED status after {consecutive_errors} consecutive errors: {last_error}", force=True)
 
-        tick_count += 1
-        _write_heartbeat(status="HEALTHY", ticks=tick_count)
+        if cycle_ok:
+            status = "HEALTHY"
+        elif consecutive_errors >= 3:
+            status = "FAILED"
+        else:
+            status = "DEGRADED"
+
+        _write_heartbeat(status=status, ticks=tick_count)
         time.sleep(eff_interval)
 
     try:

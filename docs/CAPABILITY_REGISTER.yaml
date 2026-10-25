@@ -306,6 +306,28 @@ capabilities:
     owner: models
     blocker: null
 
+  - id: global_multiasset_execution
+    canonical_impl: "data/market/global_calendars.py + data/providers/crypto_feed.py + execution/adapters/crypto_adapter.py + execution/adapters/ibkr.py"
+    integration_path: "apps/cli/main.py watchlist + delta_os/repl.py /trade + IBKR + Crypto paper simulation"
+    tests: [tests/test_ibkr_certification.py]
+    evidence: {type: pytest, commit: HEAD, note: "Global market calendars (LSE, Euronext, TSE, HKEX, NSE, 24/7 Crypto); live crypto ticker feed; satoshi precision paper simulation; IBKR multi-market resolution across 150+ international venues"}
+    performance: null
+    known_limitations: []
+    release_status: validated
+    owner: execution
+    blocker: null
+
+  - id: option_c_dual_distribution
+    canonical_impl: "Dockerfile + docker-compose.yml + scripts/install_standalone.sh + scripts/install_standalone.ps1"
+    integration_path: "Local standalone workstation terminal or Headless 24/7 Docker server colocation"
+    tests: [tests/test_p0_config_daemon.py]
+    evidence: {type: packaging-audit, commit: HEAD, note: "Multi-stage non-root container with bridge & sentinel daemon; turnkey single-command standalone installer scripts for Linux/macOS and Windows"}
+    performance: null
+    known_limitations: []
+    release_status: validated
+    owner: operations
+    blocker: null
+
   - id: live_release
     canonical_impl: execution/live_engine.py + config/profiles.py + JavaGatewayAdapter
     integration_path: "gated production path (BLOCKED by default)"
