@@ -16,6 +16,8 @@ from typing import Any, Dict, Optional
 import urllib.request
 import urllib.error
 
+from core.net import urlopen_checked
+
 
 @dataclass
 class CryptoQuote:
@@ -59,7 +61,7 @@ class GlobalCryptoFeed:
                 url,
                 headers={"User-Agent": "DELTA-OS/2.16 (Institutional Quant Terminal)"},
             )
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            with urlopen_checked(req, timeout=self.timeout) as resp:
                 if resp.status == 200:
                     data = json.loads(resp.read().decode("utf-8"))
                     px = float(data.get("price", 0.0))
