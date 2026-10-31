@@ -118,7 +118,7 @@ class ReadinessEvaluator:
             bs = accel.black_scholes(100.0, 100.0, 1.0, 0.05, 0.2, True)
             ms = (time.perf_counter() - t0) * 1000.0
             price = bs.get("price", 0.0)
-            if b in ("rust", "cpp") and price > 0:
+            if b in ("rust", "c", "cpp") and price > 0:
                 return CheckResult(
                     dimension="Native C-ABI Kernel",
                     status="PASS",

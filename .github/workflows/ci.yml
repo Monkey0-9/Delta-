@@ -23,10 +23,16 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
+      - uses: dtolnay/rust-toolchain@stable
       - run: pip install --retries 10 --default-timeout 120 --extra-index-url https://download.pytorch.org/whl/cpu torch
       - run: pip install --retries 5 -e ".[dev]"
       - run: mkdir -p execution/java_gateway/bin && javac -d execution/java_gateway/bin execution/java_gateway/src/delta/execution/*.java
-      - run: mkdir -p native/build && g++ -std=c++17 -shared -fPIC -O2 -I. native/cpp/lob.cpp -o native/build/lob.dll
+      - run: |
+          mkdir -p native/build
+          g++ -std=c++17 -shared -fPIC -O2 -I. native/cpp/lob.cpp -o native/build/lob.dll
+          gcc -shared -fPIC -O3 -I native/c native/c/delta_fast.c -o native/build/delta_fast.so
+          g++ -std=c++17 -shared -fPIC -O3 -I native/cpp native/cpp/fast_book.cpp -o native/build/fast_book.so
+          cargo build --release --manifest-path rust/Cargo.toml
       - run: python -m pytest -q
   rust:
     runs-on: ubuntu-latest

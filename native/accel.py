@@ -43,6 +43,68 @@ def _find_library(candidates: list[str]) -> tuple[ctypes.CDLL | None, str]:
     return None, candidates[0] if candidates else ""
 
 
+def _auto_compile_c() -> None:
+    """Compile C kernel on demand if missing and a C compiler is available."""
+    import shutil
+    import subprocess
+    import sys
+
+    c_src = os.path.join(ROOT, "native", "c", "delta_fast.c")
+    if not os.path.exists(c_src):
+        return
+    build_dir = os.path.join(ROOT, "native", "build")
+    os.makedirs(build_dir, exist_ok=True)
+    ext = ".dll" if sys.platform == "win32" else (".dylib" if sys.platform == "darwin" else ".so")
+    out = os.path.join(build_dir, f"delta_fast{ext}")
+    if os.path.exists(out):
+        return
+
+    cc = shutil.which("gcc") or shutil.which("clang")
+    if cc:
+        try:
+            cmd = [cc, "-shared", "-fPIC", "-O3", f"-I{os.path.dirname(c_src)}", c_src, "-o", out]
+            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        except Exception:
+            pass
+
+
+def _auto_compile_cpp() -> None:
+    """Compile C++ kernels on demand if missing and a C++ compiler is available."""
+    import shutil
+    import subprocess
+    import sys
+
+    build_dir = os.path.join(ROOT, "native", "build")
+    os.makedirs(build_dir, exist_ok=True)
+    ext = ".dll" if sys.platform == "win32" else (".dylib" if sys.platform == "darwin" else ".so")
+
+    cxx = shutil.which("g++") or shutil.which("clang++")
+    if not cxx:
+        return
+
+    cpp_src = os.path.join(ROOT, "native", "cpp", "fast_book.cpp")
+    out_book = os.path.join(build_dir, f"fast_book{ext}")
+    if os.path.exists(cpp_src) and not os.path.exists(out_book):
+        try:
+            cmd = [cxx, "-std=c++17", "-shared", "-fPIC", "-O3", f"-I{os.path.dirname(cpp_src)}", cpp_src, "-o", out_book]
+            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        except Exception:
+            pass
+
+    lob_src = os.path.join(ROOT, "native", "cpp", "lob.cpp")
+    out_lob = os.path.join(build_dir, "lob.dll")
+    if os.path.exists(lob_src) and not os.path.exists(out_lob):
+        try:
+            cmd = [cxx, "-std=c++17", "-shared", "-fPIC", "-O2", "-I.", lob_src, "-o", out_lob]
+            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=ROOT, check=False)
+        except Exception:
+            pass
+
+
+_auto_compile_c()
+_auto_compile_cpp()
+
+
 _c, _C_DLL = _find_library([
     os.path.join(ROOT, "native", "build", "delta_fast.so"),
     os.path.join(ROOT, "native", "build", "delta_fast.dll"),
@@ -142,6 +204,8 @@ def backend() -> str:
         return "rust"
     if _c is not None:
         return "c"
+    if _cpp is not None:
+        return "cpp"
     return "numpy"
 
 
