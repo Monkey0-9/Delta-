@@ -82,3 +82,44 @@ def test_broker_router_ibkr_switch():
     active = router.use("ibkr")
     assert active == "ibkr"
     assert isinstance(router.current(), IBKRAdapter)
+
+
+@patch("httpx.post")
+def test_ibkr_order_submission_with_reply_confirmation(mock_post, monkeypatch):
+    from risk.kill_switch.kill_switch import KillSwitchBoard
+    monkeypatch.setenv("DELTA_LIVE", "ARMED")
+
+    mock_search = MagicMock()
+    mock_search.status_code = 200
+    mock_search.json.return_value = [{"conid": 265598, "symbol": "AAPL"}]
+
+    mock_order_prompt = MagicMock()
+    mock_order_prompt.status_code = 200
+    mock_order_prompt.json.return_value = [{"id": "reply-xyz-99", "message": ["Price deviates by 5%"]}]
+
+    mock_reply_confirm = MagicMock()
+    mock_reply_confirm.status_code = 200
+    mock_reply_confirm.json.return_value = [{"order_id": "1002", "order_status": "PreSubmitted"}]
+
+    mock_post.side_effect = [mock_search, mock_order_prompt, mock_reply_confirm]
+
+    client = IBKRClientPortalAdapter(
+        host="https://localhost:5000",
+        account_id="U1234567",
+        kill_board=KillSwitchBoard(),
+    )
+    res = client.submit(
+        symbol="AAPL",
+        side="BUY",
+        quantity=100.0,
+        price=145.0,
+        order_type="LMT",
+        exchange="SMART",
+        currency="USD",
+        sec_type="STK",
+        idempotency_key="KEY-CONFIRM-1",
+    )
+    assert res["order_id"] == "1002"
+    assert res["status"] == "PreSubmitted"
+    assert mock_post.call_count == 3
+

@@ -1791,7 +1791,7 @@ def pair_cmd(
 def serve_cmd(
     hostname: str = typer.Option("127.0.0.1", "--hostname", "-h", help="Bind hostname for JSON-RPC server"),
     port: int = typer.Option(8765, "--port", "-p", help="Port for bridge server"),
-    cors: str = typer.Option("*", "--cors", help="Allowed CORS origins"),
+    cors: str = typer.Option("http://127.0.0.1,http://localhost", "--cors", help="Allowed CORS origins (comma-separated)"),
     service: bool = typer.Option(False, "--service", help="Run managed under background daemon"),
     stdio: bool = typer.Option(False, "--stdio", help="Run bridge over stdio newline-delimited JSON-RPC"),
     timeout: Optional[float] = typer.Option(None, "--timeout", help="Auto-shutdown after N seconds"),

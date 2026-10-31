@@ -5,13 +5,21 @@
 #   partial        — works within stated limits; limits listed
 #   experimental   — unproven benefit, research use only
 #   unsupported    — no coverage; claims are a defect
-version: "1.0"
-date: "2026-10-11"
+version: "2.17"
+date: "2026-10-31"
 domains:
   - domain: equities
     status: supported
     evidence: "providers + NYSE/NASDAQ calendar + corporate actions + cost engine + paper lifecycle"
     limits: ["paper venue only; live gated (§8)"]
+  - domain: cryptocurrency
+    status: partial
+    evidence: "Coinbase/Binance live ticker & orderbook data (TIER2_CRYPTO_LIVE) + crypto paper simulation adapter with satoshi precision"
+    limits: ["paper simulation only; live execution strictly gated and prohibited"]
+  - domain: international-equities
+    status: partial
+    evidence: "global exchange trading calendars (LSE, Euronext, TSE, HKEX, NSE) + IBKR REST contract resolution across 150+ international venues"
+    limits: ["paper simulation only; live multi-asset execution gated"]
   - domain: options
     status: analytics-only
     evidence: "quant/derivatives/bsm.py (price + Greeks + margin math)"

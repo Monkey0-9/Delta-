@@ -770,12 +770,15 @@ class _BridgeHTTPRequestHandler(BaseHTTPRequestHandler):
         if os.environ.get("DELTA_LOG_HTTP"):
             super().log_message(format, *args)
 
+    cors: str = ""
+
     def _get_cors_origin(self) -> str:
         # P0-C: Eliminate wildcard CORS (*) to prevent drive-by RPC exploitation from malicious web origins.
         origin = self.headers.get("Origin", "")
-        allowed_str = os.environ.get("DELTA_ALLOWED_ORIGINS", "http://127.0.0.1,http://localhost")
+        cors_attr = getattr(self, "cors", None)
+        allowed_str = os.environ.get("DELTA_ALLOWED_ORIGINS") or (cors_attr if cors_attr and cors_attr != "*" else "http://127.0.0.1,http://localhost")
         allowed = [a.strip() for a in allowed_str.split(",") if a.strip()]
-        if origin and origin in allowed:
+        if origin and (origin in allowed or "*" in allowed):
             return origin
         return allowed[0] if allowed else "http://127.0.0.1"
 
@@ -809,18 +812,16 @@ class _BridgeHTTPRequestHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         elif path == "/pair":
-            qs = parse_qs(parsed.query)
-            token = qs.get("token", [""])[0]
-            ok, reason = PairingTokenRegistry.redeem_token(token)
-            status_code = 200 if ok else (403 if "ALREADY" in reason or "EXPIRED" in reason else 401)
+            # URL query parameter tokens leak into proxy logs, server logs, and browser history.
+            # Reject GET pairing; enforce POST /pair with JSON body or Authorization header.
             resp = {
-                "paired": ok,
-                "status": "AUTHENTICATED" if ok else "REJECTED",
-                "reason": reason,
+                "paired": False,
+                "status": "REJECTED",
+                "reason": "GET_DISALLOWED: pairing tokens must be transmitted via POST body to prevent URL logging exposure",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
             body = json.dumps(resp).encode("utf-8")
-            self.send_response(status_code)
+            self.send_response(405)
             self._send_cors_headers()
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
@@ -916,14 +917,27 @@ class _BridgeHTTPRequestHandler(BaseHTTPRequestHandler):
                 self.wfile.write(body)
                 return
 
-            # P0-C: Sensitive methods requiring explicit authentication & authorization
-            SENSITIVE_METHODS = {"dispatch", "run_cycle", "reconcile", "kill_switch"}
-            if method in SENSITIVE_METHODS:
+            # 3-Tier Access Control: PUBLIC, AUTHENTICATED_READ, AUTHENTICATED_WRITE
+            PUBLIC_METHODS = {"ping"}
+            AUTHENTICATED_READ = {"get_state", "quote", "ncm_generate", "ncm_benchmark"}
+            AUTHENTICATED_WRITE = {"dispatch", "run_cycle", "reconcile", "kill_switch", "cancel", "unlock"}
+            ALL_SECURED_METHODS = AUTHENTICATED_READ | AUTHENTICATED_WRITE
+
+            if method in ALL_SECURED_METHODS:
                 auth_token = params.get("token") or self.headers.get("Authorization", "").replace("Bearer ", "").strip()
                 expected_token = os.environ.get("DELTA_UNLOCK_TOKEN") or os.environ.get("DELTA_RPC_KEY")
                 client_ip = self.client_address[0] if hasattr(self, "client_address") and self.client_address else "127.0.0.1"
-                is_loopback = client_ip in ("127.0.0.1", "::1", "localhost")
-                require_auth = (not is_loopback) or bool(os.environ.get("DELTA_REQUIRE_RPC_AUTH"))
+                is_direct_loopback = client_ip in ("127.0.0.1", "::1", "localhost")
+                
+                # Check for reverse proxy headers (anti-spoofing)
+                has_proxy = bool(self.headers.get("X-Forwarded-For") or self.headers.get("X-Real-IP"))
+                trusted_proxy = os.environ.get("DELTA_TRUSTED_PROXY") == "1"
+
+                require_auth = (
+                    bool(os.environ.get("DELTA_REQUIRE_RPC_AUTH"))
+                    or (not is_direct_loopback)
+                    or (has_proxy and not trusted_proxy)
+                )
 
                 if require_auth:
                     from delta_os.safety import _tokens_match
@@ -936,6 +950,16 @@ class _BridgeHTTPRequestHandler(BaseHTTPRequestHandler):
                             auth_ok = True
 
                     if not auth_ok:
+                        try:
+                            from governance.compliance import ComplianceLog
+                            ComplianceLog().append("rpc_auth_denied", {
+                                "method": method,
+                                "client_ip": client_ip,
+                                "has_proxy": has_proxy,
+                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                            })
+                        except Exception:
+                            pass
                         err_resp = {
                             "jsonrpc": "2.0",
                             "id": req_id,

@@ -47,6 +47,7 @@ if command -v cargo &>/dev/null; then
     echo "✓ Native Rust acceleration ready"
 else
     echo "NOTICE: 'cargo' not found in PATH. Using high-performance vectorized NumPy fallbacks."
+    export DELTA_ALLOW_NUMPY_FALLBACK=1
 fi
 
 # 5. Initialize secure configuration directory

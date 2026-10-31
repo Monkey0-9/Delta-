@@ -59,7 +59,7 @@ class GlobalCryptoFeed:
             url = f"{self.BASE_COINBASE}/{cb_id}/ticker"
             req = urllib.request.Request(
                 url,
-                headers={"User-Agent": "DELTA-OS/2.16 (Institutional Quant Terminal)"},
+                headers={"User-Agent": "DELTA-OS/2.17.0 (Institutional Quant Terminal)"},
             )
             with urlopen_checked(req, timeout=self.timeout) as resp:
                 if resp.status == 200:

@@ -3,8 +3,8 @@
 # listed gate evidence; `paper`/`shadow`/`production` require the release
 # gates in docs/RELEASE_GATES.md + sign-off matrix. STATUS.md counts and
 # SYSTEM_STATUS.yaml booleans must agree with this file, not the reverse.
-version: "1.1"
-date: "2026-10-23"
+version: "2.17"
+date: "2026-10-31"
 status_ladder: [designed, implemented, tested, validated, paper, shadow, production]
 capabilities:
   - id: pit_store_persistence
@@ -309,10 +309,10 @@ capabilities:
   - id: global_multiasset_execution
     canonical_impl: "data/market/global_calendars.py + data/providers/crypto_feed.py + execution/adapters/crypto_adapter.py + execution/adapters/ibkr.py"
     integration_path: "apps/cli/main.py watchlist + delta_os/repl.py /trade + IBKR + Crypto paper simulation"
-    tests: [tests/test_ibkr_certification.py]
+    tests: [tests/test_ibkr_certification.py, tests/test_crypto_certification.py]
     evidence: {type: pytest, commit: HEAD, note: "Global market calendars (LSE, Euronext, TSE, HKEX, NSE, 24/7 Crypto); live crypto ticker feed; satoshi precision paper simulation; IBKR multi-market resolution across 150+ international venues"}
     performance: null
-    known_limitations: []
+    known_limitations: ["paper simulation only; live multi-asset execution fail-closed gated (§8)"]
     release_status: validated
     owner: execution
     blocker: null

@@ -189,27 +189,37 @@ class IBKRClientPortalAdapter:
         side: str,  # 'BUY' or 'SELL'
         quantity: float,
         price: Optional[float] = None,
-        order_type: str = "LMT",  # 'LMT', 'MKT', 'STP'
+        order_type: str = "LMT",  # 'LMT', 'MKT', 'STP', 'STP_LMT'
         idempotency_key: str = "",
         data_age_s: float | None = None,
+        sec_type: str = "STK",
+        exchange: Optional[str] = None,
+        currency: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Submit order to IBKR Gateway API."""
+        """Submit order to IBKR Gateway API with explicit routing, order type, and contract resolution."""
         import httpx
 
         self._preflight("submit", data_age_s=data_age_s)
         if not self.account_id:
             raise IBKRError("account_id not configured for order submission.")
 
-        con_id = self.resolve_contract(symbol)
-        order_body = {
+        con_id = self.resolve_contract(
+            symbol=symbol,
+            sec_type=sec_type,
+            exchange=exchange,
+            currency=currency,
+        )
+
+        norm_order_type = str(order_type).upper() if order_type else ("LMT" if price is not None else "MKT")
+        order_body: Dict[str, Any] = {
             "conid": con_id,
-            "orderType": "LMT" if price else "MKT",
+            "orderType": norm_order_type,
             "side": side.upper(),
             "quantity": quantity,
             "tif": "DAY",
         }
-        if price:
-            order_body["price"] = price
+        if price is not None:
+            order_body["price"] = float(price)
         if idempotency_key:
             order_body["cSystemArgs"] = idempotency_key[:30]
 
@@ -220,6 +230,18 @@ class IBKRClientPortalAdapter:
             if r.status_code not in (200, 201):
                 raise IBKRError(f"IBKR order submission rejected HTTP {r.status_code}: {r.text[:200]}")
             resp_data = r.json()
+
+            # Handle interactive IBKR order confirmation prompts (/iserver/reply/{id})
+            if isinstance(resp_data, list) and len(resp_data) > 0 and "id" in resp_data[0] and "order_id" not in resp_data[0]:
+                prompt_id = str(resp_data[0].get("id"))
+                reply_url = f"{self._base_url()}/v1/api/iserver/reply/{prompt_id}"
+                try:
+                    r_rep = httpx.post(reply_url, json={"confirmed": True}, timeout=self.timeout_s, verify=self._tls_verify())
+                    if r_rep.status_code in (200, 201):
+                        resp_data = r_rep.json()
+                except Exception:
+                    pass
+
             order_id = ""
             status = "SUBMITTED"
             if isinstance(resp_data, list) and len(resp_data) > 0:
@@ -232,6 +254,9 @@ class IBKRClientPortalAdapter:
                 "symbol": symbol,
                 "quantity": quantity,
                 "price": price,
+                "order_type": norm_order_type,
+                "exchange": exchange,
+                "currency": currency,
                 "broker": "ibkr",
             }
         except IBKRError:

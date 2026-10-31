@@ -28,6 +28,14 @@ from quant.risk_engine import RiskEngine
 from risk.analytics.var import cornish_fisher_var, historical_var, parametric_var
 
 
+class VerificationOutcome:
+    VERIFIED = "VERIFIED"
+    RECTIFIED = "RECTIFIED"
+    NOT_VERIFIED = "NOT_VERIFIED"
+    AMBIGUOUS = "AMBIGUOUS"
+    INVALID_INPUT = "INVALID_INPUT"
+
+
 @dataclass(frozen=True, slots=True)
 class MathVerificationResult:
     calculation_type: str
@@ -38,6 +46,7 @@ class MathVerificationResult:
     relative_error: float
     discrepancy_detected: bool
     rectified_text: str
+    outcome: str = "VERIFIED"  # VERIFIED | RECTIFIED | NOT_VERIFIED | AMBIGUOUS | INVALID_INPUT
     provenance_badge: str = "KERNEL_VERIFIED"
     details: Dict[str, Any] = field(default_factory=dict)
 
@@ -118,6 +127,7 @@ class FinancialMathVerifier:
             relative_error=round(rel_err, 4),
             discrepancy_detected=discrepancy,
             rectified_text=rectified,
+            outcome=VerificationOutcome.RECTIFIED if discrepancy else VerificationOutcome.VERIFIED,
             details={
                 "delta": round(opt_greeks.delta, 4),
                 "gamma": round(opt_greeks.gamma, 5),
@@ -179,6 +189,7 @@ class FinancialMathVerifier:
             relative_error=round(chosen_rel, 4),
             discrepancy_detected=discrepancy,
             rectified_text=rectified,
+            outcome=VerificationOutcome.RECTIFIED if discrepancy else VerificationOutcome.VERIFIED,
             details={
                 "full_kelly": round(full_kelly, 4),
                 "quarter_kelly": round(inst_kelly, 4),
@@ -225,8 +236,21 @@ class FinancialMathVerifier:
                 claims.append(res)
                 if res.discrepancy_detected:
                     rectified = f"{rectified}\n{res.rectified_text}"
-            except Exception:
-                pass
+            except Exception as exc:
+                claims.append(
+                    MathVerificationResult(
+                        calculation_type="Black-Scholes-Merton",
+                        verified=False,
+                        claimed_value=0.0,
+                        authoritative_value=0.0,
+                        absolute_error=0.0,
+                        relative_error=1.0,
+                        discrepancy_detected=True,
+                        rectified_text=f"[UNVERIFIED: Invalid BSM input parameters: {exc}]",
+                        outcome=VerificationOutcome.INVALID_INPUT,
+                        details={"error": str(exc)},
+                    )
+                )
 
         # 2. Modular Extraction for Kelly sizing claims
         # e.g.: "win rate of 60% and 2.0 payout ratio has kelly fraction of 50%" or "win_prob 0.60 win_loss_ratio 1.5 kelly fraction 0.40"
@@ -250,8 +274,21 @@ class FinancialMathVerifier:
                 claims.append(res)
                 if res.discrepancy_detected:
                     rectified = f"{rectified}\n{res.rectified_text}"
-            except Exception:
-                pass
+            except Exception as exc:
+                claims.append(
+                    MathVerificationResult(
+                        calculation_type="Kelly-Criterion",
+                        verified=False,
+                        claimed_value=0.0,
+                        authoritative_value=0.0,
+                        absolute_error=0.0,
+                        relative_error=1.0,
+                        discrepancy_detected=True,
+                        rectified_text=f"[UNVERIFIED: Invalid Kelly input parameters: {exc}]",
+                        outcome=VerificationOutcome.INVALID_INPUT,
+                        details={"error": str(exc)},
+                    )
+                )
 
         discrepancies = sum(1 for c in claims if c.discrepancy_detected)
         return TextVerificationReport(

@@ -13,8 +13,13 @@ if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
     exit 1
 }
 
-$pyVer = python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"
-Write-Host "✓ Verified Python $pyVer" -ForegroundColor Green
+$pyMajor = [int](python -c "import sys; print(sys.version_info.major)")
+$pyMinor = [int](python -c "import sys; print(sys.version_info.minor)")
+if ($pyMajor -lt 3 -or ($pyMajor -eq 3 -and $pyMinor -lt 11)) {
+    Write-Error "ERROR: Python 3.11+ required. Found Python $pyMajor.$pyMinor."
+    exit 1
+}
+Write-Host "✓ Verified Python $pyMajor.$pyMinor" -ForegroundColor Green
 
 # 2. Virtual Environment
 if (-not (Test-Path ".venv")) {
@@ -39,6 +44,7 @@ if (Get-Command cargo -ErrorAction SilentlyContinue) {
     Write-Host "✓ Native Rust acceleration ready" -ForegroundColor Green
 } else {
     Write-Host "NOTICE: 'cargo' not found in PATH. Using high-performance NumPy fallbacks." -ForegroundColor Yellow
+    $env:DELTA_ALLOW_NUMPY_FALLBACK = "1"
 }
 
 # 5. Delta Home directory

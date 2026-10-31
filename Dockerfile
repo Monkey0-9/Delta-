@@ -42,11 +42,12 @@ WORKDIR /app
 COPY requirements.txt pyproject.toml ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy native shared libraries from rust builder
-COPY --from=rust-builder /build/target/release/libdelta_native.so /app/native/build/delta_fast.so
+# Copy native shared libraries from rust builder to canonical target directory
+RUN mkdir -p /app/target/release
+COPY --from=rust-builder /build/target/release/libdelta_native.so /app/target/release/libdelta_native.so
 COPY --from=rust-builder /build/target/release/delta-tui /usr/local/bin/delta-tui
 
-# Copy application source code
+# Copy application source code (all institutional packages)
 COPY core/ /app/core/
 COPY data/ /app/data/
 COPY delta_os/ /app/delta_os/
@@ -58,7 +59,24 @@ COPY research/ /app/research/
 COPY risk/ /app/risk/
 COPY apps/ /app/apps/
 COPY config/ /app/config/
+COPY quant/ /app/quant/
+COPY agents/ /app/agents/
+COPY ai/ /app/ai/
+COPY trader/ /app/trader/
+COPY storage/ /app/storage/
+COPY observability/ /app/observability/
+COPY provenance/ /app/provenance/
+COPY security/ /app/security/
+COPY simulation/ /app/simulation/
+COPY learning/ /app/learning/
+COPY market_data/ /app/market_data/
 COPY config.yaml /app/config.yaml
+
+# Install package in environment
+RUN pip install --no-cache-dir -e .
+
+# Secure container defaults: require auth for RPC bridge over non-loopback network
+ENV DELTA_REQUIRE_RPC_AUTH=1
 
 # Set ownership and permissions
 RUN chown -R deltauser:deltauser /app /home/deltauser

@@ -131,15 +131,47 @@ def _soak_wallclock(payload: dict | None, note: str) -> tuple[str, str]:
 
 
 def _ci_evidence(root: Path) -> tuple[str, str]:
-    wf = root / ".github" / "workflows" / "security.yml"
-    if not wf.exists():
-        return "UNKNOWN", "security workflow absent"
-    t = wf.read_text(encoding="utf-8")
-    missing = [j for j in ("semgrep:", "bandit:", "secret-scan:", "cargo-audit:")
-               if j not in t]
-    if missing:
-        return "HOLD", f"workflow missing jobs {missing}"
-    return "PASS", "security.yml pins all five scanners"
+    # Check for authoritative, commit-anchored CI run evidence artifact
+    ci_file = root / "artifacts" / "ci" / "ci_run_evidence.json"
+    if not ci_file.exists():
+        wf = root / ".github" / "workflows" / "security.yml"
+        if not wf.exists():
+            return "UNKNOWN", "security workflow and CI execution evidence absent"
+        t = wf.read_text(encoding="utf-8")
+        missing = [j for j in ("semgrep:", "bandit:", "secret-scan:", "cargo-audit:")
+                   if j not in t]
+        if missing:
+            return "HOLD", f"workflow missing jobs {missing}"
+        return "HOLD", "static workflow present, but verified commit-tied CI run evidence artifact is missing (HOLD)"
+
+    try:
+        data = json.loads(ci_file.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return "HOLD", f"ci_run_evidence unparseable: {exc}"
+
+    # Verify commit anchor
+    import subprocess
+    try:
+        head_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, stderr=subprocess.DEVNULL).decode().strip()
+    except Exception:
+        head_commit = ""
+
+    artifact_commit = data.get("commit", "")
+    if head_commit and artifact_commit and not (head_commit.startswith(artifact_commit) or artifact_commit.startswith(head_commit)):
+        return "HOLD", f"CI evidence commit mismatch (tested: {artifact_commit[:8]}, head: {head_commit[:8]})"
+
+    # Verify status of all required jobs
+    required_jobs = {"math-invariants", "test", "rust", "wheels", "semgrep", "bandit", "secret-scan", "cargo-audit", "pip-audit"}
+    jobs = data.get("jobs", {})
+    failed_jobs = [j for j, status in jobs.items() if str(status).upper() not in ("PASS", "SUCCESS", "TRUE")]
+    missing_jobs = list(required_jobs - set(jobs.keys()))
+
+    if failed_jobs:
+        return "HOLD", f"CI jobs failed: {failed_jobs}"
+    if missing_jobs:
+        return "HOLD", f"CI evidence missing required jobs: {missing_jobs}"
+
+    return "PASS", f"CI verified green across {len(jobs)} jobs on commit {artifact_commit[:8]}"
 
 
 def collect(root: Path) -> dict:

@@ -1,12 +1,18 @@
 # DELTA OS — Institutional Quantitative Trading Operating System
 
-![Version](https://img.shields.io/badge/version-2.16-blue.svg)
-![Pytest](https://img.shields.io/badge/pytest-1413%20passed-brightgreen.svg)
+![Version](https://img.shields.io/badge/version-2.17.0-blue.svg)
+![Release](https://img.shields.io/badge/release--A-CERTIFIED%20(PAPER%20BETA)-brightgreen.svg)
+![Release B](https://img.shields.io/badge/release--B-LIVE%20GATED%20(FAIL--CLOSED)-red.svg)
+![Pytest](https://img.shields.io/badge/pytest-passing-brightgreen.svg)
 ![Cargo](https://img.shields.io/badge/cargo%20workspace-54%20passed-brightgreen.svg)
-![Safety](https://img.shields.io/badge/governance-fail--closed-red.svg)
-![Mode](https://img.shields.io/badge/status-PAPER%20green%20%7C%20LIVE%20fail--closed-orange.svg)
+![Readiness](https://img.shields.io/badge/doctor-GO--PAPER-brightgreen.svg)
 
 DELTA OS is an institutional-grade quantitative trading operating system designed for proprietary trading desks, quantitative researchers, portfolio managers, and risk officers.
+
+> [!IMPORTANT]
+> **Active Target: Release A (Private Research & Paper Beta)**  
+> Release A is fully certified for offline research, walk-forward factor testing, and paper trading simulation. Live capital execution (Release B) remains strictly fail-closed and gated behind quantitative gates R2–R6, R8–R10.
+
 
 **Terminal-Only Institutional Architecture (ADR-0006):** DELTA provides native terminal interfaces—the ultra-low latency Rust Ratatui 11-screen TUI and the OpenCode-unified Python CLI/REPL. Machine integration is provided via an asynchronous JSON-RPC 2.0 loopback bridge and Model Context Protocol (MCP) stdio servers without web or browser overhead.
 

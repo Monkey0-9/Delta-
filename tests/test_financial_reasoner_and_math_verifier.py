@@ -6,6 +6,7 @@ from finance_model.financial_reasoner import (
     FinancialReasoner,
     FinancialReasoningResult,
     MathVerificationResult,
+    VerificationOutcome,
 )
 from finance_model.ncm.engine import NextConceptModel
 from finance_model.ncm.contracts import NCMGenerationRequest
@@ -25,6 +26,7 @@ def test_financial_math_verifier_bsm():
     )
     assert res_pass.verified is True
     assert res_pass.discrepancy_detected is False
+    assert res_pass.outcome == VerificationOutcome.VERIFIED
 
     res_fail = FinancialMathVerifier.verify_bsm(
         spot=500.0,
@@ -37,6 +39,7 @@ def test_financial_math_verifier_bsm():
     )
     assert res_fail.verified is False
     assert res_fail.discrepancy_detected is True
+    assert res_fail.outcome == VerificationOutcome.RECTIFIED
     assert "PROVENANCE: KERNEL_VERIFIED" in res_fail.rectified_text
     assert res_fail.relative_error > 0.10
 
@@ -51,6 +54,7 @@ def test_financial_math_verifier_kelly():
     )
     assert res_pass.verified is True
     assert res_pass.discrepancy_detected is False
+    assert res_pass.outcome == VerificationOutcome.VERIFIED
 
     res_fail = FinancialMathVerifier.verify_kelly(
         win_prob=0.60,
@@ -59,7 +63,36 @@ def test_financial_math_verifier_kelly():
     )
     assert res_fail.verified is False
     assert res_fail.discrepancy_detected is True
+    assert res_fail.outcome == VerificationOutcome.RECTIFIED
     assert abs(res_fail.authoritative_value - 0.40) < 1e-4
+
+
+def test_financial_math_verifier_invalid_inputs():
+    with pytest.raises(ValueError, match="must be positive"):
+        FinancialMathVerifier.verify_bsm(
+            spot=500.0,
+            strike=520.0,
+            rate=0.05,
+            vol=-0.20,
+            t_years=0.25,
+            is_call=True,
+            claimed_price=10.00,
+        )
+
+    with pytest.raises(ValueError, match="must be in"):
+        FinancialMathVerifier.verify_kelly(
+            win_prob=1.5,
+            payout_ratio=2.0,
+            claimed_kelly=0.50,
+        )
+
+    # Test parse_and_verify_text with degenerate inputs creates INVALID_INPUT claim
+    text_bad = "spot at 0, strike 520, vol 20%, 0.25 years to expiry, priced at $10.00"
+    rep = FinancialMathVerifier.parse_and_verify_text(text_bad)
+    assert rep.total_math_claims_detected == 1
+    assert rep.claims[0].outcome == VerificationOutcome.INVALID_INPUT
+    assert "Invalid BSM input" in rep.claims[0].rectified_text
+
 
 
 def test_text_scanning_and_auto_rectification():
