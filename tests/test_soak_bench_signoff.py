@@ -82,6 +82,19 @@ def _fixture_tree(tmp_path: Path, bench_verdict="PASS", sre_verdict="CLEAR",
     (root / ".github" / "workflows").mkdir(parents=True)
     (root / ".github" / "workflows" / "security.yml").write_text(
         "semgrep:\nbandit:\nsecret-scan:\ncargo-audit:\n")
+    ci_dir = root / "artifacts" / "ci"
+    ci_dir.mkdir(parents=True, exist_ok=True)
+    required_jobs = [
+        "math-invariants", "test", "rust", "wheels", "semgrep",
+        "bandit", "secret-scan", "cargo-audit", "pip-audit",
+    ]
+    ci_payload = {
+        "commit": "testcommit",
+        "timestamp": "2026-10-31T00:00:00Z",
+        "status": "PASS",
+        "jobs": {j: "PASS" for j in required_jobs},
+    }
+    (ci_dir / "ci_run_evidence.json").write_text(json.dumps(ci_payload))
     if signatures:
         (root / "artifacts" / "signoff").mkdir(parents=True, exist_ok=True)
         (root / "artifacts" / "signoff" / "signatures.json").write_text(

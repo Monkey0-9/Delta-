@@ -103,9 +103,11 @@ def test_pairing_token_single_use_and_replay_rejection(bridge_server, tmp_path, 
     assert len(raw_token) >= 20
     assert record["used"] is False
 
-    # 2. Redeem over HTTP GET /pair?token=...
-    url = f"{bridge_server}/pair?token={raw_token}"
-    resp = urllib.request.urlopen(url, timeout=3.0)
+    # 2. Redeem over HTTP POST /pair with JSON body to prevent URL logging exposure
+    url = f"{bridge_server}/pair"
+    payload = json.dumps({"token": raw_token}).encode("utf-8")
+    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+    resp = urllib.request.urlopen(req, timeout=3.0)
     assert resp.status == 200
     data = json.loads(resp.read().decode())
     assert data["paired"] is True
@@ -113,14 +115,15 @@ def test_pairing_token_single_use_and_replay_rejection(bridge_server, tmp_path, 
 
     # 3. Second redemption fails (Replay Protection) -> 403
     with pytest.raises(urllib.error.HTTPError) as exc_info:
-        urllib.request.urlopen(url, timeout=3.0)
+        urllib.request.urlopen(req, timeout=3.0)
     assert exc_info.value.code == 403
     rej_data = json.loads(exc_info.value.read().decode())
     assert rej_data["paired"] is False
     assert rej_data["reason"] == "TOKEN_ALREADY_USED"
 
     # 4. Unknown token -> 401
-    bad_url = f"{bridge_server}/pair?token=completely_invalid_token"
+    bad_payload = json.dumps({"token": "completely_invalid_token"}).encode("utf-8")
+    bad_req = urllib.request.Request(url, data=bad_payload, headers={"Content-Type": "application/json"})
     with pytest.raises(urllib.error.HTTPError) as exc_info:
-        urllib.request.urlopen(bad_url, timeout=3.0)
+        urllib.request.urlopen(bad_req, timeout=3.0)
     assert exc_info.value.code == 401

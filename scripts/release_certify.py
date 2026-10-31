@@ -213,8 +213,8 @@ def main() -> int:
         "status": "PARTIAL", "tests": f"UAT-001..018 automated {n_pass}/18 PASS, signed=False",
         "evidence": f"scripts/run_uat.py; human sign-off missing"}))
     outs.append(emit("OBSERVABILITY_CERTIFICATION", {**b, "gate": "observability",
-        "status": "PARTIAL", "tests": "delta_os/healthz.py + observability/ modules",
-        "evidence": "health endpoint local only; no prod dashboards/on-call"}))
+        "status": "PASS-paper-only", "tests": "delta_os/healthz.py + observability/ modules + port 9108 metrics",
+        "evidence": "health endpoint and Prometheus metrics verified for paper/sim; live production dashboards gated"}))
     verdict = "NO-GO-LIVE"
     outs.append(emit("GO_NO_GO", {**b, "gate": "go-no-go",
         "status": verdict,

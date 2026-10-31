@@ -2,7 +2,7 @@
 # Any PRODUCTION claim without prior gates green fails CI.
 version: "2.17"
 date: "2026-10-31"
-overall: "RELEASE A (PAPER/SIM) CERTIFIED — RELEASE B (LIVE) GATED (R10)"
+overall: "RELEASE A (PAPER/SIM) CERTIFIED — RELEASE B LIVE GATED (R10)"
 stages:
   foundation: "COMPLETE_20261023"
   quant_brain: "COMPLETE_20261023"
